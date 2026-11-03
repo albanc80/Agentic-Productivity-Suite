@@ -53,6 +53,23 @@ def env_refs(value: Any) -> set[str]:
     return found
 
 
+def env_vars(value: Any) -> dict[str, str | None]:
+    """Every ``${VAR}`` referenced, mapped to its ``:-default`` (None when it has no default)."""
+    found: dict[str, str | None] = {}
+    if isinstance(value, str):
+        for m in _ENV_RE.finditer(value):
+            if m.group(1) not in found or found[m.group(1)] is not None:
+                found[m.group(1)] = m.group(2)
+    elif isinstance(value, list):
+        for v in value:
+            for k, d in env_vars(v).items():
+                if k not in found or found[k] is not None:
+                    found[k] = d
+    elif isinstance(value, dict):
+        return env_vars(list(value.values()))
+    return found
+
+
 class ProviderConfig(BaseModel):
     type: Literal["openai_compatible", "anthropic"]
     locality: Locality = "cloud"

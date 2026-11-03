@@ -1,8 +1,10 @@
 # MCP connectors. Copy to config/connectors.yaml (git-ignored) to customise.
 #
-# A connector becomes available when it is enabled and every ${VAR} it references
-# (without a default) is set in the environment. Credentials stay in environment
-# variables and are passed only to the connector process or request headers.
+# Set connectors up in the app: Settings > Connectors (switch, values, folders).
+# A connector becomes available when it is switched on and every ${VAR} it
+# references (without a default) has a value, typed in the app or set as an
+# environment variable (the environment wins). Values are passed only to the
+# connector process or request headers.
 #
 # READ-ONLY IS ENFORCED BY THE SUITE: tools are exposed only if they are
 # allow-listed, declare read_only_hint, or (infer_read_only) are named like
@@ -100,11 +102,7 @@ connectors:
 
   - id: local-files
     name: Local files
-    network: false   # works in offline mode
-    description: Read files in one folder you choose (reports, exports, notes).
-    transport: stdio
-    command: npx
-    args: [-y, "@modelcontextprotocol/server-filesystem", "${SUITE_FILES_DIR}"]
-    allow_tools: [read_file, read_text_file, read_multiple_files, list_directory, list_directory_with_sizes, directory_tree, search_files, get_file_info, list_allowed_directories]
-    setup: Set SUITE_FILES_DIR to the folder agents may read. Nothing outside it is reachable.
-    verify: Tool names in the @modelcontextprotocol/server-filesystem README.
+    transport: builtin   # runs inside the suite: no Node.js needed, works offline
+    network: false
+    description: Read files in folders you choose (reports, exports, notes, PDFs, Word and Excel files).
+    setup: Choose the folders in Settings > Connectors > Local files. Agents can list, search and read files inside them, and nothing else.

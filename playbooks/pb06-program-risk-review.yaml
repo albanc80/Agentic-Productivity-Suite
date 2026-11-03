@@ -1,0 +1,63 @@
+id: program-risk-review
+code: PB-06
+name: Program Risk Review
+area: Management
+desk: management
+status: mvp
+summary: Schedule, dependency, delivery and stakeholder risks across a program, scored and owned, with the three moves that change the outlook.
+patterns: [P3, P4, P5]
+triggers: [risk review, program risk, project risk, risk register, raid, at risk, red status, delivery risk, slipping]
+inputs:
+  - {id: program, label: "Program or project", type: text, required: true}
+  - {id: objectives, label: "Objectives and key dates", type: longtext, untrusted: false}
+  - {id: plan, label: "Plan, milestones and dependencies", type: longtext}
+  - {id: status, label: "Latest status reports and issues", type: longtext}
+  - {id: comms, label: "Relevant messages (for stakeholder signals)", type: longtext}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: analysis
+    kind: parallel
+    title: Risk analysis
+    steps:
+      - id: delivery
+        kind: agent
+        agent: program-manager
+        title: Schedule and dependencies
+        task: |
+          For {{inputs.program}}: critical path, dependency and resource risks, regulatory or HSE checkpoints,
+          and milestones likely to slip, with the evidence for each.
+        connectors: [azure-devops, atlassian, github]
+      - id: roadmap
+        kind: agent
+        agent: roadmap-shield
+        title: Cost of delay
+        task: "Quantify the cost of delay of the top schedule risks and which commitments move if they happen."
+      - id: stakeholders
+        kind: agent
+        agent: sentiment-radar
+        title: Stakeholder signals
+        task: "Score sentiment trends and escalation risk by topic from the messages. Trace every signal. Never rate people."
+        connectors: [microsoft365]
+  - id: register
+    kind: agent
+    title: Risk register and moves
+    agent: counselor
+    task: |
+      Merge the analyses into one risk register for {{inputs.program}}: risk, likelihood, impact, score, owner
+      (role), trigger to watch, mitigation, and date to revisit. Use the risk_matrix_generator tool when available.
+      Then the three moves that most change the outlook, what each costs, and what happens if nothing is done.
+      Report status as one of ON TRACK, AT RISK or OFF TRACK, with the reason.
+    tools: [risk_matrix_generator]
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: register
+    on_fail: revise
+  - id: approve
+    kind: gate
+    title: Program owner review
+    required_role: Program owner
+    instructions: A named program owner accepts the register and the moves. The suite changes no plan or tracker.
+    payload_from: register
+deliverable: register

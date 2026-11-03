@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS files (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, media_type TEXT, chars INTEGER, text TEXT NOT NULL, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS chats (
+  id TEXT PRIMARY KEY, data TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, run_id TEXT, event TEXT NOT NULL, detail TEXT
 );
@@ -148,6 +151,23 @@ class Store:
             n = self.db.execute(f"DELETE FROM runs WHERE id IN ({marks})", args).rowcount  # noqa: S608
             self.db.execute("COMMIT")
         return n
+
+    # ------------------------------------------------------------ chats
+
+    def save_chat(self, chat: dict) -> None:
+        self._exec("INSERT INTO chats(id, data, created_at, updated_at) VALUES (?,?,?,?) "
+                   "ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+                   (chat["id"], json.dumps(chat), chat["created_at"], chat["updated_at"]))
+
+    def chat(self, cid: str) -> dict | None:
+        r = self._row("SELECT data FROM chats WHERE id=?", (cid,))
+        return json.loads(r["data"]) if r else None
+
+    def chats(self, limit: int = 200) -> list[dict]:
+        return [json.loads(r["data"]) for r in self._rows("SELECT data FROM chats ORDER BY updated_at DESC LIMIT ?", (limit,))]
+
+    def delete_chat(self, cid: str) -> bool:
+        return self._exec("DELETE FROM chats WHERE id=?", (cid,)).rowcount > 0
 
     def demo_run_ids(self) -> list[str]:
         """Runs made by the demo provider of earlier versions."""

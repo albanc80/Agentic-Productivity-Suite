@@ -1,0 +1,59 @@
+id: spec-to-delivery
+code: PB-11
+name: Spec to Engineering Delivery Plan
+area: Engineering
+desk: engineering
+status: mvp
+summary: Turns an approved spec into vertical slices with owners by layer, contracts, test strategy, release and rollback plan.
+patterns: [P2, P3, P4]
+triggers: [delivery plan, implementation plan, engineering plan, sprint plan, break down, slices, tasks, estimate, build plan]
+inputs:
+  - {id: spec, label: "Spec or PRD", type: longtext, required: true}
+  - {id: system, label: "System and stack today", type: text}
+  - {id: team, label: "Team and capacity", type: text}
+  - {id: deadline, label: "Target date", type: text}
+  - {id: repository, label: "Repository (owner/name), if GitHub is connected", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: slices
+    kind: agent
+    title: Vertical slices
+    agent: spec-lead
+    task: |
+      Slice the spec into 1-3 day vertical slices, each with testable acceptance criteria traced to the spec, the
+      order that de-risks first, and what is explicitly out of scope.
+    connectors: [github]
+  - id: layers
+    kind: parallel
+    title: Layer plans
+    steps:
+      - {id: backend, kind: agent, agent: eng-backend, title: Backend and data contracts,
+         task: "For each slice: APIs, persistence, validation and contracts, with backend tests."}
+      - {id: frontend, kind: agent, agent: eng-frontend, title: Frontend,
+         task: "For each slice: UI work, states (loading, empty, error), accessibility and frontend tests."}
+      - {id: tests, kind: agent, agent: eng-qa, title: Test strategy,
+         task: "Risk-based test strategy for the slices: what to automate, test data, and the evidence that each slice is done."}
+      - {id: release, kind: agent, agent: eng-devsecops, title: Release and rollback,
+         task: "CI/CD changes, feature flags, migration order, observability, release steps and rollback for each slice."}
+  - id: plan
+    kind: agent
+    title: Delivery plan
+    agent: eng-orchestrator
+    context_from: [slices, backend, frontend, tests, release]
+    task: |
+      Merge into one delivery plan for {{inputs.deadline}}: slices in order with owner role, estimate range,
+      dependencies, gates (design, security, test, release), integration risks, and what would make the date slip.
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: eng-solution-architect
+    target: plan
+    on_fail: revise
+    task: Check contracts between layers, missing slices, unrealistic estimates and gaps in rollback.
+  - id: approve
+    kind: gate
+    title: Engineering lead approval
+    required_role: Engineering lead
+    instructions: A named engineering lead approves the plan. The suite creates no tickets or branches.
+    payload_from: plan
+deliverable: plan

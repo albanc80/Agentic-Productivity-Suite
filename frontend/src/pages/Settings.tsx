@@ -1,127 +1,130 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type ModelEdit, type ModelEndpoint, type Overview, type ProviderInfo } from "../api";
-import { ErrorNote, Pill } from "../ui";
+import { ErrorNote } from "../ui";
+import { ChainsEditor, ConnectorsPanel, PoliciesPanel, ProfilePanel, Switch } from "./SettingsPanels";
+
+const TABS = [
+  { id: "models", label: "Models" },
+  { id: "connectors", label: "Connectors" },
+  { id: "profile", label: "Profile" },
+  { id: "policies", label: "Policies & budgets" },
+  { id: "system", label: "System" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
 
 export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange: () => void }) {
-  const [tools, setTools] = useState<Record<string, { name: string; allowed: boolean; reason: string }[]>>({});
+  const [tab, setTab] = useState<Tab>(() => {
+    try { return (sessionStorage.getItem("suite.settingsTab") as Tab) || "models"; } catch { return "models"; }
+  });
+  useEffect(() => { try { sessionStorage.setItem("suite.settingsTab", tab); } catch { /* storage unavailable */ } }, [tab]);
   const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState("");
 
-  async function connect(id: string) {
-    setBusy(id); setError(null);
-    try { const r = await api.connect(id); setTools((s) => ({ ...s, [id]: r.tools })); onChange(); }
-    catch (e) { setError(e); } finally { setBusy(""); }
-  }
-  async function kill(on: boolean) {
-    try { await api.killSwitch(on); onChange(); } catch (e) { setError(e); }
+  function onKey(e: React.KeyboardEvent, i: number) {
+    const n = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : null;
+    if (n === null) return;
+    const next = TABS[(n + TABS.length) % TABS.length].id;
+    setTab(next);
+    document.getElementById(`tab-${next}`)?.focus();
   }
 
   return (
     <div className="stack-lg">
       <header className="stack-sm">
         <h1>Settings</h1>
-        <p className="muted measure">Switch model providers on or off and edit their address, API key and models here. Changes are saved on this computer and apply immediately; <code>suite.yaml</code> only sets the starting defaults. Connectors are set up in <code>connectors.yaml</code>.</p>
+        <p className="muted measure">Everything is set up here and saved on this computer; changes apply immediately. The files in <code>.productivity-suite</code> only set the starting defaults, and each section can be reset to them.</p>
       </header>
-      <ErrorNote error={error} />
-
-      <section className="card stack" aria-labelledby="mode-h">
-        <div className="row">
-          <div className="grow stack-sm">
-            <h2 id="mode-h">Connection mode</h2>
-            <p className="muted small measure">
-              {ov.offline
-                ? "Offline: cloud providers and internet connectors are off. Runs use local models (this computer, or endpoints on your network such as a phone) and local files."
-                : "Online: every configured provider and connector is available, subject to each run's data class."}
-              {ov.offline_override === null ? " Following the config file default." : " Set here; overrides the config file."}
-            </p>
-          </div>
-          <button className={ov.offline ? "primary" : ""} onClick={async () => { try { await api.setOffline(!ov.offline); onChange(); } catch (e) { setError(e); } }}>
-            {ov.offline ? "Go online" : "Go offline"}
+      <div className="tabs" role="tablist" aria-label="Settings sections">
+        {TABS.map((t, i) => (
+          <button key={t.id} id={`tab-${t.id}`} role="tab" aria-selected={tab === t.id} aria-controls={`panel-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)} onKeyDown={(e) => onKey(e, i)}>
+            {t.label}
           </button>
-          {ov.offline_override !== null && (
-            <button className="ghost" onClick={async () => { try { await api.setOffline(null); onChange(); } catch (e) { setError(e); } }}>Use config default</button>
-          )}
+        ))}
+      </div>
+      <ErrorNote error={error} />
+      <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="stack-lg">
+        {tab === "models" && <>
+          <ConnectionMode ov={ov} onChange={onChange} setError={setError} />
+          <section className="stack" aria-labelledby="prov-h">
+            <div className="stack-sm">
+              <h2 id="prov-h">Model providers</h2>
+              <p className="muted small measure">Switch a provider on, then use <strong>Edit</strong> to set its address, API key and models. A local server such as LM Studio or Ollama must be running with a model loaded. A provider switched on here is also used as a fallback by every tier.</p>
+            </div>
+            <div className="stack-sm">
+              {ov.providers.filter((p) => !p.endpoint).map((p) => <ProviderRow key={p.name} p={p} onChange={onChange} />)}
+            </div>
+          </section>
+          <EndpointsPanel ov={ov} onChange={onChange} />
+          <ChainsEditor ov={ov} onChange={onChange} />
+        </>}
+        {tab === "connectors" && <ConnectorsPanel ov={ov} onChange={onChange} />}
+        {tab === "profile" && <ProfilePanel ov={ov} onChange={onChange} />}
+        {tab === "policies" && <PoliciesPanel ov={ov} onChange={onChange} />}
+        {tab === "system" && <SystemPanel ov={ov} onChange={onChange} setError={setError} />}
+      </div>
+    </div>
+  );
+}
+
+function ConnectionMode({ ov, onChange, setError }: { ov: Overview; onChange: () => void; setError: (e: unknown) => void }) {
+  const local = ov.providers.filter((p) => p.locality === "local" && p.enabled).flatMap((p) => p.models.map((m) => m.ref));
+  const cloudPaused = ov.providers.filter((p) => p.offline_paused && p.enabled).length;
+  const netPaused = ov.connectors.filter((c) => c.offline_paused && c.enabled).length;
+  return (
+    <section className="card stack" aria-labelledby="mode-h">
+      <div className="row">
+        <div className="grow stack-sm">
+          <h2 id="mode-h">Connection mode</h2>
+          <p className="muted small measure">
+            {ov.offline
+              ? `Offline: ${cloudPaused} cloud provider${cloudPaused === 1 ? "" : "s"} and ${netPaused} internet connector${netPaused === 1 ? "" : "s"} are paused. Every agent uses the local model below. Going online restores your choices.`
+              : "Online: every switched-on provider and connector is available, subject to each run's data class. Each agent can use its own model (Agents page)."}
+            {ov.offline_override === null ? " Following the config file default." : ""}
+          </p>
         </div>
-      </section>
+        <button className={ov.offline ? "primary" : ""} onClick={async () => { try { await api.setOffline(!ov.offline); onChange(); } catch (e) { setError(e); } }}>
+          {ov.offline ? "Go online" : "Go offline"}
+        </button>
+        {ov.offline_override !== null && (
+          <button className="ghost" onClick={async () => { try { await api.setOffline(null); onChange(); } catch (e) { setError(e); } }}>Use config default</button>
+        )}
+      </div>
+      <div className="field">
+        <label htmlFor="offline-model">Model for every agent when offline</label>
+        <select id="offline-model" value={ov.offline_model || ""}
+          onChange={async (e) => { try { await api.saveGeneral({ offline_model: e.target.value }); onChange(); } catch (err) { setError(err); } }}>
+          <option value="">Automatic: first available local model{ov.offline && ov.offline_default ? ` (now ${ov.offline_default})` : ""}</option>
+          {local.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <span className="help">{local.length ? "Includes models on endpoints on your network, such as a phone." : "No local model is switched on. Switch on LM Studio, Ollama or vLLM below, or add an endpoint."}</span>
+      </div>
+    </section>
+  );
+}
 
-      <EndpointsPanel ov={ov} onChange={onChange} />
-
+function SystemPanel({ ov, onChange, setError }: { ov: Overview; onChange: () => void; setError: (e: unknown) => void }) {
+  async function kill(on: boolean) {
+    try { await api.killSwitch(on); onChange(); } catch (e) { setError(e); }
+  }
+  return (
+    <>
       <section className="card stack kill">
         <div className="row">
           <div className="grow stack-sm">
             <h2>Kill switch</h2>
-            <p className="muted small">Stops every running run immediately and blocks new runs until turned off.</p>
+            <p className="muted small">Stops every running run and chat immediately and blocks new ones until turned off.</p>
           </div>
           {ov.kill_switch
             ? <button className="primary" onClick={() => kill(false)}>Turn off</button>
             : <button className="danger" onClick={() => kill(true)}>Stop everything</button>}
         </div>
       </section>
-
-      <section className="stack" aria-labelledby="prov-h">
-        <div className="stack-sm">
-          <h2 id="prov-h">Model providers</h2>
-          <p className="muted small measure">Switch a provider on, then use <strong>Edit</strong> to set its address, API key and models. A local server such as LM Studio or Ollama must be running with a model loaded. A provider switched on here is also used as a fallback by every tier.</p>
-        </div>
-        <div className="stack-sm">
-          {ov.providers.filter((p) => !p.endpoint).map((p) => <ProviderRow key={p.name} p={p} onChange={onChange} />)}
-        </div>
-        <div className="card stack-sm">
-          <span className="label">Fallback chains by tier (first available model allowed for the run's data class wins)</span>
-          {Object.entries(ov.tiers).map(([tier, chain]) => (
-            <div key={tier} className="chain"><strong>{tier}</strong>{chain.map((c, i) => <span key={c}>{i > 0 && <span className="muted"> → </span>}<code>{c}</code></span>)}</div>
-          ))}
-        </div>
-      </section>
-
       <section className="stack">
-        <h2>Data classes</h2>
-        <div className="grid four">
-          {Object.entries(ov.data_classes).map(([k, v]) => (
-            <div key={k} className="card small"><strong>{k}</strong><div className="muted">may reach: {v.join(" + ")}</div></div>
-          ))}
-        </div>
-        <p className="help">You are responsible for the credentials and data you use. Mark sensitive runs "restricted" to keep them on local models.</p>
+        <h2>Configuration notices</h2>
+        {ov.warnings.length > 0 ? <ul className="small warn-list">{ov.warnings.map((w) => <li key={w}>{w}</li>)}</ul> : <p className="muted small">None.</p>}
+        <p className="help">Kept in files on purpose: adding a brand-new connector (it starts a program on this computer), per-step model choices inside playbooks, and the network token for using the app from another device.</p>
       </section>
-
-      <section className="stack">
-        <h2>Connectors (MCP, read-only)</h2>
-        <p className="muted small measure">The suite exposes only read-only tools to agents: allow-listed, declared read-only, or named like a query. Write tools are hidden and refused.</p>
-        <div className="grid two">
-          {ov.connectors.map((c) => (
-            <article key={c.id} className="card stack-sm connector">
-              <div className="row"><strong className="grow">{c.name}</strong><Pill value={c.status} /></div>
-              <span className="muted small">{c.description}</span>
-              {c.status === "unconfigured" && <span className="small">Set: {c.required_env.map((e) => <code key={e}>{e} </code>)}</span>}
-              {c.status === "error" && c.error && <span className="note bad small">{c.error}</span>}
-              <details className="small"><summary>Setup</summary><p>{c.setup}</p>{c.verify && <p className="muted">Verify: {c.verify}</p>}</details>
-              {c.status !== "unconfigured" && c.status !== "disabled" && (
-                <button onClick={() => connect(c.id)} disabled={busy === c.id}>{busy === c.id ? "Connecting…" : "Connect and list tools"}</button>
-              )}
-              {(tools[c.id] || c.tools).length > 0 && (
-                <ul className="plain small tools">
-                  {(tools[c.id] || c.tools).map((t) => (
-                    <li key={t.name}><code>{t.name}</code> {t.allowed ? <span className="pill ok">allowed</span> : <span className="pill neutral" title={t.reason}>blocked</span>}</li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="stack">
-        <h2>Budgets and voice</h2>
-        <div className="grid four">
-          <div className="card small"><span className="label">Max cost per run</span><strong>${ov.budgets.max_run_cost_usd}</strong></div>
-          <div className="card small"><span className="label">Max tokens per run</span><strong>{ov.budgets.max_run_tokens?.toLocaleString()}</strong></div>
-          <div className="card small"><span className="label">Tool calls per step</span><strong>{ov.budgets.max_tool_calls_per_step}</strong></div>
-          <div className="card small"><span className="label">Personas</span><strong>chat {ov.persona.chat ? "on" : "off"} · documents {ov.persona.exports ? "on" : "off"}</strong></div>
-        </div>
-        {!ov.profile_configured && <p className="note small">No user profile yet. Describe yourself in <code>profile.yaml</code> (in <code>.productivity-suite</code> in your home folder for the desktop app) so agents know your role and goals.</p>}
-        {ov.warnings.length > 0 && <ul className="small warn-list">{ov.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
-      </section>
-    </div>
+    </>
   );
 }
 
@@ -236,12 +239,12 @@ function EndpointsPanel({ ov, onChange }: { ov: Overview; onChange: () => void }
               </div>
               <div className="field">
                 <label htmlFor="ep-ctx">Context window (tokens)</label>
-                <input id="ep-ctx" type="number" min={1024} step={1024} value={draft.context_tokens} onChange={(e) => set("context_tokens", Number(e.target.value))} />
+                <input id="ep-ctx" type="number" min={1024} step="any" value={draft.context_tokens} onChange={(e) => set("context_tokens", Number(e.target.value))} />
                 <span className="help">Match what the server is set to. Small phone models often run at 4,096 or 8,192.</span>
               </div>
               <div className="field">
                 <label htmlFor="ep-out">Max answer length (tokens)</label>
-                <input id="ep-out" type="number" min={128} step={128} value={draft.max_output_tokens} onChange={(e) => set("max_output_tokens", Number(e.target.value))} />
+                <input id="ep-out" type="number" min={128} step="any" value={draft.max_output_tokens} onChange={(e) => set("max_output_tokens", Number(e.target.value))} />
               </div>
             </div>
             <div className="field">
@@ -286,16 +289,6 @@ function TestButton({ name }: { name: string }) {
   );
 }
 
-/** On/off switch. A real button with role="switch" so keyboards and screen readers get its state. */
-function Switch({ on, label, busy, onToggle }: { on: boolean; label: string; busy?: boolean; onToggle: () => void }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "is-on" : ""}`} disabled={busy} onClick={onToggle}>
-      <span className="switch-track" aria-hidden="true"><span className="switch-knob" /></span>
-      <span className="switch-text">{on ? "On" : "Off"}</span>
-    </button>
-  );
-}
-
 const KEY_SOURCE: Record<string, string> = {
   env: "from an environment variable", app: "saved in the app", config: "set in suite.yaml",
 };
@@ -316,13 +309,15 @@ function ProviderRow({ p, onChange }: { p: ProviderInfo; onChange: () => void })
     try { const r = await api.testProvider(p.name); setTest(r.ok ? `OK · ${r.model} · ${r.latency_ms} ms` : `Failed: ${r.detail}`); }
     catch (e) { setTest(e instanceof Error ? e.message : String(e)); } finally { setBusy(""); }
   }
-  const tone = p.available ? "ok" : p.enabled ? "warn" : "neutral";
-  const state = p.available ? "Ready" : p.enabled ? "Needs attention" : "Off";
+  const paused = p.offline_paused;
+  const tone = paused ? "neutral" : p.available ? "ok" : p.enabled ? "warn" : "neutral";
+  const state = paused ? "Paused offline" : p.available ? "Ready" : p.enabled ? "Needs attention" : "Off";
 
   return (
-    <article className={`card provider ${p.enabled ? "" : "is-off"}`}>
+    <article className={`card provider ${p.enabled && !paused ? "" : "is-off"}`}>
       <div className="provider-head">
-        <Switch on={p.enabled} label={`${p.name} ${p.enabled ? "on" : "off"}`} busy={busy === "toggle"} onToggle={toggle} />
+        <Switch on={p.enabled && !paused} paused={paused} label={`${p.name} ${paused ? "paused while offline" : p.enabled ? "on" : "off"}`}
+          busy={busy === "toggle"} onToggle={toggle} />
         <div className="grow stack-xs">
           <div className="row-tight">
             <strong className="provider-name">{p.name}</strong>
@@ -337,7 +332,8 @@ function ProviderRow({ p, onChange }: { p: ProviderInfo; onChange: () => void })
           <button className={editing ? "ghost" : ""} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>{editing ? "Close" : "Edit"}</button>
         </div>
       </div>
-      {!p.available && p.reason !== "switched off" && <p className="small provider-reason">{p.reason}</p>}
+      {paused && <p className="small muted">Paused while offline. {p.enabled ? "It comes back on when you go online." : "It stays off when you go online."}</p>}
+      {!paused && !p.available && p.reason !== "switched off" && <p className="small provider-reason">{p.reason}</p>}
       {test && <p className={`small ${test.startsWith("OK") ? "ok-text" : "provider-reason"}`}>{test}</p>}
       <ErrorNote error={error} />
       {editing && <ProviderEditor p={p} onDone={() => { setEditing(false); onChange(); }} onChange={onChange} />}
@@ -348,6 +344,7 @@ function ProviderRow({ p, onChange }: { p: ProviderInfo; onChange: () => void })
 function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () => void; onChange: () => void }) {
   const toEdit = (m: ProviderInfo["models"][number]): ModelEdit => ({
     model: m.ref.split("/").slice(1).join("/"), context_tokens: m.context_tokens, max_output_tokens: m.max_output_tokens, tools: m.tools,
+    price_in_per_mtok: m.price_in_per_mtok, price_out_per_mtok: m.price_out_per_mtok,
   });
   const [baseUrl, setBaseUrl] = useState(p.base_url || "");
   const [key, setKey] = useState("");
@@ -428,11 +425,19 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
           <div key={m.model} className="model-row">
             <code className="grow">{m.model}</code>
             <label className="field-inline">Context
-              <input type="number" min={1024} step={1024} value={m.context_tokens} onChange={(e) => upd(i, "context_tokens", Number(e.target.value))} aria-label={`${m.model} context window in tokens`} />
+              <input type="number" min={1024} step="any" value={m.context_tokens} onChange={(e) => upd(i, "context_tokens", Number(e.target.value))} aria-label={`${m.model} context window in tokens`} />
             </label>
             <label className="field-inline">Max answer
-              <input type="number" min={128} step={128} value={m.max_output_tokens} onChange={(e) => upd(i, "max_output_tokens", Number(e.target.value))} aria-label={`${m.model} max answer length in tokens`} />
+              <input type="number" min={128} step="any" value={m.max_output_tokens} onChange={(e) => upd(i, "max_output_tokens", Number(e.target.value))} aria-label={`${m.model} max answer length in tokens`} />
             </label>
+            {!local && <>
+              <label className="field-inline">$ in
+                <input type="number" min={0} step="any" value={m.price_in_per_mtok ?? 0} onChange={(e) => upd(i, "price_in_per_mtok", Number(e.target.value))} aria-label={`${m.model} input price, US dollars per million tokens`} />
+              </label>
+              <label className="field-inline">$ out
+                <input type="number" min={0} step="any" value={m.price_out_per_mtok ?? 0} onChange={(e) => upd(i, "price_out_per_mtok", Number(e.target.value))} aria-label={`${m.model} output price, US dollars per million tokens`} />
+              </label>
+            </>}
             <label className="check small"><input type="checkbox" checked={m.tools} onChange={(e) => upd(i, "tools", e.target.checked)} /> tools</label>
             <button type="button" className="ghost" onClick={() => setModels((ms) => ms.filter((_, j) => j !== i))} aria-label={`Remove ${m.model}`}>Remove</button>
           </div>
@@ -451,6 +456,7 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
           </div>
           <button type="button" onClick={() => { add(manual); setManual(""); }} disabled={!manual.trim()}>Add</button>
         </div>
+        {!local && <p className="help">Prices are US dollars per million tokens, used for the cost budget. Check them with the provider; they change.</p>}
         <p className="help">Set the context window to what the server actually uses (LM Studio and Ollama often default to 4,096 or 8,192 tokens). Tick tools only if the model supports tool calling.</p>
       </div>
 

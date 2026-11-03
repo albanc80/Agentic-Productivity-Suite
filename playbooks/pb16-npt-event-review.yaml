@@ -1,0 +1,57 @@
+id: npt-event-review
+code: PB-16
+name: NPT Event Review
+area: Upstream operations
+desk: upstream
+status: mvp
+safety_critical: true
+summary: "Reviews a non-productive-time event from drilling data and reports: timeline, precursors, likely causes, corrective and preventive actions. Advisory; an engineer signs off."
+patterns: [P3, P4, P5]
+triggers: [npt, non productive time, stuck pipe, lost circulation, kick, vibration, washout, twist off, downtime, drilling event, incident review]
+inputs:
+  - {id: well, label: "Well and section", type: text, required: true}
+  - {id: event, label: "What happened (type, depth, time, duration)", type: longtext, required: true, untrusted: false}
+  - {id: data, label: "Drilling data around the event (time-based or depth-based, with units)", type: longtext}
+  - {id: reports, label: "Daily drilling reports and notes", type: longtext}
+  - {id: plan, label: "Planned parameters and well plan extract", type: longtext}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: diagnosis
+    kind: agent
+    title: Timeline and precursors
+    agent: npt-advisor
+    task: |
+      For the event on {{inputs.well}}: build the timeline from the data and reports (cite the source of each
+      entry), identify drilling-mechanics precursors (MSE, torque and drag trends, vibration, ECD, pit and flow,
+      hole cleaning), and rank likely causes with the evidence for and against each. Advisory only; state data gaps.
+  - id: field
+    kind: agent
+    title: Field operations and HSE view
+    agent: domain-sme
+    task: "Assess the event from rig operations: procedures followed or missed, crew and equipment factors, HSE and well-control implications."
+  - id: actions
+    kind: agent
+    title: Corrective and preventive actions
+    agent: well-planner
+    context_from: [diagnosis, field]
+    task: |
+      Corrective actions for this well and preventive actions for future wells: each with owner role, the parameter
+      or threshold to monitor, and how to verify it worked. Build the risk register with the risk_matrix_generator
+      tool when available. Nothing here replaces the operator's procedures or well-control authority.
+    tools: [risk_matrix_generator]
+  - id: review
+    kind: review
+    title: Independent review
+    agent: critical-mentor
+    target: actions
+    on_fail: revise
+    task: Check every cause and action against the data and reports. Flag conclusions the evidence does not support.
+  - id: approve
+    kind: gate
+    title: Qualified drilling engineer sign-off
+    required_role: Qualified drilling engineer
+    instructions: |
+      Advisory review only. Approval records that a qualified engineer checked it; it does not replace the operator's
+      investigation process, management of change or well-control authority.
+    payload_from: actions
+deliverable: actions

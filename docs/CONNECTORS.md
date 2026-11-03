@@ -1,6 +1,8 @@
 # Connector setup
 
-All connectors are MCP servers. The suite starts one lazily the first time a run needs it and keeps it running. Settings → Connectors shows status, the missing variables, and, after **Connect and list tools**, which tools are allowed or blocked.
+All connectors are MCP servers. The suite starts one the first time a run needs it and keeps it running.
+
+**Set them up in the app:** Settings → Connectors. Each connector has an On/Off switch and an **Edit** panel with a field for every value it needs (secrets are write-only), and **Test** lists which tools are allowed or blocked. Values are saved in the suite's local database (unencrypted) and shared by connectors that use the same name, so the Databricks host and token are entered once. An environment variable with the same name takes precedence over a value typed in the app. **Reset to file defaults** removes the app's settings for that connector. In offline mode, connectors that need the internet are paused; Local files keeps working.
 
 Launch commands come from each project's documentation and change between releases. Confirm the item in **Verify** before relying on a connector.
 
@@ -13,11 +15,11 @@ Launch commands come from each project's documentation and change between releas
 | Databricks vector search | above + `DATABRICKS_VS_CATALOG`, `DATABRICKS_VS_SCHEMA` | `/api/2.0/mcp/vector-search/...` | Renamed AI Search (`/ai-search/`); the older prefix is documented as working |
 | Azure DevOps | `AZURE_DEVOPS_ORG` | `npx @azure-devops/mcp <org> -d core work work-items repositories wiki`; browser sign-in. No server read-only flag, so the suite's policy is the control | Package and `-d` flag; maintainers recommend their remote server going forward |
 | Jira / Confluence | `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` (+ optional Confluence variables) | Community `ghcr.io/sooperset/mcp-atlassian` with `READ_ONLY_MODE=true` | Image tag; whether `CONFLUENCE_URL` needs `/wiki` |
-| Local files | `SUITE_FILES_DIR` | `@modelcontextprotocol/server-filesystem` limited to that folder; only read tools are allow-listed | Tool names in its README |
+| Local files | One or more folders, chosen in Settings | Built into the suite (no Node.js or other install). Tools: list, search, read and file info, all read-only. Paths are resolved, symlinks included, and must stay inside the chosen folders. Reads text, CSV, JSON, YAML, PDF, DOCX and XLSX. Works offline | Nothing external |
 
 ## Adding a connector
 
-Add an entry to `config/connectors.yaml`:
+Adding a brand-new connector stays a file edit on purpose: a connector entry can start a program on your computer, so it should not be one click away in a browser. Add an entry to `connectors.yaml` (in `.productivity-suite` in your home folder for the desktop app), then fill in its values in Settings:
 
 ```yaml
 - id: my-server

@@ -42,7 +42,7 @@ export default function Command({ ov }: { ov: Overview }) {
         <div className="hero-copy">
           <span className="eyebrow">{ov.agents.length} agents · {ov.desks.length} desks · {mvp.length + 1} playbooks</span>
           <h1>Tell it what needs doing.</h1>
-          <p className="lede">The router picks the playbook. Specialists do the work, a different agent checks it, and nothing leaves until a named person approves.</p>
+          <p className="lede">Route it to a playbook: specialists do the work, a different agent checks it, and nothing leaves until a named person approves. Or ask the Chief of Staff, who answers or brings in the right specialists.</p>
           <form className="command" onSubmit={submit}>
             <label htmlFor="cmd" className="sr-only">Request</label>
             <textarea id="cmd" rows={3} value={text} onChange={(e) => setText(e.target.value)}
@@ -50,7 +50,11 @@ export default function Command({ ov }: { ov: Overview }) {
               onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e); }} />
             <div className="command-bar">
               <span className="muted small"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
-              <button className="primary cut" type="submit" disabled={busy || !text.trim()}>{busy ? "Routing…" : "Route request"}</button>
+              <button type="button" disabled={busy || !text.trim()} onClick={() => {
+                try { sessionStorage.setItem("suite.chatDraft", text); } catch { /* storage unavailable */ }
+                go("/chat");
+              }}>Ask the Chief of Staff</button>
+              <button className="primary cut" type="submit" disabled={busy || !text.trim()}>{busy ? "Routing…" : "Route to a playbook"}</button>
             </div>
           </form>
           <ErrorNote error={error} />

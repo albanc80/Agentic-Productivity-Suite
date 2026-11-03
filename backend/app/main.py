@@ -21,16 +21,26 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .connectors import ConnectorError, ConnectorManager
+from .appconfig import (
+    ConnectorEdit,
+    GeneralEdit,
+    GeneralSettings,
+    ProfileEdit,
+    TierPref,
+    order_chain,
+)
+from .chat import Chat, ChatError
+from .connectors import ConnectorError, ConnectorManager, ConnectorSetting, is_secret
 from .endpoints import Endpoint, ModelEdit, ProviderOverride, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
 from .files import UnsupportedFile, extract_text
+from .local_files import FolderError, check_folder
 from .playbooks import load_playbooks
 from .providers import ModelRouter, ProviderError
 from .registry import Registry
 from .router import route
-from .settings import Settings, load_profile, load_settings
+from .settings import Budgets, PersonaSettings, Settings, load_profile, load_settings
 from .store import Store
 
 log = logging.getLogger("suite")
@@ -65,6 +75,16 @@ class OfflineSwitch(BaseModel):
     by: str = "user"
 
 
+class ChatStart(BaseModel):
+    agent_id: str = "chief-of-staff"
+    data_class: str | None = None
+
+
+class ChatMessage(BaseModel):
+    content: str = Field(max_length=40_000)
+    files: list[str] = Field(default_factory=list)
+
+
 class Discover(BaseModel):
     base_url: str | None = None
     provider: str | None = None  # use this provider's address and saved key unless given here
@@ -89,15 +109,23 @@ class Suite:
     def __init__(self, settings: Settings, connectors: ConnectorManager | None = None, http_client=None):
         self.settings = settings
         self.registry = Registry(settings.registry_dir, settings.policies_dir)
-        self.connectors = connectors or ConnectorManager.from_file(settings.connectors_path, offline=settings.offline)
+        self.connectors = connectors or ConnectorManager.from_file(
+            settings.connectors_path, offline=settings.offline, presets=settings.home / "config" / "connectors.example.yaml")
         self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs))
         self.store = Store(settings.data_dir / "suite.db")
         self.models = ModelRouter(settings, http_client=http_client)
-        self.profile = load_profile(settings)
+        self.file_profile = load_profile(settings)
+        self.profile: dict = {}  # same dict object the engine reads; refreshed in place by apply()
         self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile)
+        self.chat = Chat(settings, self.registry, self.models, self.store, self.profile, self.playbooks, lambda: self.engine.killed)
         # File/env configuration is the base; choices made in the app are layered on top and persisted.
         self.base = {"providers": dict(settings.providers), "models": list(settings.models),
-                     "tiers": {k: list(v) for k, v in settings.tiers.items()}, "offline": settings.offline}
+                     "tiers": {k: list(v) for k, v in settings.tiers.items()}, "offline": settings.offline,
+                     "budgets": settings.budgets.model_copy(), "persona": settings.persona.model_copy(),
+                     "store_prompts": settings.store_prompts, "default_data_class": settings.default_data_class,
+                     "data_classes": {k: list(v) for k, v in settings.data_classes.items()},
+                     "agent_overrides": {k: list(v) for k, v in settings.agent_overrides.items()}}
+        self.offline_default: str | None = None
         self.http_client = http_client
         self.apply()
 
@@ -112,12 +140,186 @@ class Suite:
     def provider_overrides(self) -> dict[str, ProviderOverride]:
         return {k: ProviderOverride.model_validate(v) for k, v in self.store.get_setting("provider_overrides", {}).items()}
 
+    def general(self) -> GeneralSettings:
+        return GeneralSettings.model_validate(self.store.get_setting("general", {}))
+
+    def saved_profile(self) -> dict | None:
+        return self.store.get_setting("profile", None)
+
+    def connector_settings(self) -> dict[str, ConnectorSetting]:
+        return {k: ConnectorSetting.model_validate(v) for k, v in self.store.get_setting("connector_settings", {}).items()}
+
     def apply(self) -> None:
+        s, b, g = self.settings, self.base, self.general()
         override = self.offline_override()
-        offline = self.base["offline"] if override is None else bool(override)
-        apply_runtime(self.settings, self.base, self.endpoints(), offline, self.provider_overrides())
+        offline = b["offline"] if override is None else bool(override)
+        apply_runtime(s, b, self.endpoints(), offline, self.provider_overrides())
+        for t, pref in (g.tiers or {}).items():
+            s.tiers[t] = order_chain(s.tiers.get(t, []), pref)
+        s.agent_overrides = {k: list(v) for k, v in b["agent_overrides"].items()}
+        self.offline_default = None
+        if offline:
+            # One local model for every agent: first in every chain; per-agent choices wait until online.
+            self.offline_default = self._local_default(g.offline_model)
+            if self.offline_default:
+                for t in s.tiers:
+                    s.tiers[t] = [self.offline_default] + [r for r in s.tiers[t] if r != self.offline_default]
+            s.agent_overrides = {}
+        else:
+            for aid, ref in (g.agent_models or {}).items():
+                agent = self.registry.agents.get(aid)
+                if agent and any(m.ref == ref for m in s.models):
+                    chain = s.tiers.get(agent.default_tier, [])
+                    s.agent_overrides[aid] = [ref] + [r for r in chain if r != ref]  # the tier chain stays as fallback
+        s.budgets = Budgets(**g.budgets.model_dump()) if g.budgets else b["budgets"].model_copy()
+        s.persona = PersonaSettings(chat=b["persona"].chat if g.persona_chat is None else g.persona_chat,
+                                    exports=b["persona"].exports if g.persona_exports is None else g.persona_exports)
+        s.store_prompts = b["store_prompts"] if g.store_prompts is None else g.store_prompts
+        s.default_data_class = g.default_data_class or b["default_data_class"]
+        dc = {k: list(v) for k, v in b["data_classes"].items()}
+        for k, allowed in (g.cloud_allowed or {}).items():
+            dc[k] = ["local", "cloud"] if allowed else ["local"]
+        dc["restricted"] = ["local"]  # fixed: restricted data never leaves your network
+        s.data_classes = dc
+        self.profile.clear()
+        self.profile.update(self.saved_profile() or self.file_profile)
+        self.connectors.apply_settings(self.connector_settings(), self.store.get_setting("connector_values", {}))
         self.connectors.offline = offline
         self.models._instances = {}  # addresses or keys may have changed
+
+    def _local_default(self, chosen: str | None) -> str | None:
+        order = [chosen] if chosen else []
+        for t in ("specialist", "synthesis", "router", "review"):
+            order += self.settings.tiers.get(t, [])
+        order += [m.ref for m in self.settings.models]
+        for ref in order:
+            prov = ref.split("/", 1)[0]
+            cfg = self.settings.providers.get(prov)
+            if cfg and cfg.locality == "local" and self.models.availability(prov)[0]:
+                return ref
+        return None
+
+    # ------------------------------------------------------------ settings pages
+
+    def save_general(self, edit: GeneralEdit, by: str) -> None:
+        g = self.general()
+        if edit.budgets is not None:
+            g.budgets = edit.budgets
+        for f in ("persona_chat", "persona_exports", "store_prompts", "default_data_class"):
+            v = getattr(edit, f)
+            if v is not None:
+                setattr(g, f, v)
+        if edit.cloud_allowed is not None:
+            g.cloud_allowed = {**(g.cloud_allowed or {}), **edit.cloud_allowed}
+        known_refs = {m.ref for m in self.settings.models}
+        if edit.agent_models is not None:
+            am = dict(g.agent_models or {})
+            for aid, ref in edit.agent_models.items():
+                if aid not in self.registry.agents:
+                    raise ValueError(f"unknown agent {aid}")
+                if not ref:
+                    am.pop(aid, None)
+                elif ref not in known_refs:
+                    raise ValueError(f"unknown model {ref}; add it to a provider first")
+                else:
+                    am[aid] = ref
+            g.agent_models = am or None
+        if edit.offline_model is not None:
+            if edit.offline_model == "":
+                g.offline_model = None
+            else:
+                prov = self.settings.providers.get(edit.offline_model.split("/", 1)[0])
+                if edit.offline_model not in known_refs or not prov or prov.locality != "local":
+                    raise ValueError("the offline model must be a model on a local provider or endpoint")
+                g.offline_model = edit.offline_model
+        if edit.tiers is not None:
+            tiers = dict(g.tiers or {})
+            known = {m.ref for m in self.settings.models}
+            for t, order in edit.tiers.items():
+                bad = [r for r in order if r not in known]
+                if bad:
+                    raise ValueError(f"unknown model {bad[0]}; add it to a provider first")
+                current = self.settings.tiers.get(t, [])
+                prev = tiers.get(t, TierPref())
+                excluded = sorted((set(prev.excluded) | {r for r in current if r not in order}) - set(order))
+                tiers[t] = TierPref(order=list(dict.fromkeys(order)), excluded=excluded)
+            g.tiers = tiers
+        self.store.set_setting("general", g.model_dump(exclude_none=True))
+        self.apply()
+        self.store.audit("settings_changed", None, fields=sorted(edit.model_dump(exclude_none=True)), by=by)
+
+    def reset_general(self, part: str, by: str) -> None:
+        g = self.general()
+        if part == "tiers":
+            g.tiers = None
+        elif part == "budgets":
+            g.budgets = None
+        elif part == "all":
+            g = GeneralSettings()
+        else:
+            raise ValueError("part must be tiers, budgets or all")
+        self.store.set_setting("general", g.model_dump(exclude_none=True))
+        self.apply()
+        self.store.audit("settings_reset", None, part=part, by=by)
+
+    def save_profile(self, edit: ProfileEdit | None, by: str) -> None:
+        self.store.set_setting("profile", edit.model_dump() if edit else None)
+        self.apply()
+        self.store.audit("profile_saved" if edit else "profile_reset", None, by=by)
+
+    async def save_connector(self, cid: str, edit: ConnectorEdit, by: str) -> None:
+        cfg = self.connectors.file_configs.get(cid)
+        if cfg is None:
+            raise KeyError(cid)
+        all_settings = self.connector_settings()
+        st = all_settings.get(cid, ConnectorSetting())
+        if edit.enabled is not None:
+            st.enabled = edit.enabled
+        if edit.folders is not None:
+            if cfg.transport != "builtin":
+                raise ValueError("only Local files takes folders")
+            folders: list[str] = []
+            for f in edit.folders:
+                if f.strip():
+                    folders.append(str(check_folder(f)))  # raises FolderError with a readable message
+            st.folders = list(dict.fromkeys(folders))[:20]
+        all_settings[cid] = st
+        values = dict(self.store.get_setting("connector_values", {}))
+        known = cfg.variables()
+        changed: list[str] = []
+        for var in edit.clear:
+            if var in known and values.pop(var, None) is not None:
+                changed.append(var)
+        for var, val in (edit.values or {}).items():
+            if var not in known:
+                raise ValueError(f"{cid} does not use {var}")
+            if val:
+                values[var] = val
+                changed.append(var)
+            elif not is_secret(var) and values.pop(var, None) is not None:
+                changed.append(var)
+        self.store.set_setting("connector_settings", {k: v.model_dump() for k, v in all_settings.items()})
+        self.store.set_setting("connector_values", values)
+        self.apply()
+        await self.connectors.restart()
+        self.store.audit("connector_edited", None, connector=cid, enabled=st.enabled, variables_changed=sorted(set(changed)),
+                         folders=len(st.folders or []), by=by)
+
+    async def reset_connector(self, cid: str, by: str) -> None:
+        all_settings = self.connector_settings()
+        all_settings.pop(cid, None)
+        self.store.set_setting("connector_settings", {k: v.model_dump() for k, v in all_settings.items()})
+        cfg = self.connectors.file_configs.get(cid)
+        if cfg:
+            values = dict(self.store.get_setting("connector_values", {}))
+            others = {v for c, oc in self.connectors.file_configs.items() if c != cid for v in oc.variables()}
+            for var in cfg.variables():
+                if var not in others:  # keep values another connector still uses (e.g. DATABRICKS_HOST)
+                    values.pop(var, None)
+            self.store.set_setting("connector_values", values)
+        self.apply()
+        await self.connectors.restart([cid])
+        self.store.audit("connector_reset", None, connector=cid, by=by)
 
     def save_provider(self, name: str, edit: ProviderEdit, by: str) -> None:
         if name not in self.base["providers"]:
@@ -227,7 +429,17 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             "endpoints": [public_endpoint(e) for e in suite.endpoints()],
             "budgets": settings.budgets.model_dump(),
             "persona": settings.persona.model_dump(),
-            "profile_configured": bool(settings.profile_path and settings.profile_path.name == "profile.yaml"),
+            "profile_configured": any(v not in (None, "", []) for v in suite.profile.values()),
+            "profile": {k: suite.profile.get(k, [] if k in ("goals", "working_preferences") else "")
+                        for k in ProfileEdit.model_fields},
+            "profile_saved_in_app": suite.saved_profile() is not None,
+            "store_prompts": settings.store_prompts,
+            "model_refs": [m.ref for m in settings.models],
+            "general_edited": sorted(suite.general().model_dump(exclude_none=True)),
+            "agent_models": suite.general().agent_models or {},
+            "offline_model": suite.general().offline_model,
+            "offline_default": suite.offline_default,
+            "agent_overrides": settings.agent_overrides,
             "warnings": suite.warnings,
             "pending_approvals": len(store.approvals(status="pending")),
         }
@@ -479,9 +691,89 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except ProviderError as e:
             return {"ok": False, "detail": str(e)[:400]}
 
+    # ---------------------------------------------------------------- chat
+
+    @app.get("/api/chats")
+    def chats():
+        return suite.chat.list()
+
+    @app.post("/api/chats", status_code=201)
+    def chat_start(body: ChatStart):
+        try:
+            return suite.chat.create(body.agent_id, body.data_class)
+        except ChatError as e:
+            raise HTTPException(422, str(e)) from e
+
+    @app.get("/api/chats/{cid}")
+    def chat_get(cid: str):
+        try:
+            return suite.chat.get(cid)
+        except KeyError as e:
+            raise HTTPException(404, "chat not found") from e
+
+    @app.post("/api/chats/{cid}/messages")
+    async def chat_send(cid: str, body: ChatMessage):
+        try:
+            return await suite.chat.send(cid, body.content, body.files)
+        except KeyError as e:
+            raise HTTPException(404, "chat not found") from e
+        except ChatError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.delete("/api/chats/{cid}")
+    def chat_delete(cid: str):
+        try:
+            suite.chat.delete(cid)
+        except KeyError as e:
+            raise HTTPException(404, "chat not found") from e
+        return {"deleted": 1}
+
     @app.get("/api/connectors")
     def connectors():
         return suite.connectors.describe()
+
+    @app.put("/api/connectors/{cid}")
+    async def edit_connector(cid: str, body: ConnectorEdit):
+        try:
+            await suite.save_connector(cid, body, "ui")
+        except KeyError as e:
+            raise HTTPException(404, "connector not found") from e
+        except (FolderError, ValueError) as e:
+            raise HTTPException(422, str(e)) from e
+        return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.delete("/api/connectors/{cid}/settings")
+    async def reset_connector(cid: str):
+        if cid not in suite.connectors.file_configs:
+            raise HTTPException(404, "connector not found")
+        await suite.reset_connector(cid, "ui")
+        return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.put("/api/settings/general")
+    def edit_general(body: GeneralEdit):
+        try:
+            suite.save_general(body, "ui")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return overview()
+
+    @app.delete("/api/settings/general/{part}")
+    def reset_general(part: str):
+        try:
+            suite.reset_general(part, "ui")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return overview()
+
+    @app.put("/api/settings/profile")
+    def edit_profile(body: ProfileEdit):
+        suite.save_profile(body, "ui")
+        return overview()["profile"]
+
+    @app.delete("/api/settings/profile")
+    def reset_profile():
+        suite.save_profile(None, "ui")
+        return overview()["profile"]
 
     @app.post("/api/connectors/{cid}/connect")
     async def connect(cid: str):

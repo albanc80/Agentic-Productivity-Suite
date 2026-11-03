@@ -1,0 +1,57 @@
+id: meeting-prep
+code: PB-02
+name: Meeting Prep & Debrief
+area: Daily work
+desk: command
+status: mvp
+summary: Before a meeting, a brief with goals, positions and questions; after it, decisions, actions with owners and a draft follow-up.
+patterns: [P2, P3]
+triggers: [meeting, prep, prepare, agenda, debrief, minutes, notes, follow up, one on one, "1:1", workshop]
+inputs:
+  - id: stage
+    label: Before or after the meeting
+    type: select
+    options: [prepare, debrief]
+    default: prepare
+  - {id: meeting, label: "Meeting (title, date, attendees, purpose)", type: text, required: true}
+  - {id: goal, label: "What you need from this meeting", type: text, untrusted: false}
+  - {id: background, label: "Background: previous notes, related threads, open issues", type: longtext}
+  - {id: notes, label: "Meeting notes or transcript (for a debrief)", type: longtext}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: context
+    kind: agent
+    title: Context and open items
+    when: {input: stage, equals: prepare}
+    agent: zero-status
+    task: |
+      For "{{inputs.meeting}}", summarise the relevant open work items, recent changes and commitments from the
+      background and any connected trackers. Every item needs a trace. Report work items only; do not
+      characterise people.
+    connectors: [azure-devops, github, atlassian, microsoft365]
+  - id: meeting_output
+    kind: agent
+    title: Brief or debrief
+    agent: chief-of-staff
+    task: |
+      Stage: {{inputs.stage}}. Meeting: "{{inputs.meeting}}". The user's goal: "{{inputs.goal}}".
+      If the stage is "prepare", write the brief:
+      1. The one outcome to leave with, and the fallback outcome.
+      2. Likely positions and concerns of each attending group (topics, not judgements of people).
+      3. Five questions to ask, in order, and the facts to have ready.
+      4. Decisions to push for, decisions to avoid making in the room, and a 3-item agenda if none exists.
+      If the stage is "debrief", work only from the notes:
+      1. Decisions made (quote the note that records each), decisions deferred, and open questions.
+      2. Actions as a table: action, owner, due date (UNKNOWN when not stated), dependency.
+      3. Risks or commitments the user took on.
+      4. A short follow-up message to attendees. Draft only; the suite sends nothing.
+  - id: review
+    kind: review
+    title: Independent check
+    agent: critical-mentor
+    target: meeting_output
+    on_fail: revise
+    task: |
+      For a brief: weak assumptions, missing stakeholder concerns, questions that would not move the decision.
+      For a debrief: every decision and action must be supported by the notes; flag actions with no owner.
+deliverable: meeting_output

@@ -1,0 +1,47 @@
+id: training-blueprint
+code: PB-17
+name: Training & Agent Blueprint
+area: Enablement
+desk: enablement
+status: mvp
+summary: Turns a workflow and its expertise into outcome-driven training and, where it pays off, a reusable agent blueprint.
+patterns: [P2, P3]
+triggers: [training, onboarding, course, curriculum, upskill, enablement, playbook for people, teach, workshop design, agent blueprint]
+inputs:
+  - {id: workflow, label: "Workflow or skill to teach", type: longtext, required: true, untrusted: false}
+  - {id: audience, label: "Audience and current level", type: text, required: true}
+  - {id: outcome, label: "What learners must be able to do afterwards", type: text}
+  - {id: material, label: "Existing procedures, notes or examples", type: longtext}
+  - id: include_agent
+    label: Also design a reusable agent blueprint
+    type: select
+    options: ["no", "yes"]
+    default: "no"
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: blueprint
+    kind: agent
+    title: Agent blueprint
+    when: {input: include_agent, equals: "yes"}
+    agent: ai-agent-engineer
+    task: |
+      Where parts of "{{inputs.workflow}}" are repeatable, design the least-autonomous agent that supports learners
+      or does the routine part: inputs, outputs, tools, approval points, evaluation and kill path. Say which parts
+      must stay human.
+  - id: design
+    kind: agent
+    title: Training design
+    agent: training-designer
+    task: |
+      Design training for {{inputs.audience}} on "{{inputs.workflow}}": learning outcomes tied to "{{inputs.outcome}}",
+      modules with exercises built from real work, assessment that proves the skill, and how to measure on-the-job
+      impact. If an agent blueprint is in the prior results, add it as an appendix and show where the training
+      teaches people to work with it.
+  - id: review
+    kind: review
+    title: Independent check
+    agent: critical-mentor
+    target: design
+    on_fail: revise
+    task: Check that outcomes are measurable, exercises match real work and the assessment proves the skill.
+deliverable: design

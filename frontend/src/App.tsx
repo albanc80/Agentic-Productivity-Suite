@@ -9,6 +9,7 @@ import Approvals from "./pages/Approvals";
 import Library from "./pages/Library";
 import Agents from "./pages/Agents";
 import SettingsPage from "./pages/Settings";
+import ChatPage from "./pages/Chat";
 
 type Theme = "system" | "light" | "dark";
 
@@ -36,6 +37,7 @@ function useHash() {
 
 const NAV = [
   { path: "/", label: "Command" },
+  { path: "/chat", label: "Chat" },
   { path: "/playbooks", label: "Playbooks" },
   { path: "/approvals", label: "Approvals" },
   { path: "/library", label: "Library" },
@@ -76,12 +78,13 @@ export default function App() {
   let page;
   if (!ov) page = null;
   else if (section === "") page = <Command ov={ov} />;
+  else if (section === "chat") page = <ChatPage ov={ov} chatId={arg} />;
   else if (section === "playbooks") page = <Playbooks ov={ov} />;
   else if (section === "start") page = <RunForm ov={ov} playbookId={arg} />;
   else if (section === "runs") page = <RunView ov={ov} runId={arg} onChange={refresh} />;
   else if (section === "approvals") page = <Approvals onChange={refresh} />;
   else if (section === "library") page = <Library ov={ov} />;
-  else if (section === "agents") page = <Agents ov={ov} agentId={arg} />;
+  else if (section === "agents") page = <Agents ov={ov} agentId={arg} onChange={refresh} />;
   else if (section === "settings") page = <SettingsPage ov={ov} onChange={refresh} />;
   else page = <p>Page not found.</p>;
 

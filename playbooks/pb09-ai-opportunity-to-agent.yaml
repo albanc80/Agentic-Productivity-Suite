@@ -1,0 +1,66 @@
+id: ai-opportunity-to-agent
+code: PB-09
+name: AI Opportunity to Governed Agent
+area: Engineering
+desk: engineering
+status: mvp
+summary: From a recurring workflow to the least-autonomous AI design that works, with contracts, evaluation plan, controls, kill path and an approval gate.
+patterns: [P3, P4, P5]
+triggers: [ai agent, automate, automation, copilot, llm, genai, agentic, ai use case, workflow automation, chatbot]
+inputs:
+  - {id: workflow, label: "Workflow or task to improve", type: longtext, required: true, untrusted: false}
+  - {id: volume, label: "Volume and cost today (runs per week, time per run)", type: text}
+  - {id: data, label: "Data and systems it touches", type: longtext}
+  - {id: risk, label: "What goes wrong if it is wrong", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: opportunity
+    kind: agent
+    title: Opportunity assessment
+    agent: ai-transformation-advisor
+    task: |
+      Assess "{{inputs.workflow}}": value, effort and risk; whether a deterministic rule, a single model call, a
+      workflow, one bounded agent or multiple agents is the simplest fit, and why the simpler options fall short.
+  - id: design
+    kind: agent
+    title: Agent design
+    agent: ai-agent-engineer
+    task: |
+      Design the chosen option: inputs and outputs (contracts), tools with least privilege, autonomy level and the
+      human approval points, guardrails against prompt injection and data leakage, observability, cost and latency
+      budget, fallback, rollback and the kill path.
+  - id: controls
+    kind: parallel
+    title: Evaluation and security
+    steps:
+      - id: evaluation
+        kind: agent
+        agent: ai-product-evaluator
+        title: Evaluation plan
+        task: "Evaluation loop for this design: golden dataset, rubric, metrics with pass thresholds, error analysis and regression checks before and after release."
+      - id: security
+        kind: agent
+        agent: eng-security
+        title: Threat model
+        task: "Threat-model the design: data entitlements, tool misuse, injection paths, secrets, and the controls required before a pilot."
+  - id: blueprint
+    kind: agent
+    title: Governed agent blueprint
+    agent: eng-solution-architect
+    context_from: [opportunity, design, evaluation, security]
+    task: |
+      Merge into one blueprint: problem and metric, design, permissions, approvals, evaluation gates, security
+      controls, rollout (shadow, pilot, release) with exit criteria per stage, owner, and kill path.
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: blueprint
+    on_fail: revise
+  - id: approve
+    kind: gate
+    title: Pilot approval
+    required_role: Business owner
+    instructions: A named business owner approves a pilot under the stated controls. Nothing is built or deployed by the suite.
+    payload_from: blueprint
+deliverable: blueprint
