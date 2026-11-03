@@ -98,23 +98,24 @@ async def test_openai_compatible_connection_error():
 
 def test_router_availability_and_locality(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    s = Settings(home=tmp_path, data_dir=tmp_path, allow_demo_provider=True, providers={
+    s = Settings(home=tmp_path, data_dir=tmp_path, providers={
         "ollama": ProviderConfig(type="openai_compatible", locality="local", base_url="http://l/v1", api_key="o", enabled=False),
+        "lan": ProviderConfig(type="openai_compatible", locality="local", base_url="http://10.0.0.2/v1", api_key="x"),
         "openrouter": ProviderConfig(type="openai_compatible", locality="cloud", base_url="http://r/v1", api_key_env="OPENROUTER_API_KEY"),
-        "anthropic": ProviderConfig(type="anthropic", locality="cloud", api_key="sk-test"),
-        "demo": ProviderConfig(type="mock", locality="local")},
+        "anthropic": ProviderConfig(type="anthropic", locality="cloud", api_key="sk-test")},
         models=[ModelConfig(ref="anthropic/claude-sonnet-5-5", tools=True)],
-        tiers={"specialist": ["ollama/x", "openrouter/vendor/model", "anthropic/claude-sonnet-5-5", "demo/demo"]})
+        tiers={"specialist": ["ollama/x", "openrouter/vendor/model", "anthropic/claude-sonnet-5-5", "lan/small"]})
     r = ModelRouter(s)
     cands, skipped = r.candidates("specialist", "internal")
-    assert [c.ref for c in cands] == ["anthropic/claude-sonnet-5-5", "demo/demo"]
-    assert any("disabled" in x for x in skipped) and any("OPENROUTER_API_KEY" in x for x in skipped)
+    assert [c.ref for c in cands] == ["anthropic/claude-sonnet-5-5", "lan/small"]
+    assert any("switched off" in x for x in skipped) and any("OPENROUTER_API_KEY" in x for x in skipped)
     cands, skipped = r.candidates("specialist", "restricted")
-    assert [c.ref for c in cands] == ["demo/demo"] and any("not allowed for 'restricted'" in x for x in skipped)
+    assert [c.ref for c in cands] == ["lan/small"] and any("not allowed for 'restricted'" in x for x in skipped)
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     cands, _ = r.candidates("specialist", "internal")
     assert cands[0].ref == "openrouter/vendor/model" and cands[0].model.model == "vendor/model"
     assert r.settings.model("ollama/unknown").context_tokens == 8192  # conservative default for local
+    assert r.settings.model("nowhere/unknown").context_tokens == 128_000
 
 
 def test_offline_mode_blocks_cloud_and_network_connectors(tmp_path, monkeypatch):

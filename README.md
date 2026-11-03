@@ -14,7 +14,7 @@ Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 20+. Dock
 ./scripts/dev.sh
 ```
 
-Then open http://127.0.0.1:8765. Windows (`.msi`) and Linux (`.deb`) installers are built by GitHub Actions; see [docs/DESKTOP.md](docs/DESKTOP.md) for downloads, offline use and phones. With no model configured, the suite runs in **demo mode**: every step works end to end, but output is labelled demo content. Configure a provider (below) to get real analysis.
+Then open http://127.0.0.1:8765. Windows (`.msi`) and Linux (`.deb`) installers are built by GitHub Actions; see [docs/DESKTOP.md](docs/DESKTOP.md) for downloads, offline use and phones. The suite needs at least one model: until one is switched on, agent steps stop as BLOCKED with "No model configured" (deterministic calculators still run). Set one up in Settings (below).
 
 For UI development with hot reload:
 
@@ -28,14 +28,16 @@ cd frontend && npm install && npm run dev
 
 ## Configure models
 
-Copy `config/suite.example.yaml` to `config/suite.yaml`. Credentials are never stored in files; each provider names an environment variable.
+**From the app (simplest):** Settings → Model providers. Each provider has an **On/Off** switch and an **Edit** panel for its address, API key and models (**Find models** asks the server which models it has). Changes are saved on this computer and apply immediately; **Reset to file defaults** undoes them. A provider switched on here is also used as a fallback by every tier. For LM Studio, start the server, load a model, and if you switched on its authentication, paste its API key in Edit.
+
+**From files:** copy `config/suite.example.yaml` to `config/suite.yaml` (the desktop app uses `~/.productivity-suite/suite.yaml`); it sets the defaults the app starts from. Files never hold credentials: each provider names an environment variable. A key typed into the app is stored unencrypted in the suite's local database and never returned by the API; prefer environment variables for cloud keys.
 
 | Provider | Where | Enable |
 |---|---|---|
-| Ollama | local | Set `enabled: true`. Set Ollama's context length (`OLLAMA_CONTEXT_LENGTH` or `num_ctx`) and match `context_tokens`. |
-| LM Studio, vLLM | local | Set `enabled: true`. Use the model id the server shows. |
-| OpenAI, DeepSeek, OpenRouter | cloud | Export `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` or `OPENROUTER_API_KEY`. Add the models you use under `models:`. |
-| Anthropic | cloud | Export `ANTHROPIC_API_KEY`. |
+| Ollama | local | Switch on (or `enabled: true`). Set Ollama's context length (`OLLAMA_CONTEXT_LENGTH` or `num_ctx`) and match the model's context in Edit. |
+| LM Studio, vLLM | local | Switch on, then Edit → Find models and pick the loaded model. Add the API key if the server requires one. |
+| OpenAI, DeepSeek, OpenRouter | cloud | Edit → API key, or export `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` or `OPENROUTER_API_KEY`. Add the models you use. |
+| Anthropic | cloud | Edit → API key, or export `ANTHROPIC_API_KEY`. |
 
 Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fallback chain. The first model that is available *and* allowed for the run's data class is used. If it errors or declines, the next one is tried. You can override chains per agent (`agent_overrides`) or per playbook step (`models:`).
 
@@ -45,7 +47,7 @@ Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fall
 
 **Data classes.** Each run is tagged `public`, `internal`, `confidential` or `restricted`, and `data_classes` decides which provider localities may receive it. By default, `restricted` runs only reach local models. You are responsible for the credentials and data you use; this policy is how you keep sensitive work local.
 
-Settings → Model providers shows availability and has a **Test** button per provider.
+Settings → Model providers shows each provider's state and has a **Test** button once it is ready. When **Find models** fails, the message says why: a 401 means the server wants an API key, a 404 usually means the address should end in `/v1`, and "could not reach" means nothing is listening there.
 
 ## Connectors (MCP, read-only)
 
@@ -99,7 +101,7 @@ cd backend && uv run pytest
 cd backend && uv run python ../scripts/run_evals.py
 ```
 
-The first runs 52 tests: engine, providers (mocked HTTP), MCP over stdio, API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
+The first runs 58 tests: engine, providers (mocked HTTP), MCP over stdio, API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
 
 ## Project layout
 

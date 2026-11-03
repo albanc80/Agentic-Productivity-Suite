@@ -1,15 +1,10 @@
 # User profile injected into every agent prompt.
-# Copy to config/profile.yaml (git-ignored) and describe yourself.
-# Keep it short: it is sent with every model call.
+# Fill it in (the desktop app keeps its copy in ~/.productivity-suite/profile.yaml).
+# Empty fields are left out of prompts. Keep it short: it is sent with every model call.
 
 name: ""                     # optional; agents address you as "the user" when empty
-role: "Senior professional"
+role: ""                     # e.g. your job title
 organization_context: ""     # industry, team, what your organisation does
-goals:
-  - "Make better decisions faster"
-  - "Protect focus time for work that needs my judgment"
-working_preferences:
-  - "Lead with the answer, then the reasoning"
-  - "Separate facts, assumptions and recommendations"
-  - "Challenge weak assumptions before executing"
+goals: []                    # what you want the suite to help you achieve
+working_preferences: []      # how you like answers, e.g. "Lead with the answer, then the reasoning"
 domain_notes: ""             # standards, systems or vocabulary agents should know

@@ -135,6 +135,24 @@ class Store:
             r["demo"] = bool(r["demo"])
         return rows
 
+    def delete_runs(self, run_ids: list[str]) -> int:
+        """Delete runs with their steps and approvals. The audit trail is kept."""
+        if not run_ids:
+            return 0
+        marks = ",".join("?" * len(run_ids))
+        args = tuple(run_ids)
+        with self.lock:
+            self.db.execute("BEGIN")
+            self.db.execute(f"DELETE FROM steps WHERE run_id IN ({marks})", args)  # noqa: S608 - placeholders only
+            self.db.execute(f"DELETE FROM approvals WHERE run_id IN ({marks})", args)  # noqa: S608
+            n = self.db.execute(f"DELETE FROM runs WHERE id IN ({marks})", args).rowcount  # noqa: S608
+            self.db.execute("COMMIT")
+        return n
+
+    def demo_run_ids(self) -> list[str]:
+        """Runs made by the demo provider of earlier versions."""
+        return [r["id"] for r in self._rows("SELECT id FROM runs WHERE demo=1")]
+
     def add_note(self, run_id: str, note: str) -> None:
         r = self.run(run_id)
         if r is not None and note not in r["notes"]:

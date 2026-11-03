@@ -35,7 +35,7 @@ def check(case: dict, run: dict, steps: list[dict]) -> list[tuple[str, bool]]:
     md = (run.get("deliverable") or "").lower()
     exp = case.get("expect", {})
     results = [("run completed", run["status"] == "completed"),
-               ("not demo output", not run["demo"]),
+               ("every agent step ran on a model", all(s.get("model") for s in steps if s["kind"] in ("agent", "review"))),
                ("no people-evaluation language", not scan_people_eval(run.get("deliverable") or "")),
                ("every agent step returned a contract",
                 all("contract repair failed" not in " ".join(s["warnings"]) for s in steps if s["kind"] in ("agent", "review")))]

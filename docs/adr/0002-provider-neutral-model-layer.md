@@ -6,7 +6,7 @@ Status: accepted · 2026-11-03
 Users want to mix local models (Ollama, LM Studio, vLLM) with OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, sometimes inside one run. Data sensitivity varies per run, and the end user owns data clearance.
 
 ## Decision
-- Two adapters: OpenAI-compatible chat completions (official `openai` SDK with a configurable `base_url`) and Anthropic Messages (official `anthropic` SDK). A demo provider runs without any model.
+- Two adapters: OpenAI-compatible chat completions (official `openai` SDK with a configurable `base_url`) and Anthropic Messages (official `anthropic` SDK). There is no demo provider: with no model available, agent steps stop as BLOCKED and say how to add one.
 - Each provider keeps its native message format inside a `Conversation`, so tool rounds are appended correctly per provider.
 - Steps request a tier. Tiers are ordered chains of `provider/model` refs; per-agent and per-step overrides are allowed.
 - Candidates are filtered by availability (enabled, key present) and by the run's data class → allowed localities, before any call. Errors and refusals fall through to the next candidate.

@@ -3,7 +3,9 @@
 Configuration lives in ``config/suite.yaml`` (falls back to ``config/suite.example.yaml``).
 Secrets never live in the file: providers and connectors name the environment
 variable that holds a credential (``api_key_env``, ``${VAR}``) and the value is
-read at call time. The suite never persists or logs credential values.
+read at call time. A key typed into Settings in the app is stored in the suite's
+local database on this computer (not encrypted) so the provider keeps working
+after a restart; it is never returned by the API or written to the audit log.
 """
 
 from __future__ import annotations
@@ -52,7 +54,7 @@ def env_refs(value: Any) -> set[str]:
 
 
 class ProviderConfig(BaseModel):
-    type: Literal["openai_compatible", "anthropic", "mock"]
+    type: Literal["openai_compatible", "anthropic"]
     locality: Locality = "cloud"
     base_url: str | None = None
     api_key: str | None = None  # only for keyless local servers (e.g. "ollama")
@@ -63,6 +65,8 @@ class ProviderConfig(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     refusal_fallback: bool = True  # anthropic only: server-side refusal fallbacks
     note: str = ""
+    edited_in_app: bool = False  # settings changed from the UI (layered over the file)
+    key_saved_in_app: bool = False  # api_key came from the UI, not the file or environment
 
 
 class ModelConfig(BaseModel):
@@ -112,7 +116,6 @@ class Settings(BaseModel):
     data_dir: Path
     profile_path: Path | None = None
     store_prompts: bool = False
-    allow_demo_provider: bool = True
     offline: bool = False  # true: no cloud providers, no network connectors
     persona: PersonaSettings = PersonaSettings()
     output_policies: list[str] = Field(default_factory=lambda: ["plain-voice", "action-first"])
@@ -150,7 +153,8 @@ class Settings(BaseModel):
             if m.ref == ref:
                 return m
         provider = ref.split("/", 1)[0]
-        local = self.providers.get(provider, ProviderConfig(type="mock")).locality == "local"
+        cfg = self.providers.get(provider)
+        local = cfg is not None and cfg.locality == "local"
         # Unknown model: conservative defaults (small context, no tools, unpriced).
         return ModelConfig(ref=ref, context_tokens=8192 if local else 128_000, tools=False)
 
@@ -160,6 +164,22 @@ def _first_existing(*paths: Path) -> Path | None:
         if p.exists():
             return p
     return None
+
+
+def drop_legacy_demo(raw: dict[str, Any]) -> dict[str, Any]:
+    """Remove the demo provider that earlier versions shipped, so their saved suite.yaml still loads."""
+    raw = dict(raw)
+    raw.pop("allow_demo_provider", None)
+    provs = raw.get("providers") or {}
+    gone = {n for n, p in provs.items() if isinstance(p, dict) and p.get("type") == "mock"}
+    if not gone:
+        return raw
+    raw["providers"] = {n: p for n, p in provs.items() if n not in gone}
+    keep = lambda ref: str(ref).split("/", 1)[0] not in gone  # noqa: E731
+    raw["models"] = [m for m in raw.get("models") or [] if keep(m.get("ref", ""))]
+    raw["tiers"] = {t: [r for r in chain or [] if keep(r)] for t, chain in (raw.get("tiers") or {}).items()}
+    raw["agent_overrides"] = {a: [r for r in chain or [] if keep(r)] for a, chain in (raw.get("agent_overrides") or {}).items()}
+    return raw
 
 
 def load_settings(home: Path | None = None, config_path: Path | None = None) -> Settings:
@@ -183,6 +203,7 @@ def load_settings(home: Path | None = None, config_path: Path | None = None) -> 
                                                home / "config" / "connectors.yaml",
                                                home / "config" / "connectors.example.yaml") if x))
     theme = rel(os.environ.get("SUITE_THEME_DIR") or raw.get("theme_dir"))
+    raw = drop_legacy_demo(raw)
     fields = {k: v for k, v in raw.items() if k in Settings.model_fields and k not in {"home", "data_dir", "profile_path", "connectors_path", "theme_dir"}}
     if os.environ.get("SUITE_OFFLINE", "").strip().lower() in ("1", "true", "yes", "on"):
         fields["offline"] = True

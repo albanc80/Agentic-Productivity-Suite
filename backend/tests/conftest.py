@@ -58,6 +58,31 @@ class ScriptedProvider:
         conv.messages.append({"role": "user", "content": text})
 
 
+def fake_openai_server(seen: list, models=("qwen2.5-3b-instruct", "gemma-2-2b-it"), require_key: str | None = None):
+    """Fake OpenAI-compatible server (phone, LM Studio...): lists models and answers chats.
+
+    With ``require_key`` it answers 401 unless the request carries that bearer token, like LM Studio with
+    authentication switched on.
+    """
+    import httpx2
+
+    def handler(req):
+        seen.append(str(req.url))
+        if require_key and req.headers.get("authorization") != f"Bearer {require_key}":
+            return httpx2.Response(401, json={"error": {"message": "Invalid API key", "type": "invalid_request_error"}})
+        if req.url.path.endswith("/models"):
+            return httpx2.Response(200, json={"object": "list", "data": [
+                {"id": m, "object": "model", "created": 0, "owned_by": "local"} for m in models]})
+        body = json.loads(req.content)
+        assert body["model"] in models
+        assert "tools" not in body  # registered without tool calling
+        return httpx2.Response(200, json={"id": "c", "object": "chat.completion", "created": 0, "model": body["model"],
+                                          "choices": [{"index": 0, "finish_reason": "stop", "message": {
+                                              "role": "assistant", "content": "Model answer.\n" + contract()}}],
+                                          "usage": {"prompt_tokens": 900, "completion_tokens": 40, "total_tokens": 940}})
+    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+
+
 def agent_of(system: str) -> str:
     m = re.search(r"^You are acting as: (.+?) \(", system, re.M)
     return m.group(1) if m else ""
@@ -67,7 +92,6 @@ def agent_of(system: str) -> str:
 def settings(tmp_path) -> Settings:
     return Settings(
         home=ROOT, data_dir=tmp_path, profile_path=ROOT / "config" / "profile.example.yaml",
-        allow_demo_provider=False,
         providers={
             "local": ProviderConfig(type="openai_compatible", locality="local", base_url="http://local/v1", api_key="x"),
             "cloud": ProviderConfig(type="openai_compatible", locality="cloud", base_url="http://cloud/v1", api_key="k"),

@@ -47,6 +47,7 @@ cd backend && uv sync --group desktop && uv run pyinstaller ../desktop/productiv
 
 The result is `backend/dist/ProductivitySuite/`. To package it, use `desktop/linux/build_deb.sh` (Linux) or `wix build desktop\windows\productivity-suite.wxs` (Windows; see the workflow for the exact arguments). Run `ProductivitySuite` (or `ProductivitySuite.exe`). A Linux build of this spec was produced and run headless in offline mode, including a Well Plan Review run with the casing calculator. Windows and macOS builds have not been tested yet.
 
+- **Models** are set up in the app: Settings → Model providers (On/Off switch and Edit per provider). See the README.
 - **Settings and data** live in `~/.productivity-suite/` (`suite.yaml`, `connectors.yaml`, `profile.yaml`, `data/`). They are created on first run and kept across upgrades. Override the location with `SUITE_USER_DIR`.
 - **Windows** needs the Microsoft Edge WebView2 runtime for the native window. It ships with current Windows 10 and 11; without it the launcher opens the browser.
 - **Linux** needs GTK or Qt WebKit libraries for the native window; otherwise it opens the browser.
@@ -60,7 +61,7 @@ Switch it from the app: the **Online / Offline** switch in the top bar, or Setti
 - connectors that need the internet are switched off; `local-files` stays available (`network: false`);
 - fonts and UI assets are bundled, so the UI makes no external requests.
 
-Runs then need a local model (Ollama, LM Studio or vLLM, enabled in `suite.yaml`) or fall back to the labelled demo provider. Local models give weaker results than large cloud models, especially for long multi-step playbooks. Check output quality with `scripts/run_evals.py` on the models you plan to use.
+Runs then need a local model: switch on Ollama, LM Studio or vLLM in Settings → Model providers (Edit sets the address, key and models), or add an endpoint on your network. Without one, agent steps stop with "No model configured". Local models give weaker results than large cloud models, especially for long multi-step playbooks. Check output quality with `scripts/run_evals.py` on the models you plan to use.
 
 ## Installable web app
 
@@ -72,7 +73,7 @@ Some phones can serve a small model (roughly 2B–4B parameters) through an app 
 
 1. On the phone, start the model server and make it listen on the network (not only on `127.0.0.1`). Note the phone's IP address and port.
 2. In the suite: Settings → Model endpoints → enter the address (e.g. `192.168.1.42:8080`) → **Find models** → pick the model, set its context window to what the server uses, tick the tiers it should serve first → **Add endpoint**.
-3. **Test** checks the connection. The endpoint is then tried first for the ticked tiers, and kept as a local fallback ahead of the demo provider for every other tier.
+3. **Test** checks the connection. The endpoint is then tried first for the ticked tiers, and kept as a fallback for every other tier.
 
 The same works for a laptop or workstation running Ollama, LM Studio or vLLM on your network.
 

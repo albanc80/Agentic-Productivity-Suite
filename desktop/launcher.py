@@ -133,9 +133,17 @@ def _open_window(url: str) -> bool:
     except ImportError:
         print("pywebview is not installed; opening your browser instead.", flush=True)
         return False
+    icon = bundle_root() / "desktop" / "assets" / ("icon.ico" if sys.platform == "win32" else "icon.png")
+    if sys.platform == "win32":
+        # Own taskbar identity, so Windows shows the app's icon rather than a generic or Python one.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ProductivitySuite.Desktop")
+        except Exception:  # noqa: BLE001 - cosmetic only
+            pass
     try:
         webview.create_window("Productivity Suite", url, width=1360, height=900, min_size=(420, 640))
-        webview.start()
+        webview.start(icon=str(icon) if icon.is_file() else None)
         return True
     except Exception as e:  # noqa: BLE001 - no GUI backend available
         print(f"Native window unavailable ({e}); opening your browser instead.", flush=True)

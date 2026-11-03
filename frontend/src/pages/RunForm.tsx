@@ -82,9 +82,6 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
                   placeholder={inp.example || undefined}
                   onChange={(e) => set(inp.id, e.target.value)} required={inp.required} />
               )}
-              {inp.example && !values[inp.id] && (
-                <button type="button" className="ghost small-btn" onClick={() => set(inp.id, inp.example)}>Use example values</button>
-              )}
               {(inp.type === "text" || inp.type === "date") && (
                 <input id={`f-${inp.id}`} type="text" value={String(values[inp.id] ?? "")} onChange={(e) => set(inp.id, e.target.value)} required={inp.required} />
               )}
@@ -134,7 +131,7 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
             <span className="label">This run can reach</span>
             {reachable.length ? (
               <ul className="plain small">
-                {reachable.map((p) => <li key={p.name}><strong>{p.name}</strong> <span className="muted">({p.locality}{p.type === "mock" ? ", demo" : ""})</span></li>)}
+                {reachable.map((p) => <li key={p.name}><strong>{p.name}</strong> <span className="muted">({p.locality})</span></li>)}
               </ul>
             ) : <p className="note bad small">No configured model is allowed for this data class. The run will stop at its first step.</p>}
           </div>

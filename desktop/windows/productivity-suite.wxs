@@ -19,8 +19,9 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Productivity Suite is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="AppIcon" SourceFile="$(var.IconFile)" />
-    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <!-- The Icon Id keeps the .ico extension: Windows uses it to read the icon for the shortcut and Apps list. -->
+    <Icon Id="ProductivitySuite.ico" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="ProductivitySuite.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/ilbambinomx/Productivity-Agents" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
@@ -31,6 +32,7 @@
     <Feature Id="Main" Title="Productivity Suite">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="StartMenuShortcut" />
     </Feature>
   </Package>
 
@@ -42,11 +44,17 @@
     </ComponentGroup>
 
     <Component Id="MainExecutable" Directory="INSTALLFOLDER">
-      <File Id="MainExe" Source="$(var.SourceDir)\ProductivitySuite.exe" KeyPath="yes">
-        <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Productivity Suite"
-                  Description="Governed agent playbooks that run on your computer"
-                  WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" Advertise="yes" />
-      </File>
+      <File Id="MainExe" Source="$(var.SourceDir)\ProductivitySuite.exe" KeyPath="yes" />
+    </Component>
+
+    <!-- A plain (non-advertised) shortcut pointing at the exe, with the icon set explicitly. Advertised
+         shortcuts take their icon from the Icon table under stricter naming rules and can show blank. -->
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Shortcut Id="StartMenuShortcut" Name="Productivity Suite"
+                Description="Governed agent playbooks that run on your computer"
+                Target="[INSTALLFOLDER]ProductivitySuite.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="ProductivitySuite.ico" IconIndex="0" />
+      <RegistryValue Root="HKLM" Key="Software\Productivity Suite" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
   </Fragment>
 </Wix>

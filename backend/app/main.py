@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .connectors import ConnectorError, ConnectorManager
-from .endpoints import Endpoint, apply_runtime, locality_of, normalize_url
+from .endpoints import Endpoint, ModelEdit, ProviderOverride, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
 from .files import UnsupportedFile, extract_text
@@ -66,7 +66,23 @@ class OfflineSwitch(BaseModel):
 
 
 class Discover(BaseModel):
-    base_url: str
+    base_url: str | None = None
+    provider: str | None = None  # use this provider's address and saved key unless given here
+    api_key: str | None = None
+
+
+class ProviderEdit(BaseModel):
+    enabled: bool | None = None
+    base_url: str | None = None
+    api_key: str | None = None  # empty or omitted keeps the saved key
+    clear_api_key: bool = False
+    models: list[ModelEdit] | None = None
+
+
+def public_endpoint(e: Endpoint) -> dict:
+    d = e.model_dump(exclude={"api_key"})
+    return {**d, "has_api_key": bool(e.api_key), "provider": e.provider_name, "ref": e.ref,
+            "locality": locality_of(e.base_url)}
 
 
 class Suite:
@@ -93,12 +109,42 @@ class Suite:
     def offline_override(self) -> bool | None:
         return self.store.get_setting("offline_override", None)
 
+    def provider_overrides(self) -> dict[str, ProviderOverride]:
+        return {k: ProviderOverride.model_validate(v) for k, v in self.store.get_setting("provider_overrides", {}).items()}
+
     def apply(self) -> None:
         override = self.offline_override()
         offline = self.base["offline"] if override is None else bool(override)
-        apply_runtime(self.settings, self.base, self.endpoints(), offline)
+        apply_runtime(self.settings, self.base, self.endpoints(), offline, self.provider_overrides())
         self.connectors.offline = offline
-        self.models._instances = {k: v for k, v in self.models._instances.items() if not k.startswith("ep-")}
+        self.models._instances = {}  # addresses or keys may have changed
+
+    def save_provider(self, name: str, edit: ProviderEdit, by: str) -> None:
+        if name not in self.base["providers"]:
+            raise KeyError(name)
+        overrides = self.provider_overrides()
+        prev = overrides.get(name, ProviderOverride())
+        key = None if edit.clear_api_key else (edit.api_key.strip() if edit.api_key and edit.api_key.strip() else prev.api_key)
+        overrides[name] = ProviderOverride(
+            enabled=edit.enabled if edit.enabled is not None else prev.enabled,
+            base_url=edit.base_url if edit.base_url is not None else prev.base_url,
+            api_key=key,
+            models=edit.models if edit.models is not None else prev.models,
+        )
+        self.store.set_setting("provider_overrides", {k: v.model_dump() for k, v in overrides.items()})
+        self.apply()
+        self.store.audit("provider_edited", None, provider=name, enabled=overrides[name].enabled,
+                         base_url=overrides[name].base_url, api_key_saved=bool(key),
+                         models=[m.model for m in overrides[name].models or []], by=by)
+
+    def reset_provider(self, name: str, by: str) -> bool:
+        overrides = self.provider_overrides()
+        if overrides.pop(name, None) is None:
+            return False
+        self.store.set_setting("provider_overrides", {k: v.model_dump() for k, v in overrides.items()})
+        self.apply()
+        self.store.audit("provider_reset", None, provider=name, by=by)
+        return True
 
     async def set_offline(self, on: bool | None, by: str) -> bool:
         self.store.set_setting("offline_override", on)
@@ -111,6 +157,9 @@ class Suite:
         return self.settings.offline
 
     def save_endpoint(self, ep: Endpoint, by: str) -> None:
+        prev = next((e for e in self.endpoints() if e.id == ep.id), None)
+        if prev and not ep.api_key:
+            ep = ep.model_copy(update={"api_key": prev.api_key})  # editing without retyping the key keeps it
         eps = [e for e in self.endpoints() if e.id != ep.id] + [ep]
         self.store.set_setting("endpoints", [e.model_dump() for e in eps])
         self.apply()
@@ -159,7 +208,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     @app.get("/api/health")
     def health():
         return {"status": "ok", "version": __version__, "auth_required": bool(token), "offline": settings.offline,
-                "kill_switch": eng.killed, "demo_allowed": settings.allow_demo_provider}
+                "kill_switch": eng.killed}
 
     @app.get("/api/overview")
     def overview():
@@ -175,8 +224,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             "kill_switch": eng.killed,
             "offline": settings.offline,
             "offline_override": suite.offline_override(),
-            "endpoints": [{**e.model_dump(), "provider": e.provider_name, "ref": e.ref, "locality": locality_of(e.base_url)}
-                          for e in suite.endpoints()],
+            "endpoints": [public_endpoint(e) for e in suite.endpoints()],
             "budgets": settings.budgets.model_dump(),
             "persona": settings.persona.model_dump(),
             "profile_configured": bool(settings.profile_path and settings.profile_path.name == "profile.yaml"),
@@ -248,6 +296,26 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         return {**r, "steps": store.steps(rid), "approvals": store.approvals(run_id=rid),
                 "playbook": suite.playbooks[r["playbook_id"]].card() if r["playbook_id"] in suite.playbooks else None}
 
+    @app.delete("/api/runs")
+    def delete_demo_runs(demo: bool = False):
+        """Delete the runs made by the demo provider of earlier versions (the only bulk delete offered)."""
+        if not demo:
+            raise HTTPException(422, "only demo=true is supported")
+        ids = [i for i in store.demo_run_ids() if i not in eng._tasks]
+        n = store.delete_runs(ids)
+        store.audit("runs_deleted", None, count=n, reason="demo runs", by="ui")
+        return {"deleted": n}
+
+    @app.delete("/api/runs/{rid}")
+    def delete_run(rid: str):
+        if not store.run(rid):
+            raise HTTPException(404, "run not found")
+        if rid in eng._tasks:
+            raise HTTPException(409, "Stop the run before deleting it.")
+        store.delete_runs([rid])
+        store.audit("run_deleted", rid, by="ui")
+        return {"deleted": 1}
+
     @app.post("/api/runs/{rid}/cancel")
     def cancel(rid: str):
         if not store.run(rid):
@@ -315,28 +383,46 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
 
     @app.get("/api/endpoints")
     def endpoints():
-        return [{**e.model_dump(), "provider": e.provider_name, "ref": e.ref, "locality": locality_of(e.base_url)}
-                for e in suite.endpoints()]
+        return [public_endpoint(e) for e in suite.endpoints()]
 
     @app.post("/api/endpoints/discover")
     async def discover(body: Discover):
         """List the models an OpenAI-compatible server offers (GET {base_url}/models)."""
+        import openai
+
         from .providers.openai_compat import OpenAICompatibleProvider
+        cfg = settings.providers.get(body.provider) if body.provider else None
+        if body.provider and cfg is None:
+            raise HTTPException(404, "provider not found")
+        raw = body.base_url or (cfg.base_url if cfg else None)
+        if not raw:
+            raise HTTPException(422, "Enter the server address first.")
         try:
-            url = normalize_url(body.base_url)
+            url = normalize_url(raw)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
         locality = locality_of(url)
         if settings.offline and locality != "local":
             raise HTTPException(409, "Offline mode is on: only addresses on your own network can be used.")
-        probe = OpenAICompatibleProvider("probe", base_url=url, api_key="not-needed", timeout_s=8, max_retries=0,
+        key = (body.api_key or "").strip() or (suite.models._api_key(cfg) if cfg else None) or "not-needed"
+        probe = OpenAICompatibleProvider("probe", base_url=url, api_key=key, timeout_s=8, max_retries=0,
                                          http_client=suite.http_client)
         try:
             page = await probe.client.models.list()
             ids = sorted({m.id for m in page.data})
-        except Exception as e:  # noqa: BLE001 - report any connection or protocol failure to the user
-            raise HTTPException(502, f"Could not list models at {url}: {type(e).__name__}. "
-                                     "Check the address, that the server listens on the network, and that both devices are on the same network.") from e
+        except (openai.AuthenticationError, openai.PermissionDeniedError) as e:
+            raise HTTPException(502, f"The server at {url} refused the request (HTTP {e.status_code}): it needs an API key, "
+                                     "or the key entered is wrong. Enter the key the server expects and try again.") from e
+        except openai.NotFoundError as e:
+            raise HTTPException(502, f"{url} has no model list (HTTP 404). OpenAI-compatible servers usually end in /v1, "
+                                     "for example http://localhost:1234/v1.") from e
+        except openai.APIConnectionError as e:
+            raise HTTPException(502, f"Could not reach {url}. Check that the server is running and the address and port are right; "
+                                     "for another device, that it listens on the network and both are on the same network.") from e
+        except openai.APIStatusError as e:
+            raise HTTPException(502, f"The server at {url} answered HTTP {e.status_code}.") from e
+        except Exception as e:  # noqa: BLE001 - unexpected protocol errors
+            raise HTTPException(502, f"Could not list models at {url}: {type(e).__name__}.") from e
         return {"base_url": url, "locality": locality, "models": ids}
 
     @app.post("/api/endpoints", status_code=201)
@@ -344,13 +430,35 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         if settings.offline and locality_of(body.base_url) != "local":
             raise HTTPException(409, "Offline mode is on: only addresses on your own network can be added.")
         suite.save_endpoint(body, "ui")
-        return {**body.model_dump(), "provider": body.provider_name, "ref": body.ref, "locality": locality_of(body.base_url)}
+        saved = next(e for e in suite.endpoints() if e.id == body.id)
+        return public_endpoint(saved)
 
     @app.delete("/api/endpoints/{eid}")
     def delete_endpoint(eid: str):
         if not suite.delete_endpoint(eid, "ui"):
             raise HTTPException(404, "endpoint not found")
         return {"deleted": eid}
+
+    @app.put("/api/providers/{name}")
+    def edit_provider(name: str, body: ProviderEdit):
+        if name.startswith("ep-"):
+            raise HTTPException(409, "Endpoints added in the app are changed under Model endpoints.")
+        if body.base_url:
+            try:
+                body.base_url = normalize_url(body.base_url)
+            except ValueError as e:
+                raise HTTPException(422, str(e)) from e
+        try:
+            suite.save_provider(name, body, "ui")
+        except KeyError as e:
+            raise HTTPException(404, "provider not found") from e
+        return next(p for p in suite.models.describe() if p["name"] == name)
+
+    @app.delete("/api/providers/{name}/override")
+    def reset_provider(name: str):
+        if not suite.reset_provider(name, "ui"):
+            raise HTTPException(404, "no changes to reset for this provider")
+        return next(p for p in suite.models.describe() if p["name"] == name)
 
     @app.post("/api/providers/{name}/test")
     async def test_provider(name: str, model: str | None = None):
