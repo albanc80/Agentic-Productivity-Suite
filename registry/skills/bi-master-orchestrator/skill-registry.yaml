@@ -1,0 +1,50 @@
+version: 1
+master_skill: bi-master-orchestrator
+execution_layer: Databricks MCP
+skills:
+  - name: bi-basin-ranking
+    intent: Rank attractive or under-served basins using permitting, rigs, and production.
+    outputs: [ranked_list, rationale, underserved_candidates]
+  - name: bi-competitor-intelligence
+    intent: Compare Big 4 oilfield-service revenue trends and visible share movement.
+    outputs: [year_company_table, trend_commentary]
+  - name: bi-completion-market-growth
+    intent: Analyze basin completion and frac-service demand.
+    outputs: [top_basins, completion_volume, operator_breadth, concentration]
+  - name: bi-customer-expansion-signals
+    intent: Prioritize operators using recent permitting momentum and basin breadth.
+    outputs: [operator_shortlist, signal_concentration, follow_up_filters]
+  - name: bi-drilling-demand-forecast
+    intent: Identify drilling-demand signals using permits, rigs, and permit-to-spud timing.
+    outputs: [basin_signals, conversion_candidates]
+  - name: bi-energy-transition-opportunities
+    intent: Identify basin-level flaring, produced-water, and adjacent low-carbon demand signals.
+    outputs: [flaring_summary, water_summary, demand_implications]
+  - name: bi-esg-regulatory-impact
+    intent: Rank operator flaring exposure by absolute volume and intensity.
+    outputs: [operator_ranking, exposure_type]
+  - name: bi-guarded-databricks-query
+    intent: Execute safe read-only Databricks SQL when no narrower BI skill fits.
+    fallback: true
+    outputs: [short_answer, result_table, source_and_filters, caveats]
+  - name: bi-inline-executive-dashboard
+    intent: Produce an inline executive basin dashboard for permits, rigs, and production.
+    output_type: inline_html
+  - name: bi-inline-nam-emea-market-share-dashboard
+    intent: Produce inline NAM/EMEA opportunity, operator, service-company, and TAM/SAM/SOM views.
+    output_type: inline_html
+  - name: bi-inline-nam-latam-service-market-share-dashboard
+    intent: Produce inline NAM/LATAM Big 4 service-company market-share analysis.
+    output_type: inline_html
+  - name: bi-inline-og-dashboard
+    intent: Produce a generic inline O&G KPI, divergence, or executive dashboard.
+    output_type: inline_html
+  - name: bi-ma-early-signals
+    intent: Analyze announced upstream transactions and portfolio-move signals.
+    outputs: [large_transactions, deal_type_summary, follow_up_questions]
+  - name: bi-operator-spending-analysis
+    intent: Analyze operator program scale using permits and rigs as capital-deployment proxies.
+    outputs: [operator_scale, basin_breadth, recency, proxy_caveat]
+  - name: bi-production-forecast-changes
+    intent: Analyze basin production momentum and recent oil, gas, or well-count direction.
+    outputs: [latest_month, trend_direction, trend_driver]

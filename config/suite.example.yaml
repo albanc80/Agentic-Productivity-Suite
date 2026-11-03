@@ -1,0 +1,125 @@
+# Productivity Suite configuration.
+# Copy to config/suite.yaml and edit. config/suite.yaml is git-ignored.
+#
+# Credentials never go in this file. Each provider names the environment
+# variable that holds its key (api_key_env). The person running the suite is
+# responsible for which credentials and data they use; the data-class policy
+# below lets you keep sensitive runs on local models.
+
+profile: config/profile.yaml          # falls back to config/profile.example.yaml
+connectors: config/connectors.yaml    # falls back to config/connectors.example.yaml
+data_dir: ./data                      # SQLite database, uploads, exports
+store_prompts: false                  # true = keep full prompts in the audit log (contains your data)
+
+# Demo provider: lets the suite run with no model configured. Every demo output
+# is labelled. Set to false once a real provider works.
+allow_demo_provider: true
+
+# Offline mode: cloud providers and internet connectors are switched off; only local
+# models (Ollama, LM Studio, vLLM) and the local-files connector are used.
+# Also settable with SUITE_OFFLINE=1.
+offline: false
+
+persona:
+  chat: true      # agents with a persona use it on screen
+  exports: false  # exported deliverables are written without persona voice
+
+# Compact output policies applied to every agent (config/policies/*.md).
+output_policies: [plain-voice, action-first]
+
+budgets:
+  max_run_cost_usd: 2.00        # stops the run at a gate if exceeded (priced models only)
+  max_run_tokens: 400000        # hard ceiling for all models, including unpriced local ones
+  max_steps: 40
+  max_tool_calls_per_step: 8
+  max_tool_result_chars: 12000
+  max_context_fraction: 0.75    # prompt may use at most this share of a model's context window
+
+# Which provider localities may receive each data class. The run form asks for a
+# data class; "restricted" runs only ever reach local models.
+data_classes:
+  public: [local, cloud]
+  internal: [local, cloud]
+  confidential: [local, cloud]
+  restricted: [local]
+default_data_class: internal
+
+providers:
+  ollama:
+    type: openai_compatible
+    locality: local
+    base_url: http://localhost:11434/v1
+    api_key: ollama
+    enabled: false   # set true once Ollama is running
+    timeout_s: 900
+    note: "Set the context length in Ollama (OLLAMA_CONTEXT_LENGTH or num_ctx) and match context_tokens below."
+  lmstudio:
+    type: openai_compatible
+    locality: local
+    base_url: http://localhost:1234/v1
+    api_key: lm-studio
+    enabled: false
+    timeout_s: 900
+  vllm:
+    type: openai_compatible
+    locality: local
+    base_url: http://localhost:8000/v1
+    api_key: vllm
+    enabled: false
+  openai:
+    type: openai_compatible
+    locality: cloud
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+  deepseek:
+    type: openai_compatible
+    locality: cloud
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+  openrouter:
+    type: openai_compatible
+    locality: cloud
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    headers: {X-Title: Productivity Suite}
+  anthropic:
+    type: anthropic
+    locality: cloud
+    api_key_env: ANTHROPIC_API_KEY
+    refusal_fallback: true   # server-side fallback model if a request is declined (supported models only)
+  demo:
+    type: mock
+    locality: local
+
+# Model capabilities and prices (USD per million tokens). Unlisted models get
+# conservative defaults: small context, no tool calling, unpriced.
+# Verify model ids and prices with each provider; they change.
+models:
+  - {ref: anthropic/claude-opus-5-5,   context_tokens: 1000000, max_output_tokens: 16000, tools: true, price_in_per_mtok: 4.00, price_out_per_mtok: 20.00, effort: medium}
+  - {ref: anthropic/claude-sonnet-5-5, context_tokens: 1000000, max_output_tokens: 16000, tools: true, price_in_per_mtok: 2.00, price_out_per_mtok: 10.00, effort: medium}
+  - {ref: anthropic/claude-haiku-5-5,  context_tokens: 1000000, max_output_tokens: 4000,  tools: true, price_in_per_mtok: 0.10, price_out_per_mtok: 0.50}
+  - {ref: deepseek/deepseek-chat,      context_tokens: 64000,   max_output_tokens: 8000,  tools: true,  note: "verify id, context and price"}
+  - {ref: deepseek/deepseek-reasoner,  context_tokens: 64000,   max_output_tokens: 8000,  tools: false, note: "verify id, context and price"}
+  - {ref: ollama/qwen2.5:14b,          context_tokens: 32768,   max_output_tokens: 4000,  tools: true,  note: "requires num_ctx >= 32768"}
+  - {ref: ollama/llama3.1:8b,          context_tokens: 8192,    max_output_tokens: 2000,  tools: true}
+  - {ref: lmstudio/local-model,        context_tokens: 16384,   max_output_tokens: 4000,  tools: false, note: "use the model id LM Studio shows"}
+  - {ref: demo/demo,                   context_tokens: 1000000, max_output_tokens: 4000,  tools: false}
+  # Examples to enable when you have the account and have confirmed the model id:
+  # - {ref: openai/<model-id>, context_tokens: 128000, max_output_tokens: 8000, tools: true}
+  # - {ref: openrouter/<vendor>/<model-id>, context_tokens: 128000, max_output_tokens: 8000, tools: true}
+
+# Ordered fallback chains per tier. The first available model that the run's
+# data class allows is used; on error or refusal the next one is tried.
+# Mix local and cloud freely.
+tiers:
+  router:     [ollama/llama3.1:8b, anthropic/claude-haiku-5-5, deepseek/deepseek-chat, demo/demo]
+  specialist: [anthropic/claude-sonnet-5-5, deepseek/deepseek-chat, ollama/qwen2.5:14b, lmstudio/local-model, demo/demo]
+  synthesis:  [anthropic/claude-opus-5-5, anthropic/claude-sonnet-5-5, deepseek/deepseek-chat, ollama/qwen2.5:14b, demo/demo]
+  review:     [anthropic/claude-opus-5-5, deepseek/deepseek-reasoner, ollama/qwen2.5:14b, demo/demo]
+
+# Per-agent chains override the tier. Example: keep upstream engineering on a local model.
+agent_overrides: {}
+#  well-planner: [ollama/qwen2.5:14b, anthropic/claude-opus-5-5]
+
+# Optional private theme for exports (theme.css). Kept outside the repo.
+# theme_dir: /path/to/private/theme

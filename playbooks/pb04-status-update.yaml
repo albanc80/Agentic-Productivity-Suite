@@ -1,0 +1,58 @@
+id: status-update
+code: PB-04
+name: Audience Status Update
+area: Management
+desk: management
+status: mvp
+summary: Traced status narratives for executives, engineers and customers, with stakeholder risk flags. Drafts only; never sent.
+patterns: [P2, P6, P5]
+triggers: [status, update, weekly update, report, what happened, end of day, stakeholder update, progress]
+inputs:
+  - {id: project, label: "Project or scope", type: text, required: true}
+  - {id: window, label: "Period", type: text, required: true, default: last week, help: "e.g. last week, this week, 2026-10-01 to 2026-10-15"}
+  - id: audiences
+    label: Audiences
+    type: multiselect
+    options: [exec, tech, customer]
+    default: [exec, tech]
+  - {id: work_data, label: "Work items, tickets, milestones (paste or rely on connectors)", type: longtext}
+  - {id: comms, label: "Relevant messages or meeting notes", type: longtext}
+  - {id: constraints, label: "Constraints (tone, exclusions, deadline)", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: narratives
+    kind: agent
+    title: Status narratives
+    agent: zero-status
+    task: |
+      Write status narratives for {{inputs.project}} covering {{inputs.window}} for these audiences: {{inputs.audiences}}.
+      Use the work data, messages and connected trackers. Every bullet carries a trace (ticket, message
+      sender and time, or roadmap row). Customer-facing text must not expose internal traces or names.
+    connectors: [azure-devops, github, atlassian, microsoft365]
+  - id: evidence
+    kind: tool
+    title: Evidence check
+    tool: evidence_validator
+    args: {handoff: {from_step: narratives}}
+  - id: pulse
+    kind: agent
+    title: Stakeholder pulse
+    agent: sentiment-radar
+    task: |
+      From the messages and notes for {{inputs.project}} ({{inputs.window}}), flag escalation risk and
+      sentiment trend per stakeholder group, each with a trace. Score topics and work items, never people.
+    connectors: [microsoft365]
+  - id: brief
+    kind: agent
+    title: Combined brief and drafts
+    agent: counselor
+    task: |
+      Combine the narratives and the pulse into one brief for the manager: what to send to whom, the one
+      thing that needs attention, and ready-to-send drafts per audience. Respect: {{inputs.constraints}}.
+      Keep every unconfirmed item labelled. These are drafts; do not imply they were sent.
+  - id: approve
+    kind: gate
+    title: Approve drafts before sending
+    instructions: Review the drafts. Approval records that a named person checked them; the suite does not send anything.
+    payload_from: brief
+deliverable: brief

@@ -1,0 +1,15 @@
+# User profile injected into every agent prompt.
+# Copy to config/profile.yaml (git-ignored) and describe yourself.
+# Keep it short: it is sent with every model call.
+
+name: ""                     # optional; agents address you as "the user" when empty
+role: "Senior professional"
+organization_context: ""     # industry, team, what your organisation does
+goals:
+  - "Make better decisions faster"
+  - "Protect focus time for work that needs my judgment"
+working_preferences:
+  - "Lead with the answer, then the reasoning"
+  - "Separate facts, assumptions and recommendations"
+  - "Challenge weak assumptions before executing"
+domain_notes: ""             # standards, systems or vocabulary agents should know

@@ -1,0 +1,23 @@
+# Ontology Release Checklist
+
+- [ ] Scope and competency questions approved
+- [ ] Reuse/alignment decision documented
+- [ ] Namespace and IRI policy approved
+- [ ] Critical classes/properties have definitions and provenance
+- [ ] Ontology parses successfully
+- [ ] Reasoner consistency test passes
+- [ ] No unresolved critical unsatisfiable classes
+- [ ] SHACL positive tests pass
+- [ ] SHACL negative tests fail as expected
+- [ ] All critical competency queries pass
+- [ ] Source mappings pass regression tests
+- [ ] Identity/crosswalk rules validated
+- [ ] Performance SLOs met
+- [ ] External ontology licenses reviewed
+- [ ] Security/privacy implications reviewed
+- [ ] Version and changelog created
+- [ ] Breaking-change migration plan created
+- [ ] Rollback package validated
+- [ ] Governance owners assigned
+- [ ] Deployment monitoring configured
+- [ ] Release approver signs off

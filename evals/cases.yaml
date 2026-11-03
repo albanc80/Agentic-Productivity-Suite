@@ -1,0 +1,113 @@
+# Benchmark cases for the MVP playbooks. Synthetic, generic data only.
+#
+# Run against your configured providers:
+#   cd backend && uv run python ../scripts/run_evals.py [--case id] [--data-class internal]
+#
+# Deterministic checks run automatically. The report has a blank "Human grade"
+# column: the MVP exit criterion is that you grade every case acceptable.
+
+cases:
+  - id: daily-plan-basic
+    playbook: daily-plan
+    inputs:
+      date: tomorrow
+      priorities: "Ship the billing API beta; prepare the quarterly review deck"
+      calendar: "09:00-09:30 standup; 11:00-12:00 vendor call; 15:00-16:00 design review"
+      tasks: "BILL-12 rate limiting (in progress, due Friday); deck draft (not started); approve 3 expense reports"
+      inbox: "Finance asks for Q3 actuals by Thursday. Vendor asks to move the call to 14:00."
+    expect:
+      contains_any: [["focus"], ["delegate", "decline", "batch"]]
+
+  - id: decision-hostile
+    playbook: decision-brief
+    inputs:
+      decision: "Move the team's ticketing from a self-hosted tracker to a SaaS tool this quarter"
+      context: "12 engineers. Self-hosted tracker needs ~4 hours/month of upkeep. SaaS costs about $9 per seat per month. Two integrations depend on the tracker's API."
+      lenses: [business, delivery]
+      challenge_mode: hostile
+    expect:
+      contains_any: [["do nothing", "status quo"], ["recommend"]]
+      review_has_verdict: true
+
+  - id: status-traced
+    playbook: status-update
+    inputs:
+      project: Billing API
+      window: last week
+      audiences: [exec, tech]
+      work_data: "BILL-10 auth flow DONE 2026-10-28. BILL-11 webhooks IN REVIEW. BILL-12 rate limiting BLOCKED on infra quota (opened 2026-10-29)."
+      comms: "2026-10-30 09:12 Infra lead: quota increase needs director sign-off. 2026-10-31 16:40 Sales: two pilot customers asking for a date."
+    expect:
+      contains_all: ["BILL-12"]
+      gate: approve
+
+  - id: scope-change-sized
+    playbook: scope-change
+    inputs:
+      request: "Add CSV export of invoices to the billing API beta"
+      requester: Sales lead
+      effort_hours: 32
+      project: Billing API
+      roadmap: "Beta milestone 2026-11-20: auth, webhooks, rate limiting. GA 2027-01-15."
+      deadline: "2026-11-20"
+    expect:
+      contains_any: [["accept", "defer", "swap"]]
+      gate: approve
+
+  - id: prd-small-feature
+    playbook: prd
+    inputs:
+      opportunity: "Let account admins download a monthly usage report without contacting support"
+      users: "Account admins at mid-size customers"
+      outcome: "Support tickets asking for usage data per month"
+    expect:
+      contains_any: [["acceptance criteria", "given", "then"]]
+      review_has_verdict: true
+
+  - id: architecture-simple
+    playbook: architecture-review
+    inputs:
+      proposal: "Split the monolith's reporting module into a separate microservice on Kubernetes so it can scale independently"
+      decision: "Approve the split or keep reporting in the monolith"
+      requirements: "Reports run nightly for ~300 customers; p95 generation under 10 minutes; team of 5"
+      lens: product
+    expect:
+      contains_any: [["monolith"], ["adr", "decision"]]
+      gate: approve
+
+  - id: investment-general
+    playbook: investment-case
+    inputs:
+      initiative: "Automate first-line triage of internal IT tickets with a rules engine plus a single model call for classification"
+      value_hypothesis: "Reduce median time-to-assign from 4 hours to 30 minutes for ~1,200 tickets/month"
+      costs: "Estimated 3 engineer-months build; about $400/month run cost"
+      domain: general
+    expect:
+      contains_any: [["invest", "pilot", "modify", "defer", "reject"]]
+      gate: approve
+
+  - id: well-plan-lateral
+    playbook: well-plan-review
+    inputs:
+      well: Demo-1H horizontal producer (synthetic data)
+      well_type: horizontal_shale
+      phase: detailed design
+      basin: Synthetic onshore basin
+      plan_summary: Surface 13-3/8 in to 1,500 ft; intermediate 9-5/8 in 47 ppf P-110 to 10,000 ft TVD; 8-1/2 in curve and lateral to 15,500 ft MD with 11.0 ppg OBM; RSS BHA.
+      hazards: 'Offset wells: losses near 9,600 ft; one kick in the curve on an offset; torque limits on 5 in DP.'
+      casing_json: '{"casing_size_in": 9.625, "weight_ppf": 47, "grade": "P-110", "setting_depth_ft": 10000, "pore_pressure_ppg": 10.5, "fracture_gradient_ppg": 15.0, "mud_weight_ppg": 11.0, "well_type":
+        "horizontal_shale"}'
+      hydraulics_json: '{"flow_rate_gpm": 550, "mud_weight_ppg": 11.0, "plastic_viscosity_cp": 22, "yield_point_lbf100sqft": 14, "hole_size_in": 8.5, "drillpipe_od_in": 5.0, "tvd_ft": 9800, "md_ft": 15500,
+        "bit_nozzles": [16, 16, 16, 16, 16], "formation_angle_deg": 90}'
+      td_json: '{"well_profile": [{"md_ft": 0, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9000, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9900, "inclination_deg": 90, "azimuth_deg": 180},
+        {"md_ft": 15500, "inclination_deg": 90, "azimuth_deg": 180}], "drillstring": {"pipe_od_in": 5.0, "steel_weight_ppf": 19.5}, "mud_weight_ppg": 11.0, "wob_klbf": 25, "operation": "rotating", "casing_depth_ft":
+        9000}'
+    expect:
+      contains_any:
+      - - design factor
+        - burst
+        - collapse
+      - - ecd
+      - - barrier
+        - well control
+      gate: approve

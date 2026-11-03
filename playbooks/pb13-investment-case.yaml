@@ -1,0 +1,55 @@
+id: investment-case
+code: PB-13
+name: Investment Case
+area: Strategy & investment
+desk: strategy
+status: mvp
+summary: Business, operational, technical and delivery assessments merged into one invest / pilot / modify / defer / reject recommendation.
+patterns: [P3, P4, P5]
+triggers: [investment, business case, roi, tco, fund, funding, should we invest, feasibility, budget request, pilot]
+inputs:
+  - {id: initiative, label: "Initiative", type: longtext, required: true, untrusted: false}
+  - {id: value_hypothesis, label: "Expected value and how it would be measured", type: longtext}
+  - {id: costs, label: "Known costs or estimates", type: longtext}
+  - {id: timeline, label: "Timeline and constraints", type: text}
+  - id: domain
+    label: Domain
+    type: select
+    options: [general, upstream-oil-gas]
+    default: general
+    help: Upstream adds an operations, HSE and well-control assessment
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: assessments
+    kind: parallel
+    title: Specialist assessments
+    steps:
+      - {id: value, kind: agent, agent: business-analyst, title: Value and economics,
+         task: "Build the economics: options including do-nothing, ROI/TCO with explicit assumptions and ranges, payback, benefits realisation and the baseline that would prove value."}
+      - {id: operations, kind: agent, agent: domain-sme, title: Operational impact, when: {input: domain, equals: upstream-oil-gas},
+         task: "Assess operational relevance, field adoption, HSE and well-control implications and the measurable operational value."}
+      - {id: architecture, kind: agent, agent: enterprise-architect, mode: investment, title: Technical feasibility,
+         task: "Assess technical feasibility, target architecture, integration and security risk, and production readiness effort."}
+      - {id: delivery, kind: agent, agent: program-manager, mode: investment, title: Delivery plan,
+         task: "Assess delivery strategy, schedule, resources, dependencies, governance and execution risk."}
+  - id: recommendation
+    kind: agent
+    title: Investment recommendation
+    agent: investment-advisor
+    task: |
+      Synthesise the assessments into one recommendation: INVEST, PILOT, MODIFY, DEFER or REJECT.
+      Resolve contradictions instead of listing them. Include executive summary, key findings, expected
+      value with ranges, risks and assumptions, approval conditions and next actions.
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: recommendation
+    on_fail: revise
+  - id: approve
+    kind: gate
+    title: Investment decision approval
+    required_role: Budget owner
+    instructions: A named budget owner approves or rejects. The suite makes no commitment on anyone's behalf.
+    payload_from: recommendation
+deliverable: recommendation

@@ -1,0 +1,57 @@
+version: 1.0
+release_threshold: 85
+critical_failure_blocks_release: true
+
+profiles:
+  stable:
+    rdf: "RDF 1.1 Recommendation"
+    owl: "OWL 2 Recommendation"
+    shacl: "SHACL 2017 Recommendation"
+    sparql: "SPARQL 1.1 Recommendation"
+    jsonld: "JSON-LD 1.1 Recommendation"
+  preview:
+    note: "RDF/SPARQL/SHACL 1.2 features require implementation support and explicit architecture approval."
+
+weights:
+  competency_coverage: 15
+  semantic_clarity: 10
+  logical_quality: 10
+  validation_quality: 10
+  reuse_interoperability: 8
+  identity_iri_governance: 8
+  provenance_traceability: 7
+  mapping_readiness: 8
+  versioning_change_control: 6
+  performance_scalability: 5
+  security_compliance: 5
+  documentation: 4
+  operational_observability: 4
+
+critical_gates:
+  - id: G-SYNTAX
+    requirement: "All ontology and shapes artifacts parse successfully."
+  - id: G-CONSISTENCY
+    requirement: "No unresolved ontology inconsistency or critical unsatisfiable class."
+  - id: G-CQ
+    requirement: "100% of critical competency-question tests pass."
+  - id: G-SHACL
+    requirement: "Critical SHACL constraints pass on golden data and fail on known-invalid data as expected."
+  - id: G-IDENTITY
+    requirement: "Canonical identifier and equivalence policy are defined; no unsafe sameAs usage."
+  - id: G-TRACE
+    requirement: "Critical semantic rules have evidence or approved decision records."
+  - id: G-VERSION
+    requirement: "Release version, changelog, deprecation and compatibility classification exist."
+  - id: G-MAPPING
+    requirement: "Critical source mappings are deterministic, tested, and traceable."
+  - id: G-OWNER
+    requirement: "Domain owner, ontology steward, and release approver are assigned."
+  - id: G-ROLLBACK
+    requirement: "Breaking changes have a migration and rollback plan."
+
+recommended_slos:
+  mapping_success_rate_percent: ">=99.0"
+  critical_shacl_violation_rate_percent: "0"
+  unresolved_identity_collision_rate_percent: "<0.1"
+  critical_competency_test_pass_rate_percent: "100"
+  ontology_version_skew: "0 unsupported major versions"

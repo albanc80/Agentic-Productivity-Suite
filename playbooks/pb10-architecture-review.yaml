@@ -1,0 +1,73 @@
+id: architecture-review
+code: PB-10
+name: Architecture Review & ADR
+area: Engineering
+desk: engineering
+status: mvp
+summary: Options and recommendation, security, operations and test reviews, an Architecture Decision Record and a production-readiness verdict.
+patterns: [P3, P4, P5]
+triggers: [architecture, adr, design review, system design, tech stack, production readiness, nfr, technical design]
+inputs:
+  - {id: proposal, label: "System or proposal to review", type: longtext, required: true, untrusted: false}
+  - {id: decision, label: "Decision needed", type: text}
+  - {id: requirements, label: "Requirements and NFRs (availability, latency, data, compliance)", type: longtext}
+  - {id: constraints, label: "Constraints (budget, team, platforms)", type: text}
+  - id: lens
+    label: Architecture lens
+    type: select
+    options: [product, enterprise]
+    default: product
+    help: "product = full-stack product system; enterprise = data platforms, integration, hybrid/edge"
+  - {id: repository, label: "Repository (owner/name) to ground the review, if GitHub is connected", type: text}
+  - {id: documents, label: "Diagrams, docs or current-state notes", type: documents}
+steps:
+  - id: options_product
+    kind: agent
+    title: Options and recommendation
+    when: {input: lens, equals: product}
+    agent: enterprise-architect
+    task: &options_task |
+      Review the proposal and decide "{{inputs.decision}}". Start from requirements, not the stack.
+      Give 2-3 realistic options (including the simplest that works), the recommendation, NFRs, trust
+      boundaries, failure and degraded modes, rollback, cost drivers and what to verify. Ground it in the
+      repository {{inputs.repository}} if a connector is available.
+    connectors: [github]
+  - id: options_enterprise
+    kind: agent
+    title: Options and recommendation (enterprise)
+    when: {input: lens, equals: enterprise}
+    agent: enterprise-architect
+    mode: enterprise
+    task: *options_task
+    connectors: [github]
+  - id: specialist_reviews
+    kind: parallel
+    title: Security, operations and test reviews
+    steps:
+      - {id: security, kind: agent, agent: eng-security, title: Threat model,
+         task: "Threat-model the recommended option: assets, trust boundaries, top threats, controls, and what must be true before production."}
+      - {id: operability, kind: agent, agent: eng-devsecops, title: Operability and release,
+         task: "Assess deployability, observability, CI/CD, rollback and on-call impact of the recommended option."}
+      - {id: test_strategy, kind: agent, agent: eng-qa, title: Test strategy,
+         task: "Risk-based test strategy for the recommended option, including the evidence needed to call it production ready."}
+  - id: adr
+    kind: agent
+    title: Architecture Decision Record
+    agent: eng-solution-architect
+    task: |
+      Write the ADR: context, decision, options considered, consequences, security/operations/test
+      conditions, and a production-readiness verdict (READY / READY WITH CONDITIONS / NOT READY) with the
+      conditions listed. The verdict is a recommendation; a named human approves it.
+  - id: review
+    kind: review
+    title: Independent review
+    agent: critical-mentor
+    target: adr
+    on_fail: revise
+  - id: approve
+    kind: gate
+    title: Architecture decision approval
+    required_role: Architecture owner
+    instructions: A named architecture owner approves or rejects the ADR. Approval is recorded with your name.
+    payload_from: adr
+deliverable: adr

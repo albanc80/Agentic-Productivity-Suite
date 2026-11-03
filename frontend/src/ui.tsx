@@ -1,0 +1,61 @@
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import type { ReactNode } from "react";
+
+// Model output is rendered as Markdown without raw HTML (react-markdown ignores HTML by default).
+export function Markdown({ text }: { text: string }) {
+  return (
+    <div className="md">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+const STATUS_TONE: Record<string, string> = {
+  COMPLETE: "ok", COMPLETE_WITH_ACCEPTED_RISK: "ok", completed: "ok", approved: "ok", ready: "ok", PASS: "ok",
+  PARTIAL: "warn", NEEDS_INPUT: "warn", awaiting_approval: "warn", pending: "warn", PASS_WITH_CHANGES: "warn", interrupted: "warn", idle: "neutral",
+  BLOCKED: "bad", REJECTED: "bad", failed: "bad", error: "bad", rejected: "bad", FAIL: "bad",
+  running: "live", queued: "live", connecting: "live",
+  skipped: "neutral", cancelled: "neutral", unconfigured: "neutral", disabled: "neutral",
+};
+
+const LABELS: Record<string, string> = {
+  COMPLETE_WITH_ACCEPTED_RISK: "Complete, accepted risk", NEEDS_INPUT: "Needs input", awaiting_approval: "Awaiting approval",
+  PASS_WITH_CHANGES: "Pass with changes",
+};
+
+export function Pill({ value, title }: { value: string | null | undefined; title?: string }) {
+  if (!value) return null;
+  const tone = STATUS_TONE[value] || "neutral";
+  const label = LABELS[value] || value.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  return <span className={`pill ${tone}`} title={title}>{label}</span>;
+}
+
+export function Empty({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="empty">
+      <strong>{title}</strong>
+      {children && <div>{children}</div>}
+    </div>
+  );
+}
+
+export function ErrorNote({ error }: { error: unknown }) {
+  if (!error) return null;
+  const msg = error instanceof Error ? error.message : String(error);
+  return <div className="note bad" role="alert">{msg}</div>;
+}
+
+export function fmtCost(v: number) {
+  return v === 0 ? "$0" : v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`;
+}
+
+export function fmtTime(iso: string | null | undefined) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+export function go(path: string) {
+  window.location.hash = path;
+}

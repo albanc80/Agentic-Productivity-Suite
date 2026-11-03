@@ -1,0 +1,2 @@
+id,priority,question,type,expected_answer,required_concepts,evidence_source,acceptance_test,status
+CQ-001,critical,,,,,,,draft

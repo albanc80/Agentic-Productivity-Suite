@@ -1,0 +1,61 @@
+id: scope-change
+code: PB-05
+name: Scope-Change Triage
+area: Management
+desk: management
+status: mvp
+summary: Cost of delay, stakeholder impact and schedule ripple for a new request, ending in accept, defer or swap.
+patterns: [P3, P4, P5]
+triggers: [scope change, new request, can we add, what if, capacity, trade off, priority change, add feature, change request]
+inputs:
+  - {id: request, label: "Requested change", type: longtext, required: true, untrusted: false}
+  - {id: requester, label: "Who is asking", type: text}
+  - {id: effort_hours, label: "Effort estimate (hours)", type: number, required: true, help: Roadmap impact cannot be sized without it}
+  - {id: project, label: "Project or roadmap", type: text, required: true}
+  - {id: roadmap, label: "Current roadmap or commitments", type: longtext}
+  - {id: comms, label: "Related messages", type: longtext}
+  - {id: deadline, label: "Requested by date", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: impact
+    kind: parallel
+    title: Impact analysis
+    steps:
+      - id: cost_of_delay
+        kind: agent
+        title: Cost of delay
+        agent: roadmap-shield
+        task: |
+          Quantify the cost of delay and roadmap impact of adding "{{inputs.request}}" ({{inputs.effort_hours}} hours)
+          to {{inputs.project}}, requested by {{inputs.deadline}}. Show which commitments move and by how much.
+        connectors: [azure-devops, atlassian, github]
+      - id: stakeholders
+        kind: agent
+        title: Stakeholder impact
+        agent: sentiment-radar
+        task: "How will each affected stakeholder group likely react to accepting, deferring or swapping this request? Trace every signal. Score topics, never people."
+        connectors: [microsoft365]
+      - id: schedule
+        kind: agent
+        title: Schedule and dependencies
+        agent: program-manager
+        task: "Assess schedule ripple, dependencies, resource conflicts and regulatory or HSE checkpoints affected by this request."
+  - id: recommendation
+    kind: agent
+    title: Recommendation
+    agent: counselor
+    task: |
+      Combine the three analyses into one recommendation: ACCEPT, DEFER (to when) or SWAP (for what), with the
+      trade-off in numbers, who must agree, and a draft reply to {{inputs.requester}}. Draft only.
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: recommendation
+    on_fail: revise
+  - id: approve
+    kind: gate
+    title: Approve before any roadmap change
+    instructions: Approval records the decision. The suite does not change the roadmap or reply to anyone.
+    payload_from: recommendation
+deliverable: recommendation
