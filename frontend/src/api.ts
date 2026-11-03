@@ -17,6 +17,10 @@ export interface AgentCard {
   persona: string | null; core_skills: string[]; skills: string[]; tools: string[]; modes: Record<string, string>; default_mode: string | null;
   merged_from: string[]; instruction_chars: number;
 }
+export interface ModelEndpoint {
+  id: string; name: string; base_url: string; model: string; context_tokens: number; max_output_tokens: number;
+  tools: boolean; use_for: string[]; provider?: string; ref?: string; locality?: "local" | "cloud";
+}
 export interface Desk { id: string; name: string; lead: string; summary: string; members: string[] }
 export interface ProviderInfo {
   name: string; type: string; locality: "local" | "cloud"; base_url: string | null; available: boolean; reason: string;
@@ -29,6 +33,7 @@ export interface ConnectorInfo {
 export interface Overview {
   desks: Desk[]; agents: AgentCard[]; playbooks: PlaybookCard[]; providers: ProviderInfo[]; tiers: Record<string, string[]>;
   connectors: ConnectorInfo[]; data_classes: Record<string, string[]>; default_data_class: string; kill_switch: boolean; offline: boolean;
+  offline_override: boolean | null; endpoints: ModelEndpoint[];
   budgets: Record<string, number>; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
   warnings: string[]; pending_approvals: number;
 }
@@ -109,6 +114,10 @@ export const api = {
     call<Approval>(`/api/approvals/${id}`, { method: "POST", body: JSON.stringify(body) }),
   testProvider: (name: string) => call<{ ok: boolean; detail?: string; model?: string; latency_ms?: number; reply?: string }>(`/api/providers/${name}/test`, { method: "POST" }),
   connect: (id: string) => call<{ id: string; tools: { name: string; allowed: boolean; reason: string; description: string }[] }>(`/api/connectors/${id}/connect`, { method: "POST" }),
+  setOffline: (on: boolean | null) => call<{ on: boolean; override: boolean | null; default: boolean }>("/api/admin/offline", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),
+  discover: (base_url: string) => call<{ base_url: string; locality: "local" | "cloud"; models: string[] }>("/api/endpoints/discover", { method: "POST", body: JSON.stringify({ base_url }) }),
+  saveEndpoint: (ep: ModelEndpoint) => call<ModelEndpoint>("/api/endpoints", { method: "POST", body: JSON.stringify(ep) }),
+  deleteEndpoint: (id: string) => call<{ deleted: string }>(`/api/endpoints/${encodeURIComponent(id)}`, { method: "DELETE" }),
   killSwitch: (on: boolean) => call<{ on: boolean }>("/api/admin/kill-switch", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),
   exportUrl: (id: string, format: "md" | "html") => `/api/runs/${id}/export?format=${format}`,
 };

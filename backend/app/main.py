@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from . import __version__
 from .connectors import ConnectorError, ConnectorManager
+from .endpoints import Endpoint, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
 from .files import UnsupportedFile, extract_text
@@ -59,6 +60,15 @@ class KillSwitch(BaseModel):
     by: str = "user"
 
 
+class OfflineSwitch(BaseModel):
+    on: bool | None  # None = return to the config file / SUITE_OFFLINE default
+    by: str = "user"
+
+
+class Discover(BaseModel):
+    base_url: str
+
+
 class Suite:
     def __init__(self, settings: Settings, connectors: ConnectorManager | None = None, http_client=None):
         self.settings = settings
@@ -69,6 +79,53 @@ class Suite:
         self.models = ModelRouter(settings, http_client=http_client)
         self.profile = load_profile(settings)
         self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile)
+        # File/env configuration is the base; choices made in the app are layered on top and persisted.
+        self.base = {"providers": dict(settings.providers), "models": list(settings.models),
+                     "tiers": {k: list(v) for k, v in settings.tiers.items()}, "offline": settings.offline}
+        self.http_client = http_client
+        self.apply()
+
+    # ------------------------------------------------------------ runtime configuration
+
+    def endpoints(self) -> list[Endpoint]:
+        return [Endpoint.model_validate(e) for e in self.store.get_setting("endpoints", [])]
+
+    def offline_override(self) -> bool | None:
+        return self.store.get_setting("offline_override", None)
+
+    def apply(self) -> None:
+        override = self.offline_override()
+        offline = self.base["offline"] if override is None else bool(override)
+        apply_runtime(self.settings, self.base, self.endpoints(), offline)
+        self.connectors.offline = offline
+        self.models._instances = {k: v for k, v in self.models._instances.items() if not k.startswith("ep-")}
+
+    async def set_offline(self, on: bool | None, by: str) -> bool:
+        self.store.set_setting("offline_override", on)
+        self.apply()
+        if self.settings.offline:  # stop connectors that need the internet
+            for cid, w in list(self.connectors.workers.items()):
+                if self.connectors.configs[cid].network:
+                    await w.stop()
+        self.store.audit("offline_mode", None, on=self.settings.offline, override=on, by=by)
+        return self.settings.offline
+
+    def save_endpoint(self, ep: Endpoint, by: str) -> None:
+        eps = [e for e in self.endpoints() if e.id != ep.id] + [ep]
+        self.store.set_setting("endpoints", [e.model_dump() for e in eps])
+        self.apply()
+        self.store.audit("endpoint_saved", None, id=ep.id, base_url=ep.base_url, model=ep.model,
+                         locality=locality_of(ep.base_url), use_for=ep.use_for, by=by)
+
+    def delete_endpoint(self, eid: str, by: str) -> bool:
+        eps = self.endpoints()
+        keep = [e for e in eps if e.id != eid]
+        if len(keep) == len(eps):
+            return False
+        self.store.set_setting("endpoints", [e.model_dump() for e in keep])
+        self.apply()
+        self.store.audit("endpoint_deleted", None, id=eid, by=by)
+        return True
 
 
 def create_app(settings: Settings | None = None, connectors: ConnectorManager | None = None, http_client=None) -> FastAPI:
@@ -117,6 +174,9 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             "default_data_class": settings.default_data_class,
             "kill_switch": eng.killed,
             "offline": settings.offline,
+            "offline_override": suite.offline_override(),
+            "endpoints": [{**e.model_dump(), "provider": e.provider_name, "ref": e.ref, "locality": locality_of(e.base_url)}
+                          for e in suite.endpoints()],
             "budgets": settings.budgets.model_dump(),
             "persona": settings.persona.model_dump(),
             "profile_configured": bool(settings.profile_path and settings.profile_path.name == "profile.yaml"),
@@ -241,6 +301,56 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     @app.get("/api/providers")
     def providers():
         return {"providers": suite.models.describe(), "tiers": settings.tiers, "agent_overrides": settings.agent_overrides}
+
+    # ---------------------------------------------------------------- offline mode and model endpoints
+
+    @app.get("/api/admin/offline")
+    def offline_state():
+        return {"on": settings.offline, "override": suite.offline_override(), "default": suite.base["offline"]}
+
+    @app.post("/api/admin/offline")
+    async def offline_set(body: OfflineSwitch):
+        on = await suite.set_offline(body.on, body.by)
+        return {"on": on, "override": suite.offline_override(), "default": suite.base["offline"]}
+
+    @app.get("/api/endpoints")
+    def endpoints():
+        return [{**e.model_dump(), "provider": e.provider_name, "ref": e.ref, "locality": locality_of(e.base_url)}
+                for e in suite.endpoints()]
+
+    @app.post("/api/endpoints/discover")
+    async def discover(body: Discover):
+        """List the models an OpenAI-compatible server offers (GET {base_url}/models)."""
+        from .providers.openai_compat import OpenAICompatibleProvider
+        try:
+            url = normalize_url(body.base_url)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        locality = locality_of(url)
+        if settings.offline and locality != "local":
+            raise HTTPException(409, "Offline mode is on: only addresses on your own network can be used.")
+        probe = OpenAICompatibleProvider("probe", base_url=url, api_key="not-needed", timeout_s=8, max_retries=0,
+                                         http_client=suite.http_client)
+        try:
+            page = await probe.client.models.list()
+            ids = sorted({m.id for m in page.data})
+        except Exception as e:  # noqa: BLE001 - report any connection or protocol failure to the user
+            raise HTTPException(502, f"Could not list models at {url}: {type(e).__name__}. "
+                                     "Check the address, that the server listens on the network, and that both devices are on the same network.") from e
+        return {"base_url": url, "locality": locality, "models": ids}
+
+    @app.post("/api/endpoints", status_code=201)
+    def save_endpoint(body: Endpoint):
+        if settings.offline and locality_of(body.base_url) != "local":
+            raise HTTPException(409, "Offline mode is on: only addresses on your own network can be added.")
+        suite.save_endpoint(body, "ui")
+        return {**body.model_dump(), "provider": body.provider_name, "ref": body.ref, "locality": locality_of(body.base_url)}
+
+    @app.delete("/api/endpoints/{eid}")
+    def delete_endpoint(eid: str):
+        if not suite.delete_endpoint(eid, "ui"):
+            raise HTTPException(404, "endpoint not found")
+        return {"deleted": eid}
 
     @app.post("/api/providers/{name}/test")
     async def test_provider(name: str, model: str | None = None):

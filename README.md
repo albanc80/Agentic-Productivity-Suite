@@ -39,7 +39,9 @@ Copy `config/suite.example.yaml` to `config/suite.yaml`. Credentials are never s
 
 Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fallback chain. The first model that is available *and* allowed for the run's data class is used. If it errors or declines, the next one is tried. You can override chains per agent (`agent_overrides`) or per playbook step (`models:`).
 
-**Offline mode** (`offline: true` or `SUITE_OFFLINE=1`) switches off every cloud provider and every connector that needs the internet.
+**Offline mode** switches off every cloud provider and every connector that needs the internet. Toggle it from the top bar or Settings; the choice persists. The default can also come from `offline: true` or `SUITE_OFFLINE=1`.
+
+**Model endpoints from the app.** Settings → Model endpoints connects to any OpenAI-compatible server without editing files, such as a small model served from a phone or a laptop on your network. Enter the address, pick a model, choose tiers. Addresses on your own network count as local; others count as cloud.
 
 **Data classes.** Each run is tagged `public`, `internal`, `confidential` or `restricted`, and `data_classes` decides which provider localities may receive it. By default, `restricted` runs only reach local models. You are responsible for the credentials and data you use; this policy is how you keep sensitive work local.
 
@@ -97,7 +99,7 @@ cd backend && uv run pytest
 cd backend && uv run python ../scripts/run_evals.py
 ```
 
-The first runs 48 tests: engine, providers (mocked HTTP), MCP over stdio, API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
+The first runs 52 tests: engine, providers (mocked HTTP), MCP over stdio, API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
 
 ## Project layout
 

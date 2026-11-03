@@ -103,7 +103,14 @@ export default function App() {
             ))}
           </nav>
           <div className="topbar-tools">
-            {ov?.offline && <span className="chip offline" title="Cloud providers and internet connectors are off">Offline</span>}
+            {ov && (
+              <button className={`mode-switch ${ov.offline ? "is-offline" : ""}`} aria-pressed={ov.offline}
+                title={ov.offline ? "Offline: local models and local files only. Click to go online." : "Online. Click to switch to offline mode (local models and local files only)."}
+                onClick={async () => { try { await api.setOffline(!ov.offline); refresh(); } catch (e) { setError(e); } }}>
+                <span className="mode-track" aria-hidden="true"><span className="mode-knob" /></span>
+                {ov.offline ? "Offline" : "Online"}
+              </button>
+            )}
             <label className="sr-only" htmlFor="theme">Theme</label>
             <select id="theme" className="theme-select" value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
               <option value="system">System</option>

@@ -35,7 +35,7 @@ The result is `backend/dist/ProductivitySuite/`. Run `ProductivitySuite` (or `Pr
 
 ## Offline mode
 
-Set `offline: true` in `suite.yaml`, export `SUITE_OFFLINE=1`, or pass `--offline` to the launcher. Then:
+Switch it from the app: the **Online / Offline** switch in the top bar, or Settings → Connection mode. The choice is saved and survives restarts; **Use config default** returns to the file setting. You can also set the default with `offline: true` in `suite.yaml`, `SUITE_OFFLINE=1`, or `--offline` on the launcher. When offline:
 
 - cloud providers (OpenAI, DeepSeek, OpenRouter, Anthropic) are unavailable, whatever keys are set;
 - connectors that need the internet are switched off; `local-files` stays available (`network: false`);
@@ -47,9 +47,22 @@ Runs then need a local model (Ollama, LM Studio or vLLM, enabled in `suite.yaml`
 
 When served on `localhost` or over HTTPS, the UI can be installed from Chrome or Edge ("Install app"). A service worker caches only the UI shell; runs, approvals and settings always come from the server.
 
+## Models served from a phone or another device
+
+Some phones can serve a small model (roughly 2B–4B parameters) through an app or tool that exposes an OpenAI-compatible API, for example llama.cpp's `llama-server`, or Ollama under Termux on Android. Check what your device and app support; this has not been tested on real phones here. The suite does not load or configure these models. It only connects to them:
+
+1. On the phone, start the model server and make it listen on the network (not only on `127.0.0.1`). Note the phone's IP address and port.
+2. In the suite: Settings → Model endpoints → enter the address (e.g. `192.168.1.42:8080`) → **Find models** → pick the model, set its context window to what the server uses, tick the tiers it should serve first → **Add endpoint**.
+3. **Test** checks the connection. The endpoint is then tried first for the ticked tiers, and kept as a local fallback ahead of the demo provider for every other tier.
+
+The same works for a laptop or workstation running Ollama, LM Studio or vLLM on your network.
+
+- **Locality is decided by the address.** Only localhost, private-network ranges (10.x, 172.16–31.x, 192.168.x, link-local, IPv6 unique-local) and `.local` names count as local. Only local endpoints can receive `restricted` data, or be used in offline mode. Any other address is treated as cloud.
+- **Small models are weak on long playbooks.** Prompts are trimmed to fit their context (the run notes list every cut), and tool calling is off unless you tick it. Use them for quick asks, routing and short steps, and check quality with `scripts/run_evals.py`.
+
 ## Mobile
 
-There is no native mobile app, and a phone cannot run the suite on its own: the server, the agents' models and the calculators run on a computer. Two workable options:
+There is no native mobile app, and a phone cannot run the whole suite on its own: the orchestration server and the calculators run on a computer. The phone can be the screen, the model, or both. Ways to use it:
 
 1. **Phone as a screen for a computer on the same network.** Start the server with a token and bind it to the LAN:
 
@@ -58,6 +71,9 @@ There is no native mobile app, and a phone cannot run the suite on its own: the 
    ```
 
    Then open `http://<computer-ip>:8765` on the phone and enter the token. This needs no internet if the computer runs local models. `scripts/dev.sh` refuses to bind beyond localhost without a token. Installing it as an app on a phone requires HTTPS (for example a reverse proxy with a certificate trusted by the phone).
-2. **Hosted deployment** behind your organisation's identity provider. This is out of scope for the MVP.
 
-Fully on-device phone use (local model plus suite on the phone) is not planned. Current phone-class models are too small for these playbooks to be reliable.
+2. **Phone as the model.** Add the phone's model server as an endpoint (above). The suite on your computer sends it the work, and the phone can also be the screen.
+
+3. **Hosted deployment** behind your organisation's identity provider. This is out of scope for the MVP.
+
+Running the orchestration server itself on the phone is not supported. Small phone models handle short steps; long playbooks such as Well Plan Review need a larger model.

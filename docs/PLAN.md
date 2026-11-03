@@ -11,7 +11,8 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 | D3 | MVP scope | PB-01, 03, 04, 05, 08, 10, 13, 15, plus PB-00 Quick Ask. PB-15 Well Plan Review was added after the calculators were validated by the owner; user testing follows. |
 | D4 | Personas | On in chat-style playbooks, off in document playbooks and exports. Can be switched per run. Persona text is a separate layer, never mixed into instructions. |
 | D5 | Stack | Python 3.12 / FastAPI / Pydantic, React + Vite + TypeScript, SQLite. One process serves UI and API. |
-| + | Desktop and offline | Local desktop app (pywebview + PyInstaller), offline mode (local models and local files only), installable web app. See `docs/DESKTOP.md`. |
+| + | Desktop and offline | Local desktop app (pywebview + PyInstaller), offline mode switchable from the UI (persisted), installable web app. See `docs/DESKTOP.md`. |
+| + | Device model endpoints | Any OpenAI-compatible server (e.g. a 2B–4B model on a phone) added from the UI; locality derived from the address. The suite connects only; it never loads or configures models. |
 | + | Visual design | Precision Futurism: bundled fonts, light/dark/system themes, orchestration map and run step rail. |
 | + | Connectors in MVP | GitHub, Microsoft 365 (Graph), Databricks (Genie, UC functions, vector search), Azure DevOps, Jira/Confluence, local files, all read-only. |
 
@@ -29,6 +30,7 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 | Low value without live data | Read-only MCP connectors in MVP; playbooks degrade to pasted or uploaded inputs and say so | `connectors.py`, playbooks | `test_mcp_tool_loop_read_only_and_injection_flag`, `test_stdio_transport_round_trip` |
 | Agent writes to external systems | Suite-side read-only policy; write tools hidden and refused; no send/publish tool exists | `connectors.tool_allowed`, `ConnectorManager.call` | `test_policy_rules`, `test_in_process_read_only_enforcement` |
 | Prompt injection via pasted text, files or tool output | Untrusted-data envelope, envelope-escape neutralised, pattern screening surfaced as step warnings, operating rule 2 | `guards.py`, `prompts.SUITE_RULES` | `test_injection_and_redaction`, MCP tool-loop test |
+| Data sent to an arbitrary endpoint marked "local" | Locality derived from the address (loopback, private, link-local, unique-local, `.local`); offline mode refuses non-local endpoints; every change audited | `endpoints.py`, `main.py` | `test_locality_is_decided_by_address`, `test_public_endpoint_is_cloud_and_blocked_for_restricted`, `test_offline_toggle_persists_and_limits_endpoints` |
 | Calculation fed bad input | JSON inputs parsed strictly; invalid JSON or wrong fields block that calculation and lower the run outcome; T&D operation is an enum | `engine._tool`, `tools/__init__.py` | `test_invalid_json_blocks_only_that_calculation`, `test_wrong_calculator_fields_are_reported` |
 | Unsafe engineering advice trusted | Safety rules injected for safety-critical agents; deterministic calculators with planning-grade notice; safety-critical playbooks require a gate | `prompts.SAFETY_RULES`, `tools/`, `playbooks.validate` | `test_casing_checker_matches_hand_calculation`, `test_tool_wrapper_adds_safety_notice_and_validates_args` |
 | Fabricated facts or evidence | FACT without trace downgraded; "EXECUTED" without a tool call corrected; evidence validator tool | `engine._converse`, `tools.evidence_validator` | `test_fact_without_trace_downgraded_and_false_evidence_corrected`, `test_evidence_validator` |
