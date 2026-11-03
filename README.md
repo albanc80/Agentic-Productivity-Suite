@@ -133,3 +133,7 @@ docs/               plan, connector setup, ADRs
 - The server binds to `127.0.0.1`. If you expose it, set `SUITE_API_TOKEN`; every API call then needs `Authorization: Bearer <token>`.
 - Prompts are not stored by default (`store_prompts: false` keeps only a hash and size).
 - Company branding is not in the repository. To theme exports privately, set `theme_dir` to a folder containing `theme.css`.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE), which also lists the third-party components bundled in the installers. Code signing for the Windows installer is described in [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).

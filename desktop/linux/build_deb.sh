@@ -21,6 +21,10 @@ SH
 chmod 0755 "$PKG/usr/bin/productivity-suite"
 cp "$HERE/productivity-suite.desktop" "$PKG/usr/share/applications/"
 cp "$HERE/../assets/icon.png" "$PKG/usr/share/icons/hicolor/512x512/apps/productivity-suite.png"
+mkdir -p "$PKG/usr/share/doc/productivity-suite"
+cat "$HERE/../../NOTICE" > "$PKG/usr/share/doc/productivity-suite/copyright"
+printf '\n\n' >> "$PKG/usr/share/doc/productivity-suite/copyright"
+cat "$HERE/../../LICENSE" >> "$PKG/usr/share/doc/productivity-suite/copyright"
 
 SIZE_KB="$(du -sk "$PKG" | cut -f1)"
 cat > "$PKG/DEBIAN/control" <<CTRL

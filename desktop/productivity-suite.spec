@@ -20,6 +20,8 @@ datas = [
     (str(ROOT / "config"), "config"),
     (str(ROOT / "frontend" / "dist"), "frontend/dist"),
     (str(ROOT / "desktop" / "assets"), "desktop/assets"),
+    (str(ROOT / "LICENSE"), "."),
+    (str(ROOT / "NOTICE"), "."),
 ]
 for pkg in ("anthropic", "openai", "mcp", "markdown_it"):
     datas += collect_data_files(pkg)

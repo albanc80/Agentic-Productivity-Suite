@@ -1,0 +1,30 @@
+Productivity Suite
+Copyright 2026 ilbambinomx
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this software except in compliance with the License. A copy is in the LICENSE
+file and at http://www.apache.org/licenses/LICENSE-2.0
+
+-------------------------------------------------------------------------------
+Third-party components distributed with the desktop installers
+-------------------------------------------------------------------------------
+
+The installers bundle a Python runtime and open-source libraries under their own
+licenses, all of which allow redistribution in this form:
+
+- Python (PSF License); FastAPI, Pydantic, PyYAML, MCP SDK, python-docx,
+  openpyxl and others (MIT); Uvicorn, Starlette, HTTPX, pypdf, pywebview,
+  lxml and others (BSD); Anthropic and OpenAI SDKs (Apache-2.0);
+  cryptography (Apache-2.0 or BSD-3-Clause).
+- PyInstaller bootloader (GPL-2.0 with the bootloader exception, which permits
+  distributing the built application under any license).
+- React, react-markdown and other web UI libraries (MIT, ISC).
+
+Fonts (SIL Open Font License 1.1, https://openfontlicense.org):
+- Chakra Petch. Copyright 2018 The Chakra Petch Project Authors
+  (https://github.com/m4rc1e/Chakra-Petch).
+- IBM Plex Sans and IBM Plex Mono. Copyright 2017-2019 IBM Corp.
+
+Each component's license text is included in its package metadata. The full
+list for a build can be produced with `uv pip list` (backend) and
+`npm ls --omit=dev` (frontend).
