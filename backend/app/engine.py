@@ -23,7 +23,7 @@ from .contracts import HandoffIn, HandoffOut, Label, Status, parse_handoff, wors
 from .guards import redact, scan_people_eval, wrap_data
 from .playbooks import Playbook, Step, render, render_args, resolve_window
 from .prompts import build_system, build_user, fit
-from .providers import DEMO_BANNER, ModelRouter, ProviderError, Resolved, ToolSpec, Usage
+from .providers import ModelRouter, ProviderError, Resolved, ToolSpec, Usage
 from .registry import Registry
 from .settings import Settings
 from .store import Store
@@ -530,8 +530,9 @@ class Engine:
         tier = step.tier or ("review" if review else agent.default_tier)
         candidates, skipped = self.router.candidates(tier, ctx.data_class, agent_id=agent.id, override=step.models)
         if not candidates:
-            msg = (f"No model is available for tier '{tier}' with data class '{ctx.data_class}'. "
-                   "Tried: " + "; ".join(skipped))
+            msg = (f"No model configured for this step (tier '{tier}', data class '{ctx.data_class}'). "
+                   "Add or switch on a model in Settings, then run again."
+                   + (" Checked: " + "; ".join(skipped) if skipped else ""))
             self.store.finish_step(sid, status=Status.BLOCKED.value, error=msg, warnings=skipped)
             self.store.add_note(ctx.id, msg)
             return StepResult(status=Status.BLOCKED, handoff={"status": "BLOCKED", "summary": msg}, deliverable=msg, warnings=[msg])
@@ -642,11 +643,6 @@ class Engine:
         if review and h.verdict is None:
             h.verdict = "PASS_WITH_CHANGES"
             warnings.append("review returned no verdict; recorded as PASS_WITH_CHANGES")
-        if cand.is_demo:
-            self.store.update_run(ctx.id, demo=1)
-            if DEMO_BANNER not in deliverable:
-                deliverable = DEMO_BANNER + "\n\n" + deliverable
-
         cost = cand.cost(usage)
         self.store.add_run_usage(ctx.id, usage.input_tokens + usage.output_tokens + usage.cache_read_tokens, cost)
         prompt_text = parts.system + "\n\n-----\n\n" + parts.user
@@ -697,8 +693,6 @@ class Engine:
         lines = [f"# {ctx.pb.name}", "", f"**{run['title']}**", "",
                  f"> Outcome: **{outcome.value}** · Data class: {run['data_class']} · Models: {', '.join(models) or 'none'}"
                  f" · Tokens: {run['tokens']:,} · Cost: ${run['cost_usd']:.4f}", ""]
-        if run["demo"] and DEMO_BANNER not in (main.get("deliverable") or ""):
-            lines += [DEMO_BANNER, ""]
         if h.get("summary"):
             lines += ["## Summary", "", h["summary"], ""]
         lines += [main.get("deliverable") or "_No deliverable was produced._", ""]

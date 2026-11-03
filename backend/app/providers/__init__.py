@@ -15,11 +15,10 @@ from dataclasses import dataclass
 from ..settings import ModelConfig, ProviderConfig, Settings
 from .anthropic_provider import AnthropicProvider
 from .base import ChatResult, Conversation, Provider, ProviderError, ProviderRefusal, ToolCall, ToolSpec, Usage
-from .mock import DEMO_BANNER, MockProvider
 from .openai_compat import OpenAICompatibleProvider
 
 __all__ = [
-    "ChatResult", "Conversation", "DEMO_BANNER", "ModelRouter", "Provider", "ProviderError",
+    "ChatResult", "Conversation", "ModelRouter", "Provider", "ProviderError",
     "ProviderRefusal", "Resolved", "ToolCall", "ToolSpec", "Usage", "NoModelAvailable",
 ]
 
@@ -34,10 +33,6 @@ class Resolved:
     provider: Provider
     model: ModelConfig
     config: ProviderConfig
-
-    @property
-    def is_demo(self) -> bool:
-        return self.config.type == "mock"
 
     def cost(self, usage: Usage) -> float:
         # Conservative: cache reads are billed at the full input rate here.
@@ -54,22 +49,26 @@ class ModelRouter:
     # ---------------------------------------------------------------- status
 
     def _api_key(self, cfg: ProviderConfig) -> str | None:
-        if cfg.api_key_env:
-            return os.environ.get(cfg.api_key_env) or None
-        return cfg.api_key
+        env = os.environ.get(cfg.api_key_env) if cfg.api_key_env else None
+        return env or cfg.api_key or None
+
+    def key_source(self, cfg: ProviderConfig) -> str | None:
+        if cfg.api_key_env and os.environ.get(cfg.api_key_env):
+            return "env"
+        if cfg.key_saved_in_app:
+            return "app"
+        return "config" if cfg.api_key else None
 
     def availability(self, name: str) -> tuple[bool, str]:
         cfg = self.settings.providers.get(name)
         if cfg is None:
             return False, "not configured"
-        if cfg.type == "mock":
-            return (True, "demo provider") if self.settings.allow_demo_provider else (False, "demo provider disabled")
         if not cfg.enabled:
-            return False, "disabled in config"
+            return False, "switched off"
         if cfg.locality == "cloud" and self.settings.offline:
             return False, "offline mode"
         if cfg.locality == "cloud" and not self._api_key(cfg):
-            return False, f"missing API key ({cfg.api_key_env or 'api_key'})"
+            return False, "missing API key (add it with Edit" + (f", or set {cfg.api_key_env}" if cfg.api_key_env else "") + ")"
         return True, "ready"
 
     def describe(self) -> list[dict]:
@@ -77,7 +76,9 @@ class ModelRouter:
         for name, cfg in self.settings.providers.items():
             ok, reason = self.availability(name)
             out.append({"name": name, "type": cfg.type, "locality": cfg.locality, "base_url": cfg.base_url,
-                        "available": ok, "reason": reason, "api_key_env": cfg.api_key_env, "note": cfg.note,
+                        "enabled": cfg.enabled, "available": ok, "reason": reason, "api_key_env": cfg.api_key_env,
+                        "api_key_source": self.key_source(cfg), "edited_in_app": cfg.edited_in_app,
+                        "endpoint": name.startswith("ep-"), "note": cfg.note,
                         "models": [m.model_dump() for m in self.settings.models if m.provider == name]})
         return out
 
@@ -87,9 +88,8 @@ class ModelRouter:
         if name in self._instances:
             return self._instances[name]
         cfg = self.settings.providers[name]
-        if cfg.type == "mock":
-            p: Provider = MockProvider()
-        elif cfg.type == "anthropic":
+        p: Provider
+        if cfg.type == "anthropic":
             p = AnthropicProvider(name, api_key=self._api_key(cfg) or "", timeout_s=cfg.timeout_s,
                                   max_retries=cfg.max_retries, refusal_fallback=cfg.refusal_fallback,
                                   base_url=cfg.base_url, http_client=self._http_client)

@@ -26,17 +26,17 @@ inputs:
     label: "Casing check input (JSON, optional)"
     type: longtext
     help: Runs the casing design checker exactly as entered. Leave empty to skip.
-    example: '{"casing_size_in": 9.625, "weight_ppf": 47, "grade": "P-110", "setting_depth_ft": 10000, "pore_pressure_ppg": 10.5, "fracture_gradient_ppg": 15.0, "mud_weight_ppg": 11.0, "well_type": "horizontal_shale"}'
+    example: '{"casing_size_in": <in>, "weight_ppf": <lb/ft>, "grade": "<e.g. P-110>", "setting_depth_ft": <ft TVD>, "pore_pressure_ppg": <ppg>, "fracture_gradient_ppg": <ppg>, "mud_weight_ppg": <ppg>, "well_type": "<well type>"}'  # format hint only, not values
   - id: hydraulics_json
     label: "Hydraulics input (JSON, optional)"
     type: longtext
     help: Runs the Bingham-plastic hydraulics solver. Bit nozzles in 32nds of an inch.
-    example: '{"flow_rate_gpm": 550, "mud_weight_ppg": 11.0, "plastic_viscosity_cp": 22, "yield_point_lbf100sqft": 14, "hole_size_in": 8.5, "drillpipe_od_in": 5.0, "tvd_ft": 9800, "md_ft": 15500, "bit_nozzles": [16, 16, 16, 16, 16], "formation_angle_deg": 90}'
+    example: '{"flow_rate_gpm": <gpm>, "mud_weight_ppg": <ppg>, "plastic_viscosity_cp": <cP>, "yield_point_lbf100sqft": <lbf/100 ft²>, "hole_size_in": <in>, "drillpipe_od_in": <in>, "tvd_ft": <ft>, "md_ft": <ft>, "bit_nozzles": [<32nds>, ...], "formation_angle_deg": <deg>}'  # format hint only, not values
   - id: td_json
     label: "Torque and drag input (JSON, optional)"
     type: longtext
     help: Survey stations from surface to TD plus drillstring. operation is one of tripping_in, tripping_out, rotating, sliding (anything else is treated as sliding).
-    example: '{"well_profile": [{"md_ft": 0, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9000, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9900, "inclination_deg": 90, "azimuth_deg": 180}, {"md_ft": 15500, "inclination_deg": 90, "azimuth_deg": 180}], "drillstring": {"pipe_od_in": 5.0, "steel_weight_ppf": 19.5}, "mud_weight_ppg": 11.0, "wob_klbf": 25, "operation": "rotating", "casing_depth_ft": 9000}'
+    example: '{"well_profile": [{"md_ft": <ft>, "inclination_deg": <deg>, "azimuth_deg": <deg>}, ...], "drillstring": {"pipe_od_in": <in>, "steel_weight_ppf": <lb/ft>}, "mud_weight_ppg": <ppg>, "wob_klbf": <klbf>, "operation": "<tripping_in | tripping_out | rotating | sliding>", "casing_depth_ft": <ft>}'  # format hint only, not values
   - {id: hazards, label: "Known hazards and offset-well events", type: longtext}
   - {id: documents, label: "Offset data, prognosis, programs", type: documents}
 steps:

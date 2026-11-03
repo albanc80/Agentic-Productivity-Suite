@@ -6,7 +6,8 @@ from app.contracts import Status
 from tests.conftest import ROOT, agent_of, run_to_rest
 
 PB = yaml.safe_load((ROOT / "playbooks" / "pb15-well-plan-review.yaml").read_text())
-EXAMPLES = {i["id"]: i["example"] for i in PB["inputs"] if i.get("example")}
+# Sample inputs for the calculators (test fixtures only; the app ships format hints, not values).
+EXAMPLES = {'casing_json': '{"casing_size_in": 9.625, "weight_ppf": 47, "grade": "P-110", "setting_depth_ft": 10000, "pore_pressure_ppg": 10.5, "fracture_gradient_ppg": 15.0, "mud_weight_ppg": 11.0, "well_type": "horizontal_shale"}', 'hydraulics_json': '{"flow_rate_gpm": 550, "mud_weight_ppg": 11.0, "plastic_viscosity_cp": 22, "yield_point_lbf100sqft": 14, "hole_size_in": 8.5, "drillpipe_od_in": 5.0, "tvd_ft": 9800, "md_ft": 15500, "bit_nozzles": [16, 16, 16, 16, 16], "formation_angle_deg": 90}', 'td_json': '{"well_profile": [{"md_ft": 0, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9000, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9900, "inclination_deg": 90, "azimuth_deg": 180}, {"md_ft": 15500, "inclination_deg": 90, "azimuth_deg": 180}], "drillstring": {"pipe_od_in": 5.0, "steel_weight_ppf": 19.5}, "mud_weight_ppg": 11.0, "wob_klbf": 25, "operation": "rotating", "casing_depth_ft": 9000}'}
 BASE = {"well": "Demo-1H lateral", "plan_summary": "9-5/8 in intermediate to 10,000 ft TVD; 8-1/2 in lateral to 15,500 ft MD."}
 
 

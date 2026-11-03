@@ -1,16 +1,14 @@
 """UI-managed model endpoints (e.g. a small model served from a phone) and the runtime offline switch."""
 
-import json
 import time
 
-import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
 from app.endpoints import Endpoint, is_local_host, locality_of, normalize_url
 from app.main import create_app
 from app.settings import load_settings
-from tests.conftest import ROOT, contract
+from tests.conftest import ROOT, fake_openai_server
 
 
 def test_locality_is_decided_by_address():
@@ -28,21 +26,7 @@ def test_locality_is_decided_by_address():
 
 
 def phone_server(seen):
-    """Fake OpenAI-compatible server on a phone: lists models and answers chats."""
-    def handler(req):
-        seen.append(str(req.url))
-        if req.url.path.endswith("/models"):
-            return httpx2.Response(200, json={"object": "list", "data": [
-                {"id": "qwen2.5-3b-instruct", "object": "model", "created": 0, "owned_by": "phone"},
-                {"id": "gemma-2-2b-it", "object": "model", "created": 0, "owned_by": "phone"}]})
-        body = json.loads(req.content)
-        assert body["model"] == "qwen2.5-3b-instruct"
-        assert "tools" not in body  # small model registered without tool calling
-        return httpx2.Response(200, json={"id": "c", "object": "chat.completion", "created": 0, "model": body["model"],
-                                          "choices": [{"index": 0, "finish_reason": "stop", "message": {
-                                              "role": "assistant", "content": "Phone answer.\n" + contract()}}],
-                                          "usage": {"prompt_tokens": 900, "completion_tokens": 40, "total_tokens": 940}})
-    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+    return fake_openai_server(seen)
 
 
 @pytest.fixture
@@ -76,9 +60,8 @@ def test_phone_endpoint_discover_add_and_run_restricted(app_factory):
         assert ep["provider"] == "ep-pixel-9" and ep["locality"] == "local"
         o = c.get("/api/overview").json()
         assert o["tiers"]["synthesis"][0] == "ep-pixel-9/qwen2.5-3b-instruct"
-        # Not chosen for review: still a local fallback there, ahead of the demo provider.
-        review = o["tiers"]["review"]
-        assert review.index("ep-pixel-9/qwen2.5-3b-instruct") == review.index("demo/demo") - 1
+        # Not chosen for review: still a fallback there, after the models already in the chain.
+        assert o["tiers"]["review"][-1] == "ep-pixel-9/qwen2.5-3b-instruct"
         assert next(p for p in o["providers"] if p["name"] == "ep-pixel-9")["available"]
         # Restricted data may only reach local models: the phone qualifies.
         rid = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "Summarise my notes"},
@@ -99,8 +82,10 @@ def test_public_endpoint_is_cloud_and_blocked_for_restricted(app_factory):
         o = c.get("/api/overview").json()
         assert next(p for p in o["providers"] if p["name"] == "ep-rented")["locality"] == "cloud"
         rid = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "x"}, "data_class": "restricted"}).json()["id"]
-        step = c.get(f"/api/runs/{wait(c, rid)['id']}").json()["steps"][0]
-        assert step["model"] != "ep-rented/qwen2.5-3b-instruct"
+        run = c.get(f"/api/runs/{wait(c, rid)['id']}").json()
+        step = run["steps"][0]
+        assert step["status"] == "BLOCKED" and not step["model"]
+        assert "No model configured" in step["error"] and "not allowed for 'restricted'" in step["error"]
 
 
 def test_offline_toggle_persists_and_limits_endpoints(app_factory):

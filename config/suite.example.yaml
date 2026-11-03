@@ -11,10 +11,6 @@ connectors: config/connectors.yaml    # falls back to config/connectors.example.
 data_dir: ./data                      # SQLite database, uploads, exports
 store_prompts: false                  # true = keep full prompts in the audit log (contains your data)
 
-# Demo provider: lets the suite run with no model configured. Every demo output
-# is labelled. Set to false once a real provider works.
-allow_demo_provider: true
-
 # Offline mode: cloud providers and internet connectors are switched off; only local
 # models (Ollama, LM Studio, vLLM) and the local-files connector are used.
 # Also settable with SUITE_OFFLINE=1.
@@ -57,7 +53,7 @@ providers:
     type: openai_compatible
     locality: local
     base_url: http://localhost:1234/v1
-    api_key: lm-studio
+    api_key: lm-studio   # placeholder; if LM Studio requires an API key, enter it with Edit in Settings
     enabled: false
     timeout_s: 900
   vllm:
@@ -87,9 +83,6 @@ providers:
     locality: cloud
     api_key_env: ANTHROPIC_API_KEY
     refusal_fallback: true   # server-side fallback model if a request is declined (supported models only)
-  demo:
-    type: mock
-    locality: local
 
 # Model capabilities and prices (USD per million tokens). Unlisted models get
 # conservative defaults: small context, no tool calling, unpriced.
@@ -103,7 +96,6 @@ models:
   - {ref: ollama/qwen2.5:14b,          context_tokens: 32768,   max_output_tokens: 4000,  tools: true,  note: "requires num_ctx >= 32768"}
   - {ref: ollama/llama3.1:8b,          context_tokens: 8192,    max_output_tokens: 2000,  tools: true}
   - {ref: lmstudio/local-model,        context_tokens: 16384,   max_output_tokens: 4000,  tools: false, note: "use the model id LM Studio shows"}
-  - {ref: demo/demo,                   context_tokens: 1000000, max_output_tokens: 4000,  tools: false}
   # Examples to enable when you have the account and have confirmed the model id:
   # - {ref: openai/<model-id>, context_tokens: 128000, max_output_tokens: 8000, tools: true}
   # - {ref: openrouter/<vendor>/<model-id>, context_tokens: 128000, max_output_tokens: 8000, tools: true}
@@ -112,10 +104,10 @@ models:
 # data class allows is used; on error or refusal the next one is tried.
 # Mix local and cloud freely.
 tiers:
-  router:     [ollama/llama3.1:8b, anthropic/claude-haiku-5-5, deepseek/deepseek-chat, demo/demo]
-  specialist: [anthropic/claude-sonnet-5-5, deepseek/deepseek-chat, ollama/qwen2.5:14b, lmstudio/local-model, demo/demo]
-  synthesis:  [anthropic/claude-opus-5-5, anthropic/claude-sonnet-5-5, deepseek/deepseek-chat, ollama/qwen2.5:14b, demo/demo]
-  review:     [anthropic/claude-opus-5-5, deepseek/deepseek-reasoner, ollama/qwen2.5:14b, demo/demo]
+  router:     [ollama/llama3.1:8b, anthropic/claude-haiku-5-5, deepseek/deepseek-chat]
+  specialist: [anthropic/claude-sonnet-5-5, deepseek/deepseek-chat, ollama/qwen2.5:14b, lmstudio/local-model]
+  synthesis:  [anthropic/claude-opus-5-5, anthropic/claude-sonnet-5-5, deepseek/deepseek-chat, ollama/qwen2.5:14b]
+  review:     [anthropic/claude-opus-5-5, deepseek/deepseek-reasoner, ollama/qwen2.5:14b]
 
 # Per-agent chains override the tier. Example: keep upstream engineering on a local model.
 agent_overrides: {}

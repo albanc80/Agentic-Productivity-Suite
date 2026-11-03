@@ -20,11 +20,18 @@ export interface AgentCard {
 export interface ModelEndpoint {
   id: string; name: string; base_url: string; model: string; context_tokens: number; max_output_tokens: number;
   tools: boolean; use_for: string[]; provider?: string; ref?: string; locality?: "local" | "cloud";
+  api_key?: string; has_api_key?: boolean;
+}
+export interface ModelEdit { model: string; context_tokens: number; max_output_tokens: number; tools: boolean }
+export interface ProviderEdit {
+  enabled?: boolean; base_url?: string; api_key?: string; clear_api_key?: boolean; models?: ModelEdit[];
 }
 export interface Desk { id: string; name: string; lead: string; summary: string; members: string[] }
 export interface ProviderInfo {
   name: string; type: string; locality: "local" | "cloud"; base_url: string | null; available: boolean; reason: string;
-  api_key_env: string | null; note: string; models: { ref: string; context_tokens: number; tools: boolean; price_in_per_mtok: number; price_out_per_mtok: number; note: string }[];
+  enabled: boolean; api_key_env: string | null; api_key_source: "env" | "app" | "config" | null; edited_in_app: boolean;
+  endpoint: boolean; note: string;
+  models: { ref: string; context_tokens: number; max_output_tokens: number; tools: boolean; price_in_per_mtok: number; price_out_per_mtok: number; note: string }[];
 }
 export interface ConnectorInfo {
   id: string; name: string; description: string; transport: string; status: string; error: string; setup: string;
@@ -115,7 +122,13 @@ export const api = {
   testProvider: (name: string) => call<{ ok: boolean; detail?: string; model?: string; latency_ms?: number; reply?: string }>(`/api/providers/${name}/test`, { method: "POST" }),
   connect: (id: string) => call<{ id: string; tools: { name: string; allowed: boolean; reason: string; description: string }[] }>(`/api/connectors/${id}/connect`, { method: "POST" }),
   setOffline: (on: boolean | null) => call<{ on: boolean; override: boolean | null; default: boolean }>("/api/admin/offline", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),
-  discover: (base_url: string) => call<{ base_url: string; locality: "local" | "cloud"; models: string[] }>("/api/endpoints/discover", { method: "POST", body: JSON.stringify({ base_url }) }),
+  discover: (q: { base_url?: string; provider?: string; api_key?: string }) =>
+    call<{ base_url: string; locality: "local" | "cloud"; models: string[] }>("/api/endpoints/discover", { method: "POST", body: JSON.stringify(q) }),
+  updateProvider: (name: string, edit: ProviderEdit) =>
+    call<ProviderInfo>(`/api/providers/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify(edit) }),
+  resetProvider: (name: string) => call<ProviderInfo>(`/api/providers/${encodeURIComponent(name)}/override`, { method: "DELETE" }),
+  deleteRun: (id: string) => call<{ deleted: number }>(`/api/runs/${id}`, { method: "DELETE" }),
+  deleteDemoRuns: () => call<{ deleted: number }>("/api/runs?demo=true", { method: "DELETE" }),
   saveEndpoint: (ep: ModelEndpoint) => call<ModelEndpoint>("/api/endpoints", { method: "POST", body: JSON.stringify(ep) }),
   deleteEndpoint: (id: string) => call<{ deleted: string }>(`/api/endpoints/${encodeURIComponent(id)}`, { method: "DELETE" }),
   killSwitch: (on: boolean) => call<{ on: boolean }>("/api/admin/kill-switch", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),

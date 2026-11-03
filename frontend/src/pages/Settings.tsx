@@ -1,20 +1,12 @@
 import { useState } from "react";
-import { api, type ModelEndpoint, type Overview } from "../api";
+import { api, type ModelEdit, type ModelEndpoint, type Overview, type ProviderInfo } from "../api";
 import { ErrorNote, Pill } from "../ui";
 
 export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange: () => void }) {
-  const [tests, setTests] = useState<Record<string, string>>({});
   const [tools, setTools] = useState<Record<string, { name: string; allowed: boolean; reason: string }[]>>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState("");
 
-  async function test(name: string) {
-    setBusy(name);
-    try {
-      const r = await api.testProvider(name);
-      setTests((s) => ({ ...s, [name]: r.ok ? `OK · ${r.model} · ${r.latency_ms} ms` : `Failed: ${r.detail}` }));
-    } catch (e) { setError(e); } finally { setBusy(""); }
-  }
   async function connect(id: string) {
     setBusy(id); setError(null);
     try { const r = await api.connect(id); setTools((s) => ({ ...s, [id]: r.tools })); onChange(); }
@@ -28,7 +20,7 @@ export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange:
     <div className="stack-lg">
       <header className="stack-sm">
         <h1>Settings</h1>
-        <p className="muted measure">Edit <code>config/suite.yaml</code> and <code>config/connectors.yaml</code> to change providers, model chains and connectors; credentials stay in environment variables. This page shows the live state and lets you test it.</p>
+        <p className="muted measure">Switch model providers on or off and edit their address, API key and models here. Changes are saved on this computer and apply immediately; <code>suite.yaml</code> only sets the starting defaults. Connectors are set up in <code>connectors.yaml</code>.</p>
       </header>
       <ErrorNote error={error} />
 
@@ -66,26 +58,13 @@ export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange:
         </div>
       </section>
 
-      <section className="stack">
-        <h2>Model providers</h2>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Provider</th><th>Where</th><th>Status</th><th>Models</th><th></th></tr></thead>
-            <tbody>
-              {ov.providers.map((p) => (
-                <tr key={p.name}>
-                  <td><strong>{p.name}</strong><div className="muted small">{p.type}{p.base_url ? ` · ${p.base_url}` : ""}</div>{p.note && <div className="help">{p.note}</div>}</td>
-                  <td><span className={`tag ${p.locality === "local" ? "" : "outline"}`}>{p.locality}</span></td>
-                  <td><Pill value={p.available ? "ready" : "unconfigured"} /><div className="muted small">{p.reason}</div></td>
-                  <td className="small">{p.models.map((m) => <div key={m.ref}><code>{m.ref.split("/").slice(1).join("/")}</code> <span className="muted">{(m.context_tokens / 1000).toFixed(0)}k{m.tools ? " · tools" : ""}{m.price_in_per_mtok ? ` · $${m.price_in_per_mtok}/$${m.price_out_per_mtok}` : ""}</span></div>)}</td>
-                  <td className="small">
-                    {p.available && <button onClick={() => test(p.name)} disabled={busy === p.name}>{busy === p.name ? "Testing…" : "Test"}</button>}
-                    {tests[p.name] && <div className="muted">{tests[p.name]}</div>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <section className="stack" aria-labelledby="prov-h">
+        <div className="stack-sm">
+          <h2 id="prov-h">Model providers</h2>
+          <p className="muted small measure">Switch a provider on, then use <strong>Edit</strong> to set its address, API key and models. A local server such as LM Studio or Ollama must be running with a model loaded. A provider switched on here is also used as a fallback by every tier.</p>
+        </div>
+        <div className="stack-sm">
+          {ov.providers.filter((p) => !p.endpoint).map((p) => <ProviderRow key={p.name} p={p} onChange={onChange} />)}
         </div>
         <div className="card stack-sm">
           <span className="label">Fallback chains by tier (first available model allowed for the run's data class wins)</span>
@@ -139,7 +118,7 @@ export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange:
           <div className="card small"><span className="label">Tool calls per step</span><strong>{ov.budgets.max_tool_calls_per_step}</strong></div>
           <div className="card small"><span className="label">Personas</span><strong>chat {ov.persona.chat ? "on" : "off"} · documents {ov.persona.exports ? "on" : "off"}</strong></div>
         </div>
-        {!ov.profile_configured && <p className="note small">Using the example user profile. Copy <code>config/profile.example.yaml</code> to <code>config/profile.yaml</code> to describe yourself.</p>}
+        {!ov.profile_configured && <p className="note small">No user profile yet. Describe yourself in <code>profile.yaml</code> (in <code>.productivity-suite</code> in your home folder for the desktop app) so agents know your role and goals.</p>}
         {ov.warnings.length > 0 && <ul className="small warn-list">{ov.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
       </section>
     </div>
@@ -166,7 +145,7 @@ function EndpointsPanel({ ov, onChange }: { ov: Overview; onChange: () => void }
   async function find() {
     setBusy("find"); setError(null); setModels(null);
     try {
-      const r = await api.discover(draft.base_url);
+      const r = await api.discover({ base_url: draft.base_url, api_key: draft.api_key || undefined });
       setModels(r.models); setLocality(r.locality);
       setDraft((d) => ({ ...d, base_url: r.base_url, model: r.models[0] || "" }));
     } catch (e) { setError(e); } finally { setBusy(""); }
@@ -204,7 +183,7 @@ function EndpointsPanel({ ov, onChange }: { ov: Overview; onChange: () => void }
                 const prov = ov.providers.find((p) => p.name === e.provider);
                 return (
                   <tr key={e.id}>
-                    <td><strong>{e.name}</strong><div className="muted small"><code>{e.base_url}</code></div></td>
+                    <td><strong>{e.name}</strong><div className="muted small"><code>{e.base_url}</code>{e.has_api_key ? " · API key saved" : ""}</div></td>
                     <td><span className={`tag ${e.locality === "local" ? "" : "outline"}`}>{e.locality}</span>{prov && !prov.available && <div className="muted small">{prov.reason}</div>}</td>
                     <td className="small"><code>{e.model}</code><div className="muted">{(e.context_tokens / 1000).toFixed(0)}k context{e.tools ? " · tools" : ""}</div></td>
                     <td className="small">{e.use_for.join(", ")}</td>
@@ -227,6 +206,10 @@ function EndpointsPanel({ ov, onChange }: { ov: Overview; onChange: () => void }
             <label htmlFor="ep-url">Address</label>
             <input id="ep-url" value={draft.base_url} onChange={(e) => { set("base_url", e.target.value); setModels(null); }}
               placeholder="http://192.168.1.42:8080" inputMode="url" autoComplete="off" required />
+          </div>
+          <div className="field">
+            <label htmlFor="ep-key">API key <span className="muted">(only if the server asks for one)</span></label>
+            <input id="ep-key" type="password" value={draft.api_key || ""} onChange={(e) => set("api_key", e.target.value)} autoComplete="off" />
           </div>
           <button type="button" onClick={find} disabled={!draft.base_url || busy === "find"}>{busy === "find" ? "Connecting…" : "Find models"}</button>
         </div>
@@ -272,7 +255,7 @@ function EndpointsPanel({ ov, onChange }: { ov: Overview; onChange: () => void }
                   </label>
                 ))}
               </div>
-              <span className="help">Ticked tiers try this endpoint first. Every other tier keeps it as a local fallback, used before the demo provider when nothing else is allowed or reachable.</span>
+              <span className="help">Ticked tiers try this endpoint first. Every other tier keeps it as a fallback, used when nothing earlier in the chain is allowed or reachable.</span>
             </div>
             <label className="check">
               <input type="checkbox" checked={draft.tools} onChange={(e) => set("tools", e.target.checked)} />
@@ -300,5 +283,183 @@ function TestButton({ name }: { name: string }) {
       }} disabled={busy || !name}>{busy ? "Testing…" : "Test"}</button>
       {res && <span className="muted small">{res}</span>}
     </span>
+  );
+}
+
+/** On/off switch. A real button with role="switch" so keyboards and screen readers get its state. */
+function Switch({ on, label, busy, onToggle }: { on: boolean; label: string; busy?: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "is-on" : ""}`} disabled={busy} onClick={onToggle}>
+      <span className="switch-track" aria-hidden="true"><span className="switch-knob" /></span>
+      <span className="switch-text">{on ? "On" : "Off"}</span>
+    </button>
+  );
+}
+
+const KEY_SOURCE: Record<string, string> = {
+  env: "from an environment variable", app: "saved in the app", config: "set in suite.yaml",
+};
+
+function ProviderRow({ p, onChange }: { p: ProviderInfo; onChange: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  const [test, setTest] = useState("");
+
+  async function toggle() {
+    setBusy("toggle"); setError(null); setTest("");
+    try { await api.updateProvider(p.name, { enabled: !p.enabled }); onChange(); }
+    catch (e) { setError(e); } finally { setBusy(""); }
+  }
+  async function runTest() {
+    setBusy("test"); setTest("");
+    try { const r = await api.testProvider(p.name); setTest(r.ok ? `OK · ${r.model} · ${r.latency_ms} ms` : `Failed: ${r.detail}`); }
+    catch (e) { setTest(e instanceof Error ? e.message : String(e)); } finally { setBusy(""); }
+  }
+  const tone = p.available ? "ok" : p.enabled ? "warn" : "neutral";
+  const state = p.available ? "Ready" : p.enabled ? "Needs attention" : "Off";
+
+  return (
+    <article className={`card provider ${p.enabled ? "" : "is-off"}`}>
+      <div className="provider-head">
+        <Switch on={p.enabled} label={`${p.name} ${p.enabled ? "on" : "off"}`} busy={busy === "toggle"} onToggle={toggle} />
+        <div className="grow stack-xs">
+          <div className="row-tight">
+            <strong className="provider-name">{p.name}</strong>
+            <span className={`tag ${p.locality === "local" ? "" : "outline"}`}>{p.locality}</span>
+            {p.edited_in_app && <span className="tag">edited</span>}
+          </div>
+          <span className="muted small">{p.base_url || p.type}{p.models.length ? ` · ${p.models.map((m) => m.ref.split("/").slice(1).join("/")).join(", ")}` : " · no models"}</span>
+        </div>
+        <span className={`pill ${tone}`} title={p.reason}>{state}</span>
+        <div className="row-tight">
+          {p.available && <button onClick={runTest} disabled={busy === "test"}>{busy === "test" ? "Testing…" : "Test"}</button>}
+          <button className={editing ? "ghost" : ""} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>{editing ? "Close" : "Edit"}</button>
+        </div>
+      </div>
+      {!p.available && p.reason !== "switched off" && <p className="small provider-reason">{p.reason}</p>}
+      {test && <p className={`small ${test.startsWith("OK") ? "ok-text" : "provider-reason"}`}>{test}</p>}
+      <ErrorNote error={error} />
+      {editing && <ProviderEditor p={p} onDone={() => { setEditing(false); onChange(); }} onChange={onChange} />}
+    </article>
+  );
+}
+
+function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () => void; onChange: () => void }) {
+  const toEdit = (m: ProviderInfo["models"][number]): ModelEdit => ({
+    model: m.ref.split("/").slice(1).join("/"), context_tokens: m.context_tokens, max_output_tokens: m.max_output_tokens, tools: m.tools,
+  });
+  const [baseUrl, setBaseUrl] = useState(p.base_url || "");
+  const [key, setKey] = useState("");
+  const [clearKey, setClearKey] = useState(false);
+  const [models, setModels] = useState<ModelEdit[]>(p.models.map(toEdit));
+  const [found, setFound] = useState<string[] | null>(null);
+  const [manual, setManual] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  const local = p.locality === "local";
+  const isAnthropic = p.type === "anthropic";
+  const id = `pe-${p.name}`;
+
+  const has = (m: string) => models.some((x) => x.model === m);
+  const add = (m: string) => {
+    const name = m.trim();
+    if (name && !has(name)) setModels((ms) => [...ms, { model: name, context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8000, tools: false }]);
+  };
+  const upd = (i: number, k: keyof ModelEdit, v: unknown) => setModels((ms) => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
+
+  async function find() {
+    setBusy("find"); setError(null);
+    try {
+      const r = await api.discover({ provider: p.name, base_url: baseUrl || undefined, api_key: key || undefined });
+      setFound(r.models); setBaseUrl(r.base_url);
+      if (r.models.length && !models.some((m) => r.models.includes(m.model))) {
+        // Replace placeholders that the server does not have with the first model it reports.
+        setModels([{ model: r.models[0], context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8000, tools: false }]);
+      }
+    } catch (e) { setError(e); } finally { setBusy(""); }
+  }
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy("save"); setError(null);
+    try {
+      await api.updateProvider(p.name, {
+        base_url: !isAnthropic && baseUrl !== (p.base_url || "") ? baseUrl : undefined,
+        api_key: key || undefined, clear_api_key: clearKey && !key, models,
+      });
+      onDone();
+    } catch (err) { setError(err); } finally { setBusy(""); }
+  }
+  async function reset() {
+    setBusy("reset"); setError(null);
+    try { await api.resetProvider(p.name); onDone(); } catch (e) { setError(e); onChange(); } finally { setBusy(""); }
+  }
+
+  const keyNote = p.api_key_source
+    ? `A key is ${KEY_SOURCE[p.api_key_source]}. Leave blank to keep it.`
+    : local ? "Leave blank unless the server requires one (for example LM Studio with authentication switched on)." : "Required for this provider.";
+
+  return (
+    <form className="provider-edit stack" onSubmit={save}>
+      <div className="ep-row">
+        {!isAnthropic && (
+          <div className="field grow">
+            <label htmlFor={`${id}-url`}>Address</label>
+            <input id={`${id}-url`} value={baseUrl} onChange={(e) => { setBaseUrl(e.target.value); setFound(null); }} inputMode="url" autoComplete="off"
+              placeholder={local ? "http://localhost:1234/v1" : "https://api.example.com/v1"} />
+          </div>
+        )}
+        <div className="field grow">
+          <label htmlFor={`${id}-key`}>API key</label>
+          <input id={`${id}-key`} type="password" value={key} onChange={(e) => { setKey(e.target.value); setClearKey(false); }} autoComplete="off"
+            placeholder={p.api_key_source ? "•••••••• (saved)" : ""} />
+        </div>
+        {!isAnthropic && <button type="button" onClick={find} disabled={busy === "find"}>{busy === "find" ? "Connecting…" : "Find models"}</button>}
+      </div>
+      <p className="help">{keyNote}{p.api_key_env && p.api_key_source !== "env" ? ` You can also set ${p.api_key_env}.` : ""} A key entered here is saved unencrypted in the app's database on this computer and never shown again; for cloud accounts an environment variable is safer.</p>
+      {p.api_key_source === "app" && (
+        <label className="check small"><input type="checkbox" checked={clearKey} onChange={(e) => setClearKey(e.target.checked)} disabled={!!key} /> Remove the saved key</label>
+      )}
+
+      <div className="stack-sm">
+        <span className="label">Models</span>
+        {models.length === 0 && <p className="muted small">No models. Use Find models, or type a model id below.</p>}
+        {models.map((m, i) => (
+          <div key={m.model} className="model-row">
+            <code className="grow">{m.model}</code>
+            <label className="field-inline">Context
+              <input type="number" min={1024} step={1024} value={m.context_tokens} onChange={(e) => upd(i, "context_tokens", Number(e.target.value))} aria-label={`${m.model} context window in tokens`} />
+            </label>
+            <label className="field-inline">Max answer
+              <input type="number" min={128} step={128} value={m.max_output_tokens} onChange={(e) => upd(i, "max_output_tokens", Number(e.target.value))} aria-label={`${m.model} max answer length in tokens`} />
+            </label>
+            <label className="check small"><input type="checkbox" checked={m.tools} onChange={(e) => upd(i, "tools", e.target.checked)} /> tools</label>
+            <button type="button" className="ghost" onClick={() => setModels((ms) => ms.filter((_, j) => j !== i))} aria-label={`Remove ${m.model}`}>Remove</button>
+          </div>
+        ))}
+        {found && found.filter((m) => !has(m)).length > 0 && (
+          <div className="checks" role="group" aria-label="Models on the server">
+            {found.filter((m) => !has(m)).map((m) => <button type="button" key={m} className="model-chip" onClick={() => add(m)}>+ {m}</button>)}
+          </div>
+        )}
+        {found && found.length === 0 && <p className="note small warn">The server reports no models. Load a model on it, then Find models again.</p>}
+        <div className="ep-row">
+          <div className="field grow">
+            <label htmlFor={`${id}-manual`}>Add a model id</label>
+            <input id={`${id}-manual`} value={manual} onChange={(e) => setManual(e.target.value)} autoComplete="off"
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(manual); setManual(""); } }} />
+          </div>
+          <button type="button" onClick={() => { add(manual); setManual(""); }} disabled={!manual.trim()}>Add</button>
+        </div>
+        <p className="help">Set the context window to what the server actually uses (LM Studio and Ollama often default to 4,096 or 8,192 tokens). Tick tools only if the model supports tool calling.</p>
+      </div>
+
+      <ErrorNote error={error} />
+      <div className="row-tight">
+        <button className="primary" type="submit" disabled={busy === "save"}>{busy === "save" ? "Saving…" : "Save"}</button>
+        <button type="button" className="ghost" onClick={onDone}>Cancel</button>
+        {p.edited_in_app && <button type="button" className="ghost grow-left" onClick={reset} disabled={busy === "reset"}>Reset to file defaults</button>}
+      </div>
+    </form>
   );
 }

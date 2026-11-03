@@ -58,7 +58,7 @@ export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: 
         </div>
       </header>
       <ErrorNote error={error} />
-      {run.demo && <div className="banner warn">Demo provider: no language model produced this content. Configure a provider in Settings.</div>}
+      {run.demo && <div className="banner warn">Made by the demo provider of an earlier version: no language model produced this content. You can delete it from the Library.</div>}
 
       {pb && <StepRail playbook={pb} steps={run.steps} cursor={run.cursor} runStatus={run.status} />}
 

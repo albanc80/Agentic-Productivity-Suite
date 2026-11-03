@@ -33,6 +33,7 @@ class Endpoint(BaseModel):
     max_output_tokens: int = Field(default=1024, ge=128, le=128_000)
     tools: bool = False
     use_for: list[str] = Field(default_factory=lambda: ["router", "specialist"])
+    api_key: str | None = None  # some local servers require one; never returned by the API
 
     @field_validator("id")
     @classmethod
@@ -62,6 +63,35 @@ class Endpoint(BaseModel):
     @property
     def ref(self) -> str:
         return f"{self.provider_name}/{self.model}"
+
+
+class ModelEdit(BaseModel):
+    model: str
+    context_tokens: int = Field(default=8192, ge=1024, le=2_000_000)
+    max_output_tokens: int = Field(default=2048, ge=128, le=128_000)
+    tools: bool = False
+
+    @field_validator("model")
+    @classmethod
+    def _model(cls, v: str) -> str:
+        v = v.strip()
+        if not v or "\n" in v:
+            raise ValueError("model id is required")
+        return v
+
+
+class ProviderOverride(BaseModel):
+    """Changes made in the app to a provider from the config file. Unset fields keep the file value."""
+
+    enabled: bool | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    models: list[ModelEdit] | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _url(cls, v: str | None) -> str | None:
+        return normalize_url(v) if v else None
 
 
 def normalize_url(raw: str) -> str:
@@ -98,16 +128,67 @@ def locality_of(base_url: str) -> str:
     return "local" if is_local_host(urlparse(base_url).hostname or "") else "cloud"
 
 
-def apply_runtime(settings: Settings, base: dict, endpoints: list[Endpoint], offline: bool) -> None:
-    """Rebuild providers, models and tier chains from the file config plus UI endpoints."""
+def _apply_override(name: str, ov: ProviderOverride, providers: dict, models: list, tiers: dict) -> list:
+    cfg: ProviderConfig = providers[name]
+    upd: dict = {"edited_in_app": True}
+    if ov.enabled is not None:
+        upd["enabled"] = ov.enabled
+    if ov.base_url:
+        upd["base_url"] = ov.base_url
+        # A local provider pointed at an address outside your network is treated as cloud.
+        if cfg.locality == "local" and locality_of(ov.base_url) != "local":
+            upd["locality"] = "cloud"
+    if ov.api_key:
+        upd["api_key"] = ov.api_key
+        upd["key_saved_in_app"] = True
+    providers[name] = cfg.model_copy(update=upd)
+    if ov.models is not None:
+        old = {m.ref: m for m in models if m.provider == name}
+        new = []
+        for m in ov.models:
+            ref = f"{name}/{m.model}"
+            prev = old.get(ref)
+            new.append(ModelConfig(ref=ref, context_tokens=m.context_tokens, max_output_tokens=m.max_output_tokens,
+                                   tools=m.tools, price_in_per_mtok=prev.price_in_per_mtok if prev else 0.0,
+                                   price_out_per_mtok=prev.price_out_per_mtok if prev else 0.0,
+                                   effort=prev.effort if prev else None, note="edited in the app"))
+        models = [m for m in models if m.provider != name] + new
+        keep = {m.ref for m in new}
+        first = new[0].ref if new else None
+        for t, chain in tiers.items():
+            out: list[str] = []
+            for r in chain:
+                if r.split("/", 1)[0] == name and r not in keep:
+                    r = first  # chain slots that used a removed model now use the provider's first model
+                if r and r not in out:
+                    out.append(r)
+            tiers[t] = out
+    # Switched on in the app: also a fallback for every tier that does not use this provider yet,
+    # so turning on one local model is enough to run any playbook.
+    if providers[name].enabled and ov.enabled:
+        own = [m.ref for m in models if m.provider == name]
+        if own:
+            for t in TIERS:
+                chain = tiers.setdefault(t, [])
+                if not any(r.split("/", 1)[0] == name for r in chain):
+                    chain.append(own[0])
+    return models
+
+
+def apply_runtime(settings: Settings, base: dict, endpoints: list[Endpoint], offline: bool,
+                  overrides: dict[str, ProviderOverride] | None = None) -> None:
+    """Rebuild providers, models and tier chains: file config, then app edits, then app endpoints."""
     providers = dict(base["providers"])
     models = list(base["models"])
     tiers = {k: list(v) for k, v in base["tiers"].items()}
+    for name, ov in (overrides or {}).items():
+        if name in providers:
+            models = _apply_override(name, ov, providers, models, tiers)
     for ep in endpoints:
         loc = locality_of(ep.base_url)
         providers[ep.provider_name] = ProviderConfig(
-            type="openai_compatible", locality=loc, base_url=ep.base_url, api_key="not-needed",
-            enabled=True, timeout_s=900, note=f"Added in the app ({loc}). {ep.name}")
+            type="openai_compatible", locality=loc, base_url=ep.base_url, api_key=ep.api_key or "not-needed",
+            key_saved_in_app=bool(ep.api_key), enabled=True, timeout_s=900, note=f"Added in the app ({loc}). {ep.name}")
         models = [m for m in models if m.ref != ep.ref] + [ModelConfig(
             ref=ep.ref, context_tokens=ep.context_tokens, max_output_tokens=ep.max_output_tokens, tools=ep.tools,
             note="UI endpoint")]
@@ -116,10 +197,7 @@ def apply_runtime(settings: Settings, base: dict, endpoints: list[Endpoint], off
             if t in ep.use_for:
                 tiers[t] = [ep.ref] + chain  # tried first
             else:
-                # Fallback for every other tier: after real models, ahead of the demo provider.
-                demo_at = next((i for i, r in enumerate(chain)
-                                if providers.get(r.split("/", 1)[0], ProviderConfig(type="mock")).type == "mock"), len(chain))
-                tiers[t] = chain[:demo_at] + [ep.ref] + chain[demo_at:]
+                tiers[t] = chain + [ep.ref]  # fallback for every other tier, after the models already there
     settings.providers = providers
     settings.models = models
     settings.tiers = tiers

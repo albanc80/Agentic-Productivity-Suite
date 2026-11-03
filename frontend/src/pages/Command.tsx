@@ -13,7 +13,7 @@ export default function Command({ ov }: { ov: Overview }) {
 
   useEffect(() => { api.runs().then((r) => setRecent(r.slice(0, 6))).catch(() => {}); }, []);
 
-  const realModels = ov.providers.filter((p) => p.available && p.type !== "mock");
+  const realModels = ov.providers.filter((p) => p.available);
   const liveConnectors = ov.connectors.filter((c) => !["unconfigured", "disabled", "offline"].includes(c.status)).length;
 
   async function submit(e: React.FormEvent) {
@@ -75,8 +75,8 @@ export default function Command({ ov }: { ov: Overview }) {
       <section className="telemetry" aria-label="System status">
         <div className={`tele ${realModels.length ? "t-ok" : "t-warn"}`}>
           <span className="label">Models</span>
-          <strong>{realModels.length ? realModels.map((p) => p.name).join(" · ") : "Demo only"}</strong>
-          {!realModels.length && <a className="small" href="#/settings">Configure a model →</a>}
+          <strong>{realModels.length ? realModels.map((p) => p.name).join(" · ") : "None configured"}</strong>
+          {!realModels.length && <a className="small" href="#/settings">Add a model in Settings →</a>}
         </div>
         <div className="tele"><span className="label">Connectors live</span><strong className="num">{liveConnectors}<span className="muted">/{ov.connectors.length}</span></strong></div>
         <div className={`tele ${ov.pending_approvals ? "t-warn" : ""}`}>
