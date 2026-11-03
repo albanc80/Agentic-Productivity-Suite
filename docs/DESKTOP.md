@@ -16,7 +16,7 @@ Every build is checked before upload. The packaged app is started headless and o
 
 Settings and data stay in your home folder (`.productivity-suite`) and survive uninstalling.
 
-- **Windows:** the installer is not code-signed yet, so SmartScreen may warn ("More info" → "Run anyway"). The native window uses the Edge WebView2 runtime, which ships with current Windows 10 and 11.
+- **Windows:** the installer is not code-signed yet, so SmartScreen may warn ("More info" → "Run anyway"). See [CODE_SIGNING.md](CODE_SIGNING.md). The native window uses the Edge WebView2 runtime, which ships with current Windows 10 and 11.
 - **Linux:** the `.deb` opens the suite in your default browser; a native window is not bundled for Linux.
 
 ## Desktop app (Windows, macOS, Linux)
