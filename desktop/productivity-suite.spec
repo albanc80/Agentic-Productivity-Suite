@@ -19,6 +19,7 @@ datas = [
     (str(ROOT / "playbooks"), "playbooks"),
     (str(ROOT / "config"), "config"),
     (str(ROOT / "frontend" / "dist"), "frontend/dist"),
+    (str(ROOT / "desktop" / "assets"), "desktop/assets"),
 ]
 for pkg in ("anthropic", "openai", "mcp", "markdown_it"):
     datas += collect_data_files(pkg)
@@ -39,5 +40,7 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="ProductivitySuite", console=False)
+ICON = ROOT / "desktop" / "assets" / "icon.ico"
+exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name="ProductivitySuite", console=False,
+          icon=str(ICON) if ICON.exists() else None)
 coll = COLLECT(exe, a.binaries, a.datas, name="ProductivitySuite")

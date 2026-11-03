@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Productivity Suite
+Comment=Governed agent playbooks that run on your computer
+Exec=productivity-suite
+Icon=productivity-suite
+Terminal=false
+Categories=Office;Development;
+StartupNotify=true
