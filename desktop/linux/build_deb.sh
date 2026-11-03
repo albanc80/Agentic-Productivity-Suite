@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Package the PyInstaller output as a .deb.
+#   desktop/linux/build_deb.sh <pyinstaller-dist-dir> <version> <output-dir>
+# Installs to /opt/productivity-suite, adds the `productivity-suite` command,
+# a desktop menu entry and an icon. Data stays in ~/.productivity-suite.
+set -euo pipefail
+DIST="${1:?pyinstaller dist folder (…/ProductivitySuite)}"
+VERSION="${2:?version, e.g. 0.1.0}"
+OUT="${3:?output folder}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ARCH="$(dpkg --print-architecture)"
+PKG="$(mktemp -d)/productivity-suite_${VERSION}_${ARCH}"
+
+mkdir -p "$PKG/DEBIAN" "$PKG/opt/productivity-suite" "$PKG/usr/bin" \
+         "$PKG/usr/share/applications" "$PKG/usr/share/icons/hicolor/512x512/apps"
+cp -a "$DIST"/. "$PKG/opt/productivity-suite/"
+cat > "$PKG/usr/bin/productivity-suite" <<'SH'
+#!/bin/sh
+exec /opt/productivity-suite/ProductivitySuite "$@"
+SH
+chmod 0755 "$PKG/usr/bin/productivity-suite"
+cp "$HERE/productivity-suite.desktop" "$PKG/usr/share/applications/"
+cp "$HERE/../assets/icon.png" "$PKG/usr/share/icons/hicolor/512x512/apps/productivity-suite.png"
+
+SIZE_KB="$(du -sk "$PKG" | cut -f1)"
+cat > "$PKG/DEBIAN/control" <<CTRL
+Package: productivity-suite
+Version: ${VERSION}
+Section: utils
+Priority: optional
+Architecture: ${ARCH}
+Installed-Size: ${SIZE_KB}
+Recommends: xdg-utils, libwebkit2gtk-4.1-0
+Maintainer: Productivity Suite <noreply@users.noreply.github.com>
+Homepage: https://github.com/ilbambinomx/Productivity-Agents
+Description: Governed agent playbooks for daily work, management, product,
+ engineering and upstream operations. Runs locally; works offline with local
+ models. Opens in your browser when no native web view is available.
+CTRL
+
+mkdir -p "$OUT"
+dpkg-deb --root-owner-group --build "$PKG" "$OUT/productivity-suite_${VERSION}_${ARCH}.deb"
+echo "Built $OUT/productivity-suite_${VERSION}_${ARCH}.deb"

@@ -45,6 +45,14 @@ def first_run(udir: Path, root: Path) -> None:
             shutil.copyfile(root / "config" / src, target)
 
 
+def _ensure_streams(udir: Path) -> None:
+    """Windowed builds (no console) have no stdout/stderr; send output to a log file instead."""
+    if sys.stdout is None or sys.stderr is None:
+        log = open(udir / "suite.log", "a", buffering=1, encoding="utf-8")  # noqa: SIM115 - lives for the process
+        sys.stdout = sys.stdout or log
+        sys.stderr = sys.stderr or log
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -73,6 +81,7 @@ def main() -> int:
 
     root, udir = bundle_root(), user_dir()
     first_run(udir, root)
+    _ensure_streams(udir)
     os.environ.update({
         "SUITE_HOME": str(root),
         "SUITE_CONFIG": str(udir / "suite.yaml"),

@@ -14,7 +14,7 @@ Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 20+. Dock
 ./scripts/dev.sh
 ```
 
-Then open http://127.0.0.1:8765. To run it as a desktop app, offline, or from a phone on your network, see [docs/DESKTOP.md](docs/DESKTOP.md). With no model configured, the suite runs in **demo mode**: every step works end to end, but output is labelled demo content. Configure a provider (below) to get real analysis.
+Then open http://127.0.0.1:8765. Windows (`.msi`) and Linux (`.deb`) installers are built by GitHub Actions; see [docs/DESKTOP.md](docs/DESKTOP.md) for downloads, offline use and phones. With no model configured, the suite runs in **demo mode**: every step works end to end, but output is labelled demo content. Configure a provider (below) to get real analysis.
 
 For UI development with hot reload:
 

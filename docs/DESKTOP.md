@@ -1,5 +1,24 @@
 # Desktop, offline and mobile use
 
+## Install
+
+Installers are built by GitHub Actions (`.github/workflows/desktop-build.yml`). Binaries are not stored in the repository.
+
+- **Pull requests and manual runs:** open the workflow run under the repository's **Actions** tab and download the `productivity-suite-windows-msi` or `productivity-suite-linux-deb` artifact (a zip containing the installer).
+- **Releases:** pushing a tag such as `v0.1.0` attaches both installers to a GitHub Release.
+
+Every build is checked before upload. The packaged app is started headless and offline and must serve the UI and complete a Well Plan Review casing calculation (`desktop/smoke_test.py`). The installer is then installed, the installed app is smoke-tested the same way, and it is uninstalled again.
+
+| OS | File | Install | Remove |
+|---|---|---|---|
+| Windows 10/11 (x64) | `ProductivitySuite-<version>-x64.msi` | Double-click, or `msiexec /i ProductivitySuite-<version>-x64.msi`. Installs to *Program Files\Productivity Suite* with a Start menu shortcut. Installing a newer version upgrades in place. | Settings → Apps, or `msiexec /x <file>.msi` |
+| Ubuntu 22.04+ / Debian 12+ (amd64) | `productivity-suite_<version>_amd64.deb` | `sudo apt install ./productivity-suite_<version>_amd64.deb`, then run `productivity-suite` or use the app menu | `sudo apt remove productivity-suite` |
+
+Settings and data stay in your home folder (`.productivity-suite`) and survive uninstalling.
+
+- **Windows:** the installer is not code-signed yet, so SmartScreen may warn ("More info" → "Run anyway"). The native window uses the Edge WebView2 runtime, which ships with current Windows 10 and 11.
+- **Linux:** the `.deb` opens the suite in your default browser; a native window is not bundled for Linux.
+
 ## Desktop app (Windows, macOS, Linux)
 
 The suite runs as a local desktop app: a native window around the same UI, with the server bound to `127.0.0.1` on a free port. Nothing is exposed to the network.
@@ -26,7 +45,7 @@ cd frontend && npm ci && npm run build
 cd backend && uv sync --group desktop && uv run pyinstaller ../desktop/productivity-suite.spec --noconfirm
 ```
 
-The result is `backend/dist/ProductivitySuite/`. Run `ProductivitySuite` (or `ProductivitySuite.exe`). A Linux build of this spec was produced and run headless in offline mode, including a Well Plan Review run with the casing calculator. Windows and macOS builds have not been tested yet.
+The result is `backend/dist/ProductivitySuite/`. To package it, use `desktop/linux/build_deb.sh` (Linux) or `wix build desktop\windows\productivity-suite.wxs` (Windows; see the workflow for the exact arguments). Run `ProductivitySuite` (or `ProductivitySuite.exe`). A Linux build of this spec was produced and run headless in offline mode, including a Well Plan Review run with the casing calculator. Windows and macOS builds have not been tested yet.
 
 - **Settings and data** live in `~/.productivity-suite/` (`suite.yaml`, `connectors.yaml`, `profile.yaml`, `data/`). They are created on first run and kept across upgrades. Override the location with `SUITE_USER_DIR`.
 - **Windows** needs the Microsoft Edge WebView2 runtime for the native window. It ships with current Windows 10 and 11; without it the launcher opens the browser.

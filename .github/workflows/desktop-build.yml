@@ -1,0 +1,164 @@
+# Builds and verifies the desktop installers.
+#
+#   Linux:   productivity-suite_<version>_amd64.deb   (built on Ubuntu 22.04 for glibc 2.35+)
+#   Windows: ProductivitySuite-<version>-x64.msi      (WiX v5)
+#
+# Every job smoke-tests the packaged app (headless, offline, real calculation)
+# and then installs the package and smoke-tests the installed copy.
+# Pull requests and manual runs publish the installers as workflow artifacts.
+# Pushing a tag like v0.1.0 also attaches them to a GitHub Release.
+name: Desktop installers
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "desktop/**"
+      - "registry/**"
+      - "playbooks/**"
+      - "config/**"
+      - ".github/workflows/desktop-build.yml"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.11.32"
+  WIX_VERSION: "5.0.2"
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: pip install "uv==${UV_VERSION}"
+      - name: Backend tests and lint
+        working-directory: backend
+        run: |
+          uv sync --frozen --python 3.12
+          SUITE_NO_AUTOAPP=1 uv run pytest -q
+          uv run ruff check app tests ../scripts ../desktop/launcher.py ../desktop/smoke_test.py ../desktop/make_icons.py
+      - name: Frontend typecheck and build
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+  linux-deb:
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: pip install "uv==${UV_VERSION}"
+      - name: Version
+        id: v
+        run: echo "version=$(python -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('backend/app/__init__.py').read()).group(1))")" >> "$GITHUB_OUTPUT"
+      - name: Build UI
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund && npm run build
+      - name: Build app (PyInstaller)
+        working-directory: backend
+        run: |
+          uv sync --frozen --python 3.12 --group desktop
+          uv run pyinstaller ../desktop/productivity-suite.spec --noconfirm
+      - name: Smoke-test the bundle
+        run: python desktop/smoke_test.py backend/dist/ProductivitySuite/ProductivitySuite
+      - name: Package .deb
+        run: desktop/linux/build_deb.sh backend/dist/ProductivitySuite "${{ steps.v.outputs.version }}" installers
+      - name: Install the .deb and smoke-test the installed app
+        run: |
+          sudo apt-get install -y ./installers/*.deb
+          python desktop/smoke_test.py productivity-suite
+          sudo apt-get remove -y productivity-suite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: productivity-suite-linux-deb
+          path: installers/*.deb
+          if-no-files-found: error
+
+  windows-msi:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: pip install "uv==$env:UV_VERSION"
+      - name: Version
+        id: v
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path backend/app/__init__.py -Pattern '__version__ = "(.+?)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - name: Build UI
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund; npm run build
+      - name: Build app (PyInstaller)
+        working-directory: backend
+        run: |
+          uv sync --frozen --python 3.12 --group desktop
+          uv run pyinstaller ../desktop/productivity-suite.spec --noconfirm
+      - name: Smoke-test the bundle
+        run: python desktop/smoke_test.py backend\dist\ProductivitySuite\ProductivitySuite.exe
+      - name: Build MSI (WiX)
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version $env:WIX_VERSION
+          $src = Resolve-Path backend\dist\ProductivitySuite
+          $icon = Resolve-Path desktop\assets\icon.ico
+          New-Item -ItemType Directory -Force installers | Out-Null
+          wix build desktop\windows\productivity-suite.wxs -arch x64 `
+            -d "Version=${{ steps.v.outputs.version }}" -d "SourceDir=$src" -d "IconFile=$icon" `
+            -o "installers\ProductivitySuite-${{ steps.v.outputs.version }}-x64.msi"
+      - name: Install the MSI and smoke-test the installed app
+        shell: pwsh
+        run: |
+          $msi = (Resolve-Path installers\*.msi).Path
+          $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /l*v install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; throw "msiexec install failed: $($p.ExitCode)" }
+          $exe = Join-Path $env:ProgramFiles "Productivity Suite\ProductivitySuite.exe"
+          if (-not (Test-Path $exe)) { throw "not installed at $exe" }
+          $lnk = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\Productivity Suite.lnk"
+          if (-not (Test-Path $lnk)) { throw "Start menu shortcut missing at $lnk" }
+          python desktop/smoke_test.py $exe
+          if ($LASTEXITCODE -ne 0) { throw "smoke test of installed app failed" }
+          $u = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "uninstall failed: $($u.ExitCode)" }
+          if (Test-Path $exe) { throw "uninstall left files behind" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: productivity-suite-windows-msi
+          path: installers/*.msi
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-deb, windows-msi]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: installers, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          generate_release_notes: true

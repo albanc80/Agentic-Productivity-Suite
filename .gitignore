@@ -26,3 +26,7 @@ evals/reports/
 backend/build/
 backend/dist/
 *.spec.bak
+installers/
+*.msi
+*.deb
+install.log
