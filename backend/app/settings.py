@@ -113,6 +113,7 @@ class Settings(BaseModel):
     profile_path: Path | None = None
     store_prompts: bool = False
     allow_demo_provider: bool = True
+    offline: bool = False  # true: no cloud providers, no network connectors
     persona: PersonaSettings = PersonaSettings()
     output_policies: list[str] = Field(default_factory=lambda: ["plain-voice", "action-first"])
     budgets: Budgets = Budgets()
@@ -176,13 +177,15 @@ def load_settings(home: Path | None = None, config_path: Path | None = None) -> 
         return q if q.is_absolute() else home / q
 
     data_dir = rel(os.environ.get("SUITE_DATA_DIR") or raw.get("data_dir")) or home / "data"
-    profile = _first_existing(*(x for x in (rel(raw.get("profile")), home / "config" / "profile.yaml",
+    profile = _first_existing(*(x for x in (rel(os.environ.get("SUITE_PROFILE") or raw.get("profile")), home / "config" / "profile.yaml",
                                             home / "config" / "profile.example.yaml") if x))
     connectors = _first_existing(*(x for x in (rel(os.environ.get("SUITE_CONNECTORS") or raw.get("connectors")),
                                                home / "config" / "connectors.yaml",
                                                home / "config" / "connectors.example.yaml") if x))
     theme = rel(os.environ.get("SUITE_THEME_DIR") or raw.get("theme_dir"))
     fields = {k: v for k, v in raw.items() if k in Settings.model_fields and k not in {"home", "data_dir", "profile_path", "connectors_path", "theme_dir"}}
+    if os.environ.get("SUITE_OFFLINE", "").strip().lower() in ("1", "true", "yes", "on"):
+        fields["offline"] = True
     s = Settings(home=home, data_dir=data_dir, profile_path=profile, connectors_path=connectors, theme_dir=theme, **fields)
     s.data_dir.mkdir(parents=True, exist_ok=True)
     return s

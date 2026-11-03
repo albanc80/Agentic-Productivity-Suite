@@ -77,8 +77,13 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
             <div key={inp.id} className="field">
               <label htmlFor={`f-${inp.id}`}>{inp.label}{inp.required && <span className="req" aria-label="required"> *</span>}</label>
               {inp.type === "longtext" && (
-                <textarea id={`f-${inp.id}`} rows={inp.required ? 4 : 5} value={String(values[inp.id] ?? "")}
+                <textarea id={`f-${inp.id}`} rows={inp.example ? 4 : inp.required ? 4 : 5} value={String(values[inp.id] ?? "")}
+                  className={inp.example.trim().startsWith("{") ? "mono" : undefined} spellCheck={!inp.example}
+                  placeholder={inp.example || undefined}
                   onChange={(e) => set(inp.id, e.target.value)} required={inp.required} />
+              )}
+              {inp.example && !values[inp.id] && (
+                <button type="button" className="ghost small-btn" onClick={() => set(inp.id, inp.example)}>Use example values</button>
               )}
               {(inp.type === "text" || inp.type === "date") && (
                 <input id={`f-${inp.id}`} type="text" value={String(values[inp.id] ?? "")} onChange={(e) => set(inp.id, e.target.value)} required={inp.required} />
@@ -133,6 +138,9 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
               </ul>
             ) : <p className="note bad small">No configured model is allowed for this data class. The run will stop at its first step.</p>}
           </div>
+          {pb.safety_critical && (
+            <p className="note warn small">Safety-critical. Output is planning-grade and advisory. A qualified engineer signs off before use.</p>
+          )}
           {missing.length > 0 && (
             <p className="note small">Not connected: {missing.join(", ")}. Agents will work from what you paste or upload.</p>
           )}

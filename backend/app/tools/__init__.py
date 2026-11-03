@@ -94,7 +94,8 @@ TOOLS: dict[str, DeterministicTool] = {
                                                              "properties": {"md_ft": _NUM, "inclination_deg": _NUM, "azimuth_deg": _NUM}}},
                  "drillstring": {"type": "object", "required": ["pipe_od_in", "steel_weight_ppf"],
                                  "properties": {"pipe_od_in": _NUM, "steel_weight_ppf": _NUM}},
-                 "mud_weight_ppg": _NUM, "wob_klbf": _NUM, "operation": {"type": "string"},
+                 "mud_weight_ppg": _NUM, "wob_klbf": _NUM,
+                 "operation": {"type": "string", "enum": ["tripping_in", "tripping_out", "rotating", "sliding"]},
                  "friction_factor_open": _NUM, "friction_factor_cased": _NUM, "casing_depth_ft": _NUM}},
             torque_drag_simulator, safety_critical=True),
         DeterministicTool(

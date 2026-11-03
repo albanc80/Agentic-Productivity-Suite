@@ -63,7 +63,7 @@ class Suite:
     def __init__(self, settings: Settings, connectors: ConnectorManager | None = None, http_client=None):
         self.settings = settings
         self.registry = Registry(settings.registry_dir, settings.policies_dir)
-        self.connectors = connectors or ConnectorManager.from_file(settings.connectors_path)
+        self.connectors = connectors or ConnectorManager.from_file(settings.connectors_path, offline=settings.offline)
         self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs))
         self.store = Store(settings.data_dir / "suite.db")
         self.models = ModelRouter(settings, http_client=http_client)
@@ -101,7 +101,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "version": __version__, "auth_required": bool(token),
+        return {"status": "ok", "version": __version__, "auth_required": bool(token), "offline": settings.offline,
                 "kill_switch": eng.killed, "demo_allowed": settings.allow_demo_provider}
 
     @app.get("/api/overview")
@@ -116,6 +116,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             "data_classes": settings.data_classes,
             "default_data_class": settings.default_data_class,
             "kill_switch": eng.killed,
+            "offline": settings.offline,
             "budgets": settings.budgets.model_dump(),
             "persona": settings.persona.model_dump(),
             "profile_configured": bool(settings.profile_path and settings.profile_path.name == "profile.yaml"),

@@ -306,6 +306,20 @@ class Engine:
 
     def _tool(self, ctx: RunCtx, step: Step) -> StepResult:
         args = render_args(step.args, ctx.template_ctx(), ctx.outputs)
+        if step.args_from_input:
+            raw = ctx.inputs.get(step.args_from_input)
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+            except json.JSONDecodeError as e:
+                parsed, err = None, f"line {e.lineno}, column {e.colno}: {e.msg}"
+            else:
+                err = None if isinstance(parsed, dict) else "expected a JSON object"
+            if err:
+                msg = f"'{step.args_from_input}' is not valid JSON ({err}); calculation not run"
+                self.store.add_note(ctx.id, msg)
+                return StepResult(status=Status.BLOCKED, data=json.dumps({"error": msg}), warnings=[msg],
+                                  deliverable=msg)
+            args = {**parsed, **args}
         out = json.loads(run_tool(step.tool, args))
         warnings = []
         status = Status.COMPLETE
@@ -658,6 +672,8 @@ class Engine:
             if not o or o["status"] in ("skipped",) or s.kind == "parallel":
                 continue
             if s.kind in ("tool", "connector"):
+                if o["status"] == Status.BLOCKED.value:
+                    statuses.append(Status.PARTIAL)  # a failed calculation or fetch weakens the result
                 continue
             try:
                 statuses.append(Status(o["status"]))

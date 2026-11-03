@@ -4,7 +4,7 @@ export type Status = "COMPLETE" | "COMPLETE_WITH_ACCEPTED_RISK" | "PARTIAL" | "B
 
 export interface PlaybookInput {
   id: string; label: string; type: "text" | "longtext" | "number" | "select" | "multiselect" | "documents" | "date";
-  required: boolean; options: string[]; default: unknown; help: string;
+  required: boolean; options: string[]; default: unknown; help: string; example: string;
 }
 export interface PlaybookCard {
   id: string; code: string; name: string; area: string; desk: string; summary: string; status: string;
@@ -28,7 +28,7 @@ export interface ConnectorInfo {
 }
 export interface Overview {
   desks: Desk[]; agents: AgentCard[]; playbooks: PlaybookCard[]; providers: ProviderInfo[]; tiers: Record<string, string[]>;
-  connectors: ConnectorInfo[]; data_classes: Record<string, string[]>; default_data_class: string; kill_switch: boolean;
+  connectors: ConnectorInfo[]; data_classes: Record<string, string[]>; default_data_class: string; kill_switch: boolean; offline: boolean;
   budgets: Record<string, number>; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
   warnings: string[]; pending_approvals: number;
 }

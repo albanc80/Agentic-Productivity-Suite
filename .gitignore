@@ -21,3 +21,8 @@ evals/reports/
 *.db-wal
 *.db-shm
 .env
+
+# Desktop builds
+backend/build/
+backend/dist/
+*.spec.bak

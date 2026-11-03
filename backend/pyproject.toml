@@ -19,6 +19,10 @@ dependencies = [
 ]
 
 [dependency-groups]
+desktop = [
+    "pywebview==6.2.1",
+    "pyinstaller==6.22.3",
+]
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=1.0",
@@ -40,3 +44,4 @@ ignore = ["E501", "B008"]  # B008: FastAPI File()/Depends() defaults are idiomat
 
 [tool.ruff.lint.per-file-ignores]
 "app/tools/calculators/*" = ["UP", "B", "E741", "F401", "I"]
+"../desktop/*.spec" = ["F821"]

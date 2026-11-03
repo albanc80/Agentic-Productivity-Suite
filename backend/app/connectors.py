@@ -59,6 +59,7 @@ class ConnectorConfig(BaseModel):
     deny_tools: list[str] = Field(default_factory=list)
     infer_read_only: bool = True
     timeout_s: float = 60.0
+    network: bool = True  # needs internet; unavailable in offline mode
     requires: list[str] = Field(default_factory=list)  # extra env vars that must be set (explicit opt-in)
     setup: str = ""
     verify: str = ""  # what to double-check against upstream docs
@@ -196,20 +197,21 @@ class ConnectorError(Exception):
 
 class ConnectorManager:
     def __init__(self, configs: list[ConnectorConfig], env: dict[str, str] | None = None,
-                 in_process: dict[str, Any] | None = None):
+                 in_process: dict[str, Any] | None = None, offline: bool = False):
         import os
 
         self.env = dict(os.environ) if env is None else env
         self.configs = {c.id: c for c in configs}
-        self._in_process = in_process or {}  # tests: connector id -> MCPServer instance
+        self._in_process = in_process or {}
+        self.offline = offline  # tests: connector id -> MCPServer instance
         self.workers: dict[str, ConnectorWorker] = {}
 
     @classmethod
-    def from_file(cls, path: Path | None) -> ConnectorManager:
+    def from_file(cls, path: Path | None, offline: bool = False) -> ConnectorManager:
         if not path or not path.exists():
-            return cls([])
+            return cls([], offline=offline)
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return cls([ConnectorConfig.model_validate(c) for c in raw.get("connectors", [])])
+        return cls([ConnectorConfig.model_validate(c) for c in raw.get("connectors", [])], offline=offline)
 
     # ------------------------------------------------------------ status
 
@@ -220,6 +222,8 @@ class ConnectorManager:
         cfg = self.configs.get(cid)
         if not cfg or not cfg.enabled:
             return False
+        if self.offline and cfg.network:
+            return False
         return cid in self._in_process or not self.missing_env(cid)
 
     def describe(self) -> list[dict]:
@@ -228,6 +232,8 @@ class ConnectorManager:
             w = self.workers.get(cid)
             if not cfg.enabled:
                 status, err = "disabled", ""
+            elif self.offline and cfg.network:
+                status, err = "offline", "needs internet; offline mode is on"
             elif not self.configured(cid):
                 status, err = "unconfigured", "missing: " + ", ".join(self.missing_env(cid))
             else:

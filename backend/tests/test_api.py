@@ -31,7 +31,7 @@ def wait(client, rid, until=("completed", "awaiting_approval", "failed", "cancel
 
 def test_overview_and_catalog(client):
     o = client.get("/api/overview").json()
-    assert len(o["agents"]) == 34 and len(o["playbooks"]) == 8 and len(o["desks"]) == 8
+    assert len(o["agents"]) == 34 and len(o["playbooks"]) == 9 and len(o["desks"]) == 8
     assert {c["id"] for c in o["connectors"]} >= {"github", "microsoft365", "databricks-genie", "azure-devops"}
     demo = next(p for p in o["providers"] if p["name"] == "demo")
     assert demo["available"]

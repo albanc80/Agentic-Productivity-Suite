@@ -8,9 +8,11 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 |---|---|---|
 | D1 | Runtime | Standalone, platform-agnostic app. Agents run on any mix of local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, with per-tier fallback chains. No dependency on the platform the agents were first built in. |
 | D2 | Data clearance | The end user is responsible for the credentials and data they use. The app enforces a data-class → provider-locality policy so sensitive runs can be kept local. |
-| D3 | MVP scope | PB-01, 03, 04, 05, 08, 10, 13, plus PB-00 Quick Ask. |
+| D3 | MVP scope | PB-01, 03, 04, 05, 08, 10, 13, 15, plus PB-00 Quick Ask. PB-15 Well Plan Review was added after the calculators were validated by the owner; user testing follows. |
 | D4 | Personas | On in chat-style playbooks, off in document playbooks and exports. Can be switched per run. Persona text is a separate layer, never mixed into instructions. |
 | D5 | Stack | Python 3.12 / FastAPI / Pydantic, React + Vite + TypeScript, SQLite. One process serves UI and API. |
+| + | Desktop and offline | Local desktop app (pywebview + PyInstaller), offline mode (local models and local files only), installable web app. See `docs/DESKTOP.md`. |
+| + | Visual design | Precision Futurism: bundled fonts, light/dark/system themes, orchestration map and run step rail. |
 | + | Connectors in MVP | GitHub, Microsoft 365 (Graph), Databricks (Genie, UC functions, vector search), Azure DevOps, Jira/Confluence, local files, all read-only. |
 
 ## Agent consolidation
@@ -27,6 +29,7 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 | Low value without live data | Read-only MCP connectors in MVP; playbooks degrade to pasted or uploaded inputs and say so | `connectors.py`, playbooks | `test_mcp_tool_loop_read_only_and_injection_flag`, `test_stdio_transport_round_trip` |
 | Agent writes to external systems | Suite-side read-only policy; write tools hidden and refused; no send/publish tool exists | `connectors.tool_allowed`, `ConnectorManager.call` | `test_policy_rules`, `test_in_process_read_only_enforcement` |
 | Prompt injection via pasted text, files or tool output | Untrusted-data envelope, envelope-escape neutralised, pattern screening surfaced as step warnings, operating rule 2 | `guards.py`, `prompts.SUITE_RULES` | `test_injection_and_redaction`, MCP tool-loop test |
+| Calculation fed bad input | JSON inputs parsed strictly; invalid JSON or wrong fields block that calculation and lower the run outcome; T&D operation is an enum | `engine._tool`, `tools/__init__.py` | `test_invalid_json_blocks_only_that_calculation`, `test_wrong_calculator_fields_are_reported` |
 | Unsafe engineering advice trusted | Safety rules injected for safety-critical agents; deterministic calculators with planning-grade notice; safety-critical playbooks require a gate | `prompts.SAFETY_RULES`, `tools/`, `playbooks.validate` | `test_casing_checker_matches_hand_calculation`, `test_tool_wrapper_adds_safety_notice_and_validates_args` |
 | Fabricated facts or evidence | FACT without trace downgraded; "EXECUTED" without a tool call corrected; evidence validator tool | `engine._converse`, `tools.evidence_validator` | `test_fact_without_trace_downgraded_and_false_evidence_corrected`, `test_evidence_validator` |
 | Author approves own work | Validation rejects a review by the same agent; revise-once on FAIL | `playbooks.validate`, `engine._maybe_revise` | `test_reviewer_cannot_review_own_work`, `test_scope_change_parallel_review_revise_and_gate` |
@@ -50,7 +53,6 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 
 **Next**
 - PB-02 Meeting Prep & Debrief, PB-06 Program Risk Review, PB-07 Idea to Validated Opportunity, PB-09 AI Opportunity to Governed Agent, PB-11 Spec to Engineering Delivery Plan, PB-12 Data Product Design.
-- PB-15 Well Plan Review, after the calculators pass a validation suite against reference cases reviewed by a qualified engineer.
 - Streaming output in the UI; per-message cost display.
 - SSO for multi-user deployments.
 

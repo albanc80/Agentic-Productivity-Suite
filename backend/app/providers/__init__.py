@@ -66,6 +66,8 @@ class ModelRouter:
             return (True, "demo provider") if self.settings.allow_demo_provider else (False, "demo provider disabled")
         if not cfg.enabled:
             return False, "disabled in config"
+        if cfg.locality == "cloud" and self.settings.offline:
+            return False, "offline mode"
         if cfg.locality == "cloud" and not self._api_key(cfg):
             return False, f"missing API key ({cfg.api_key_env or 'api_key'})"
         return True, "ready"

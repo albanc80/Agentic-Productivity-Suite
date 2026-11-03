@@ -15,6 +15,11 @@ store_prompts: false                  # true = keep full prompts in the audit lo
 # is labelled. Set to false once a real provider works.
 allow_demo_provider: true
 
+# Offline mode: cloud providers and internet connectors are switched off; only local
+# models (Ollama, LM Studio, vLLM) and the local-files connector are used.
+# Also settable with SUITE_OFFLINE=1.
+offline: false
+
 persona:
   chat: true      # agents with a persona use it on screen
   exports: false  # exported deliverables are written without persona voice

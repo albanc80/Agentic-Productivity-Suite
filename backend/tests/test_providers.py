@@ -115,3 +115,27 @@ def test_router_availability_and_locality(monkeypatch, tmp_path):
     cands, _ = r.candidates("specialist", "internal")
     assert cands[0].ref == "openrouter/vendor/model" and cands[0].model.model == "vendor/model"
     assert r.settings.model("ollama/unknown").context_tokens == 8192  # conservative default for local
+
+
+def test_offline_mode_blocks_cloud_and_network_connectors(tmp_path, monkeypatch):
+    from app.connectors import ConnectorConfig, ConnectorManager
+    from app.settings import load_settings
+    from tests.conftest import ROOT
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("SUITE_OFFLINE", "1")
+    monkeypatch.setenv("SUITE_DATA_DIR", str(tmp_path))
+    s = load_settings(ROOT, ROOT / "config" / "suite.example.yaml")
+    assert s.offline
+    r = ModelRouter(s)
+    assert r.availability("anthropic") == (False, "offline mode")
+    cands, _ = r.candidates("synthesis", "public")
+    assert all(c.config.locality == "local" for c in cands)
+
+    env = {"GH": "x", "DIR": "/tmp"}
+    mgr = ConnectorManager([
+        ConnectorConfig(id="gh", name="GH", transport="stdio", command="x", env={"T": "${GH}"}),
+        ConnectorConfig(id="files", name="Files", transport="stdio", command="x", args=["${DIR}"], network=False),
+    ], env=env, offline=True)
+    assert not mgr.configured("gh") and mgr.configured("files")
+    assert {c["id"]: c["status"] for c in mgr.describe()} == {"gh": "offline", "files": "idle"}

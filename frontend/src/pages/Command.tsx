@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Overview, type RouteResult, type RunSummary } from "../api";
 import { ErrorNote, Pill, fmtTime, go } from "../ui";
+import { OrchestrationMap } from "../viz";
 import { setPrefill } from "./RunForm";
 
 export default function Command({ ov }: { ov: Overview }) {
@@ -12,8 +13,8 @@ export default function Command({ ov }: { ov: Overview }) {
 
   useEffect(() => { api.runs().then((r) => setRecent(r.slice(0, 6))).catch(() => {}); }, []);
 
-  const realModels = ov.providers.some((p) => p.available && p.type !== "mock");
-  const liveConnectors = ov.connectors.filter((c) => c.status !== "unconfigured" && c.status !== "disabled").length;
+  const realModels = ov.providers.filter((p) => p.available && p.type !== "mock");
+  const liveConnectors = ov.connectors.filter((c) => !["unconfigured", "disabled", "offline"].includes(c.status)).length;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,60 +39,76 @@ export default function Command({ ov }: { ov: Overview }) {
   return (
     <div className="stack-lg">
       <section className="hero">
-        <h1>What needs doing?</h1>
-        <p className="muted">Describe the request. The suite picks a playbook, or you choose one below.</p>
-        <form className="command" onSubmit={submit}>
-          <label htmlFor="cmd" className="sr-only">Request</label>
-          <textarea id="cmd" rows={3} value={text} onChange={(e) => setText(e.target.value)}
-            placeholder="e.g. Ops wants a CSV export added this sprint. It's about 40 hours. Should we take it?"
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e); }} />
-          <div className="row">
-            <button className="primary" type="submit" disabled={busy || !text.trim()}>{busy ? "Routing…" : "Find the playbook"}</button>
-            <span className="muted small">Ctrl + Enter</span>
-          </div>
-        </form>
-        <ErrorNote error={error} />
-        {result && !result.auto && (
-          <div className="card route">
-            <p><strong>Best match:</strong> {ov.playbooks.find((p) => p.id === result.playbook)?.name}
-              <span className="muted small"> · confidence {Math.round(result.confidence * 100)}% · {result.method}</span></p>
-            <p className="muted small">Confidence is below the auto-start threshold. Pick one:</p>
-            <div className="choices">
-              {result.candidates.map((c) => (
-                <button key={c.id} className="choice" onClick={() => open(c.id)}>
-                  <strong>{c.name}</strong><span>{c.summary}</span>
-                </button>
-              ))}
+        <div className="hero-copy">
+          <span className="eyebrow">{ov.agents.length} agents · {ov.desks.length} desks · {mvp.length + 1} playbooks</span>
+          <h1>Tell it what needs doing.</h1>
+          <p className="lede">The router picks the playbook. Specialists do the work, a different agent checks it, and nothing leaves until a named person approves.</p>
+          <form className="command" onSubmit={submit}>
+            <label htmlFor="cmd" className="sr-only">Request</label>
+            <textarea id="cmd" rows={3} value={text} onChange={(e) => setText(e.target.value)}
+              placeholder="e.g. Ops wants a CSV export added this sprint. It's about 40 hours. Should we take it?"
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e); }} />
+            <div className="command-bar">
+              <span className="muted small"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+              <button className="primary cut" type="submit" disabled={busy || !text.trim()}>{busy ? "Routing…" : "Route request"}</button>
             </div>
-          </div>
-        )}
+          </form>
+          <ErrorNote error={error} />
+          {result && !result.auto && (
+            <div className="route">
+              <p><strong>Best match:</strong> {ov.playbooks.find((p) => p.id === result.playbook)?.name}
+                <span className="muted small"> · {Math.round(result.confidence * 100)}% confidence · {result.method}</span></p>
+              <p className="muted small">Below the auto-start threshold. Choose one:</p>
+              <div className="choices">
+                {result.candidates.map((c) => (
+                  <button key={c.id} className="choice" onClick={() => open(c.id)}>
+                    <strong>{c.name}</strong><span>{c.summary}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <OrchestrationMap desks={ov.desks} playbooks={mvp.length + 1} connectorsLive={liveConnectors} />
       </section>
 
-      <section className="status-strip" aria-label="System status">
-        <div><span className="label">Models</span>{realModels ? <Pill value="ready" /> : <span className="pill warn">Demo only</span>}</div>
-        <div><span className="label">Connectors live</span><strong>{liveConnectors}</strong> of {ov.connectors.length}</div>
-        <div><span className="label">Approvals waiting</span><strong>{ov.pending_approvals}</strong></div>
-        <div><span className="label">Default data class</span><strong>{ov.default_data_class}</strong></div>
-        {!realModels && <a className="small" href="#/settings">Configure a model →</a>}
+      <section className="telemetry" aria-label="System status">
+        <div className={`tele ${realModels.length ? "t-ok" : "t-warn"}`}>
+          <span className="label">Models</span>
+          <strong>{realModels.length ? realModels.map((p) => p.name).join(" · ") : "Demo only"}</strong>
+          {!realModels.length && <a className="small" href="#/settings">Configure a model →</a>}
+        </div>
+        <div className="tele"><span className="label">Connectors live</span><strong className="num">{liveConnectors}<span className="muted">/{ov.connectors.length}</span></strong></div>
+        <div className={`tele ${ov.pending_approvals ? "t-warn" : ""}`}>
+          <span className="label">Waiting for you</span>
+          <strong className="num">{ov.pending_approvals}</strong>
+          {ov.pending_approvals > 0 && <a className="small" href="#/approvals">Review →</a>}
+        </div>
+        <div className="tele"><span className="label">Mode</span><strong>{ov.offline ? "Offline · local only" : `Online · ${ov.default_data_class}`}</strong></div>
       </section>
 
       <section className="stack">
-        <h2>Playbooks</h2>
+        <h2 className="section-title">Playbooks</h2>
         <div className="grid cards">
-          {mvp.map((p) => (
-            <button key={p.id} className="card pb" onClick={() => go(`/start/${p.id}`)}>
-              <span className="code">{p.code} · {p.area}</span>
-              <strong>{p.name}</strong>
-              <span className="muted">{p.summary}</span>
-              <span className="meta">{p.steps.length} steps{p.steps.some((s) => s.kind === "gate") ? " · human gate" : ""}{p.steps.some((s) => s.kind === "review") ? " · independent review" : ""}</span>
-            </button>
-          ))}
+            {mvp.map((p) => (
+              <button key={p.id} className="card pb" onClick={() => go(`/start/${p.id}`)}>
+                <span className="code">{p.code}<span className="area">{p.area}</span>{p.safety_critical && <span className="flag">Safety-critical</span>}</span>
+                <strong>{p.name}</strong>
+                <span className="muted">{p.summary}</span>
+                <span className="meta">
+                  <span>{p.steps.length} steps</span>
+                  {p.steps.some((s) => s.kind === "review") && <span>Independent review</span>}
+                  {p.steps.some((s) => s.kind === "gate") && <span>Human gate</span>}
+                  {p.steps.some((s) => s.kind === "tool") && <span>{p.desk === "upstream" ? "Calculators" : "Evidence check"}</span>}
+                </span>
+              </button>
+            ))}
         </div>
       </section>
 
       {recent.length > 0 && (
         <section className="stack">
-          <h2>Recent runs</h2>
+          <h2 className="section-title">Recent runs</h2>
           <ul className="list">
             {recent.map((r) => (
               <li key={r.id}>

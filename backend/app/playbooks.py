@@ -30,6 +30,7 @@ class PlaybookInput(BaseModel):
     options: list[str] = Field(default_factory=list)
     default: Any = None
     help: str = ""
+    example: str = ""  # shown as placeholder; never submitted
     untrusted: bool | None = None  # defaults: longtext and documents are untrusted data
 
     @property
@@ -82,6 +83,7 @@ class Step(BaseModel):
     tool: str | None = None
     connector: str | None = None
     args: dict[str, Any] = Field(default_factory=dict)
+    args_from_input: str | None = None  # tool step: JSON object input used as arguments
     optional: bool = True
 
     @model_validator(mode="after")
@@ -188,6 +190,8 @@ def validate(pb: Playbook, registry: Registry, connector_ids: set[str] | None = 
                     raise PlaybookError(f"{pb.id}: review '{s.id}' can only revise an agent step")
             if s.kind == "tool" and s.tool not in TOOLS:
                 raise PlaybookError(f"{pb.id}: unknown tool '{s.tool}'")
+            if s.args_from_input and not pb.input(s.args_from_input):
+                raise PlaybookError(f"{pb.id}: step '{s.id}' reads arguments from unknown input '{s.args_from_input}'")
             if s.kind == "gate" and s.payload_from and s.payload_from not in seen:
                 raise PlaybookError(f"{pb.id}: gate '{s.id}' payload '{s.payload_from}' has not run yet")
             if s.when and not pb.input(s.when.input):

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, download, type Approval, type Overview, type RunDetail, type StepRow } from "../api";
 import { ErrorNote, Markdown, Pill, fmtCost, fmtTime } from "../ui";
+import { StepRail } from "../viz";
 
 const LIVE = new Set(["queued", "running"]);
 
@@ -58,6 +59,8 @@ export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: 
       </header>
       <ErrorNote error={error} />
       {run.demo && <div className="banner warn">Demo provider: no language model produced this content. Configure a provider in Settings.</div>}
+
+      {pb && <StepRail playbook={pb} steps={run.steps} cursor={run.cursor} runStatus={run.status} />}
 
       {pending.map((a) => <ApprovalPanel key={a.id} approval={a} onDone={() => { load(); onChange(); }} />)}
 

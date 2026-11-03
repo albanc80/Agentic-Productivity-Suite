@@ -100,6 +100,7 @@ connectors:
 
   - id: local-files
     name: Local files
+    network: false   # works in offline mode
     description: Read files in one folder you choose (reports, exports, notes).
     transport: stdio
     command: npx

@@ -10,6 +10,20 @@ import Library from "./pages/Library";
 import Agents from "./pages/Agents";
 import SettingsPage from "./pages/Settings";
 
+type Theme = "system" | "light" | "dark";
+
+function useTheme(): [Theme, (t: Theme) => void] {
+  const [theme, setTheme] = useState<Theme>(() => {
+    try { return (localStorage.getItem("suite.theme") as Theme) || "system"; } catch { return "system"; }
+  });
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "system") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", theme);
+    try { localStorage.setItem("suite.theme", theme); } catch { /* storage unavailable */ }
+  }, [theme]);
+  return [theme, setTheme];
+}
+
 function useHash() {
   const [hash, setHash] = useState(() => window.location.hash.slice(1) || "/");
   useEffect(() => {
@@ -31,6 +45,7 @@ const NAV = [
 
 export default function App() {
   const hash = useHash();
+  const [theme, setTheme] = useTheme();
   const [ov, setOv] = useState<Overview | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [needToken, setNeedToken] = useState(false);
@@ -76,10 +91,8 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <a className="brand" href="#/">
-            <span className="brand-mark" aria-hidden="true">
-              <svg viewBox="0 0 32 32" width="22" height="22"><rect width="32" height="32" rx="6" fill="currentColor" /><path d="M8 9h16M8 16h11M8 23h7" stroke="var(--bg)" strokeWidth="3" strokeLinecap="round" /></svg>
-            </span>
-            Productivity Suite
+            <img className="brand-mark" src="/icon.svg" alt="" width="28" height="28" />
+            <span>Productivity<span className="brand-accent">Suite</span></span>
           </a>
           <nav aria-label="Main">
             {NAV.map((n) => (
@@ -89,6 +102,15 @@ export default function App() {
               </a>
             ))}
           </nav>
+          <div className="topbar-tools">
+            {ov?.offline && <span className="chip offline" title="Cloud providers and internet connectors are off">Offline</span>}
+            <label className="sr-only" htmlFor="theme">Theme</label>
+            <select id="theme" className="theme-select" value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
+              <option value="system">System</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
         </div>
       </header>
       {ov?.kill_switch && (

@@ -4,7 +4,7 @@ A platform-agnostic application that turns a library of specialist agents into g
 
 One front door routes each request to a **playbook**: a fixed sequence of steps in which specialist agents work in order or in parallel. A different agent reviews the work, and anything that would leave the app waits for a named person. Agents can run on local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, mixed in one run. They read live context through read-only MCP connectors (GitHub, Microsoft 365, Databricks, Azure DevOps, Jira/Confluence, local files).
 
-> Status: MVP. Seven playbooks plus Quick Ask, with 34 agents in 8 desks. See [docs/PLAN.md](docs/PLAN.md) for the plan, decisions and roadmap.
+> Status: MVP. Eight playbooks plus Quick Ask, with 34 agents in 8 desks. Runs in the browser, as a desktop app, and fully offline with local models. See [docs/PLAN.md](docs/PLAN.md) for the plan, decisions and roadmap.
 
 ## Quick start
 
@@ -14,7 +14,7 @@ Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 20+. Dock
 ./scripts/dev.sh
 ```
 
-Then open http://127.0.0.1:8765. With no model configured, the suite runs in **demo mode**: every step works end to end, but output is labelled demo content. Configure a provider (below) to get real analysis.
+Then open http://127.0.0.1:8765. To run it as a desktop app, offline, or from a phone on your network, see [docs/DESKTOP.md](docs/DESKTOP.md). With no model configured, the suite runs in **demo mode**: every step works end to end, but output is labelled demo content. Configure a provider (below) to get real analysis.
 
 For UI development with hot reload:
 
@@ -39,6 +39,8 @@ Copy `config/suite.example.yaml` to `config/suite.yaml`. Credentials are never s
 
 Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fallback chain. The first model that is available *and* allowed for the run's data class is used. If it errors or declines, the next one is tried. You can override chains per agent (`agent_overrides`) or per playbook step (`models:`).
 
+**Offline mode** (`offline: true` or `SUITE_OFFLINE=1`) switches off every cloud provider and every connector that needs the internet.
+
 **Data classes.** Each run is tagged `public`, `internal`, `confidential` or `restricted`, and `data_classes` decides which provider localities may receive it. By default, `restricted` runs only reach local models. You are responsible for the credentials and data you use; this policy is how you keep sensitive work local.
 
 Settings → Model providers shows availability and has a **Test** button per provider.
@@ -61,6 +63,7 @@ Copy `config/connectors.example.yaml` to `config/connectors.yaml` to customise. 
 | PB-08 | Opportunity to PRD and Feature Slices | pipeline + fan-out + review |
 | PB-10 | Architecture Review & ADR | options → security/ops/QA reviews → ADR → review → gate |
 | PB-13 | Investment Case | fan-out → synthesis → review → gate |
+| PB-15 | Well Plan Review (safety-critical) | deterministic calculators → engineering review → NPT ∥ field challenge → review → engineer sign-off |
 
 Playbooks are YAML in `playbooks/`; the schema is in `backend/app/playbooks.py`. They are validated at startup, and a reviewer can never review its own agent's work.
 
@@ -82,7 +85,7 @@ flowchart LR
 - **Agents.** `scripts/ingest_agents.py` compiles the original agent configurations (`Productivity-Agents-Configs.zip`) into `registry/`. It strips platform-specific content, branding and personal references, merges duplicate roles, and moves persona voice into a separate layer. See `registry/INGEST_REPORT.md`.
 - **Contract.** Every agent returns Markdown plus a JSON handoff: status, claims labelled FACT / ASSUMPTION / INFERENCE with traces, risks, open questions and next action. A FACT without a trace is downgraded to ASSUMPTION.
 - **Guardrails.** Pasted text, files and tool results are wrapped as untrusted data and screened for injection attempts. The suite has no send/write/publish capability. Deliverables are screened for language that evaluates people. Runs have cost and token budgets, a per-step tool-call limit and a global kill switch. The audit log redacts secrets.
-- **Deterministic tools.** The well-planning calculators (casing, hydraulics, torque and drag, risk matrix) run as tested Python functions, so a model never produces those numbers. Their output is marked planning-grade.
+- **Deterministic tools.** The well-planning calculators (casing, hydraulics, torque and drag, risk matrix) run as tested Python functions, so a model never produces those numbers. In Well Plan Review they run first from the JSON you enter, and the engineering agent must cite their results. Output is marked planning-grade and needs a qualified engineer's sign-off.
 
 ## Tests and evals
 
@@ -94,7 +97,7 @@ cd backend && uv run pytest
 cd backend && uv run python ../scripts/run_evals.py
 ```
 
-The first runs 44 tests: engine, providers (mocked HTTP), MCP over stdio, API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
+The first runs 48 tests: engine, providers (mocked HTTP), MCP over stdio, API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
 
 ## Project layout
 
@@ -102,6 +105,7 @@ The first runs 44 tests: engine, providers (mocked HTTP), MCP over stdio, API, g
 backend/app/        engine, providers, connectors, prompts, guards, store, API
 backend/tests/      pytest suite (no network or model needed)
 frontend/           React UI (built into frontend/dist, served by the backend)
+desktop/            desktop launcher and PyInstaller spec
 registry/           compiled agents, skills, desks (generated; do not edit by hand)
 playbooks/          workflow definitions
 config/             example config, output policies, profile

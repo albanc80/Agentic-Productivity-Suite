@@ -1,0 +1,111 @@
+id: well-plan-review
+code: PB-15
+name: Well Plan Review
+area: Upstream operations
+desk: upstream
+status: mvp
+safety_critical: true
+summary: Deterministic casing, hydraulics and torque-and-drag checks, an engineering review with a risk register, NPT and field-operations challenge, an independent review, and sign-off by a qualified drilling engineer. Advisory only.
+patterns: [P6, P2, P3, P4, P5]
+triggers: [well plan, well design, casing design, hydraulics, ecd, torque and drag, drilling program, well review, afe, risk matrix]
+inputs:
+  - {id: well, label: "Well name and objective", type: text, required: true}
+  - id: well_type
+    label: Well type
+    type: select
+    options: [horizontal_shale, hpht, deepwater, multilateral, injector, exploration, appraisal]
+    default: horizontal_shale
+  - id: phase
+    label: Lifecycle phase
+    type: select
+    options: [concept select, pre-FEED, FEED, detailed design, execution planning, post-well]
+    default: detailed design
+  - {id: basin, label: "Basin or field", type: text}
+  - {id: plan_summary, label: "Plan summary: trajectory, casing program, mud program, BHA, key depths", type: longtext, required: true}
+  - id: casing_json
+    label: "Casing check input (JSON, optional)"
+    type: longtext
+    help: Runs the casing design checker exactly as entered. Leave empty to skip.
+    example: '{"casing_size_in": 9.625, "weight_ppf": 47, "grade": "P-110", "setting_depth_ft": 10000, "pore_pressure_ppg": 10.5, "fracture_gradient_ppg": 15.0, "mud_weight_ppg": 11.0, "well_type": "horizontal_shale"}'
+  - id: hydraulics_json
+    label: "Hydraulics input (JSON, optional)"
+    type: longtext
+    help: Runs the Bingham-plastic hydraulics solver. Bit nozzles in 32nds of an inch.
+    example: '{"flow_rate_gpm": 550, "mud_weight_ppg": 11.0, "plastic_viscosity_cp": 22, "yield_point_lbf100sqft": 14, "hole_size_in": 8.5, "drillpipe_od_in": 5.0, "tvd_ft": 9800, "md_ft": 15500, "bit_nozzles": [16, 16, 16, 16, 16], "formation_angle_deg": 90}'
+  - id: td_json
+    label: "Torque and drag input (JSON, optional)"
+    type: longtext
+    help: Survey stations from surface to TD plus drillstring. operation is one of tripping_in, tripping_out, rotating, sliding (anything else is treated as sliding).
+    example: '{"well_profile": [{"md_ft": 0, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9000, "inclination_deg": 0, "azimuth_deg": 0}, {"md_ft": 9900, "inclination_deg": 90, "azimuth_deg": 180}, {"md_ft": 15500, "inclination_deg": 90, "azimuth_deg": 180}], "drillstring": {"pipe_od_in": 5.0, "steel_weight_ppf": 19.5}, "mud_weight_ppg": 11.0, "wob_klbf": 25, "operation": "rotating", "casing_depth_ft": 9000}'
+  - {id: hazards, label: "Known hazards and offset-well events", type: longtext}
+  - {id: documents, label: "Offset data, prognosis, programs", type: documents}
+steps:
+  - id: casing_check
+    kind: tool
+    title: Casing design check
+    when: {input: casing_json}
+    tool: casing_design_checker
+    args_from_input: casing_json
+  - id: hydraulics_check
+    kind: tool
+    title: Hydraulics and ECD
+    when: {input: hydraulics_json}
+    tool: hydraulics_solver
+    args_from_input: hydraulics_json
+  - id: td_check
+    kind: tool
+    title: Torque and drag
+    when: {input: td_json}
+    tool: torque_drag_simulator
+    args_from_input: td_json
+  - id: engineering_review
+    kind: agent
+    title: Engineering review and risk register
+    agent: well-planner
+    task: |
+      Review the plan for {{inputs.well}} ({{inputs.well_type}}, {{inputs.phase}}, {{inputs.basin}}).
+      1. Use the calculator results above as the source for every design factor, ECD and load figure. Do not
+         restate a number the calculators did not produce; label anything else ASSUMPTION.
+      2. If you have tool access and the plan gives enough data for another casing string or load case, call
+         the calculators rather than estimating by hand.
+      3. Build the risk register with the risk_matrix_generator tool when available (hazards from the plan,
+         offsets and the inputs), then add mitigations, contingencies and barrier verification checkpoints.
+      4. State what must be validated in certified software and by whom before AFE or execution.
+  - id: challenge
+    kind: parallel
+    title: NPT and field operations challenge
+    steps:
+      - id: npt_view
+        kind: agent
+        agent: npt-advisor
+        title: NPT precursors
+        task: |
+          For this plan, list the drilling-mechanics NPT precursors most likely by section (vibration, MSE,
+          ECD window, swab/surge, hole cleaning, stuck pipe), the parameters to monitor, alert thresholds to
+          agree with the rig team, and what happens if nothing is done. Advisory only.
+      - id: field_view
+        kind: agent
+        agent: domain-sme
+        title: Field operations and HSE
+        task: |
+          Assess field practicality, HSE and well-control readiness, crew and equipment constraints, and
+          what the rig team will push back on.
+  - id: review
+    kind: review
+    title: Independent review
+    agent: critical-mentor
+    target: engineering_review
+    on_fail: revise
+    task: |
+      Check the engineering review against the calculator outputs and the NPT and field findings. Flag any
+      number without a calculator, input or standard behind it, any missing barrier or contingency, and any
+      recommendation that would need certified-software validation before use.
+  - id: approve
+    kind: gate
+    title: Qualified drilling engineer sign-off
+    required_role: Qualified drilling engineer
+    instructions: |
+      Planning-grade review only. Approval records that a qualified engineer checked it; it does not replace
+      certified engineering software, the operator's management-of-change process or well-control authority.
+    payload_from: engineering_review
+deliverable: engineering_review
