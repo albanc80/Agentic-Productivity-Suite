@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { api, type Overview } from "../api";
-import { ErrorNote, Markdown } from "../ui";
+import { ErrorNote, Markdown, go } from "../ui";
 
 type Detail = Awaited<ReturnType<typeof api.agent>>;
 
-export default function Agents({ ov, agentId }: { ov: Overview; agentId: string }) {
+export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentId: string; onChange: () => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [mode, setMode] = useState("");
@@ -25,6 +25,12 @@ export default function Agents({ ov, agentId }: { ov: Overview; agentId: string 
           <span className="code">{ov.desks.find((d) => d.id === detail.desk)?.name} · {detail.callsign}</span>
           <h1>{detail.name}</h1>
           <p className="muted measure">{detail.summary}</p>
+          <AgentModel ov={ov} agentId={detail.id} tier={detail.default_tier} onChange={onChange} />
+          <div className="row-tight">
+            <button className="primary" onClick={async () => {
+              try { const c = await api.startChat(detail.id); go(`/chat/${c.id}`); } catch (e) { setError(e); }
+            }}>Chat with {detail.name}</button>
+          </div>
           <div className="tags">
             <span className="tag">Default tier: {detail.default_tier}</span>
             {detail.safety_critical && <span className="tag danger">Safety-critical · advisory only</span>}
@@ -87,13 +93,35 @@ export default function Agents({ ov, agentId }: { ov: Overview; agentId: string 
                   <span className="code">{a.callsign}{d.lead === id ? " · lead" : ""}</span>
                   <strong>{a.name}</strong>
                   <span className="muted">{a.summary}</span>
-                  <span className="meta">{a.core_skills.length + a.skills.length} skills{Object.keys(a.modes).length ? ` · ${Object.keys(a.modes).length + 1} modes` : ""}{a.safety_critical ? " · safety-critical" : ""}</span>
+                  <span className="meta">{a.core_skills.length + a.skills.length} skills{Object.keys(a.modes).length ? ` · ${Object.keys(a.modes).length + 1} modes` : ""}{a.safety_critical ? " · safety-critical" : ""}{!ov.offline && ov.agent_models[id] ? ` · ${ov.agent_models[id]}` : ""}</span>
                 </a>
               );
             })}
           </div>
         </section>
       ))}
+    </div>
+  );
+}
+
+/** Online: pick the model this agent uses first (its tier chain stays as fallback). Offline: every agent uses the offline model. */
+function AgentModel({ ov, agentId, tier, onChange }: { ov: Overview; agentId: string; tier: string; onChange: () => void }) {
+  const [error, setError] = useState<unknown>(null);
+  const ready = new Set(ov.providers.filter((p) => p.available || p.offline_paused).map((p) => p.name));
+  const auto = (ov.tiers[tier] || []).find((r) => ov.providers.some((p) => p.available && p.name === r.split("/")[0]));
+  if (ov.offline) {
+    return <p className="note small">Offline: this agent uses <code>{ov.offline_default || "no local model"}</code>, like every agent. Change it in Settings → Models.{ov.agent_models[agentId] ? ` Your choice for online use (${ov.agent_models[agentId]}) is kept.` : ""}</p>;
+  }
+  return (
+    <div className="field narrow-field">
+      <label htmlFor="agent-model">Model for this agent</label>
+      <select id="agent-model" value={ov.agent_models[agentId] || ""}
+        onChange={async (e) => { try { await api.saveGeneral({ agent_models: { [agentId]: e.target.value || null } }); onChange(); } catch (err) { setError(err); } }}>
+        <option value="">Automatic ({tier} order{auto ? `: now ${auto}` : ""})</option>
+        {ov.model_refs.map((r) => <option key={r} value={r}>{r}{ready.has(r.split("/")[0]) ? "" : " (not ready)"}</option>)}
+      </select>
+      <span className="help">Tried first in chats and playbook steps; if it fails or the data class does not allow it, the {tier} order is used.</span>
+      <ErrorNote error={error} />
     </div>
   );
 }

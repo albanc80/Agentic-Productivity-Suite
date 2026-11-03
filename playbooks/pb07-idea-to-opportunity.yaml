@@ -1,0 +1,53 @@
+id: idea-to-opportunity
+code: PB-07
+name: Idea to Validated Opportunity
+area: Product development
+desk: product
+status: mvp
+summary: Turns a raw idea into a framed opportunity with jobs to be done, riskiest assumptions, cheap experiments and a go / test / drop call.
+patterns: [P2, P3, P4]
+triggers: [idea, opportunity, discovery, validate, hypothesis, should we build, problem space, jobs to be done, experiment]
+inputs:
+  - {id: idea, label: "Idea", type: longtext, required: true, untrusted: false}
+  - {id: users, label: "Who has the problem", type: text}
+  - {id: evidence, label: "Evidence so far: feedback, data, requests", type: longtext}
+  - {id: constraints, label: "Constraints: budget, time, team", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: frame
+    kind: agent
+    title: Problem framing
+    agent: product-strategist
+    task: |
+      Frame "{{inputs.idea}}": the problem, who has it and how often, jobs to be done, current alternatives,
+      the outcome metric and North Star contribution, and what would make this not worth doing.
+  - id: assumptions
+    kind: parallel
+    title: Assumptions and value
+    steps:
+      - id: value
+        kind: agent
+        agent: business-analyst
+        title: Value and sizing
+        task: "Size the value with explicit assumptions and ranges, the do-nothing option, and the baseline that would prove value."
+      - id: feasibility
+        kind: agent
+        agent: enterprise-architect
+        title: Feasibility check
+        task: "Name the technical unknowns that could kill the idea, the simplest build that tests it, and rough effort as a range."
+  - id: plan
+    kind: agent
+    title: Experiments and recommendation
+    agent: product-strategist
+    context_from: [frame, value, feasibility]
+    task: |
+      List the riskiest assumptions (desirability, viability, feasibility) ranked by risk x uncertainty. For the top
+      three, design the cheapest experiment: method, sample, success threshold decided in advance, and duration.
+      End with GO, TEST FIRST or DROP and the reason.
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: plan
+    on_fail: revise
+deliverable: plan

@@ -1,0 +1,50 @@
+id: market-growth-thesis
+code: PB-14
+name: Market Growth Thesis
+area: Strategy & investment
+desk: strategy
+status: mvp
+summary: Market sizing, competitors and customer segments merged into a growth thesis with where to play, how to win and what to test first.
+patterns: [P3, P4]
+triggers: [market, growth, competitors, competitive, market size, tam, segment, go to market, expansion, business development]
+inputs:
+  - {id: offer, label: "Product, service or business line", type: longtext, required: true, untrusted: false}
+  - {id: market, label: "Market, region and customer type", type: text, required: true}
+  - {id: data, label: "Market data you are licensed to use (reports, exports, figures)", type: longtext,
+     help: "Sizing uses only what you provide here or in files. Without data, figures are labelled as assumptions."}
+  - {id: goals, label: "Growth goal and time horizon", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: research
+    kind: parallel
+    title: Market and options
+    steps:
+      - id: market_view
+        kind: agent
+        agent: bd-advisor
+        title: Market, competitors and customers
+        task: |
+          For {{inputs.offer}} in {{inputs.market}}: market size (TAM/SAM/SOM) with method and source for each
+          figure, competitor positions, customer segments and buying triggers. Use only the data provided; label
+          every other figure ASSUMPTION with how it was estimated.
+      - id: strategy_view
+        kind: agent
+        agent: strategy-advisor
+        title: Strategic options
+        task: "Diagnosis, 2-3 strategic options for growth, the economics of each, and the operating-model change each needs."
+  - id: thesis
+    kind: agent
+    title: Growth thesis
+    agent: strategy-advisor
+    context_from: [market_view, strategy_view]
+    task: |
+      One growth thesis: where to play, how to win, why now, the target for {{inputs.goals}}, the three assumptions
+      that must hold, the first test of each, and the signals that would make you stop.
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: thesis
+    on_fail: revise
+    task: Challenge the sizing method, unsupported figures, competitor blind spots and optimism in the timeline.
+deliverable: thesis

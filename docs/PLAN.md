@@ -53,15 +53,17 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 2. Cost and latency per run measured on your provider mix.
 3. No outbound path exists. Done: the suite has no write tools.
 
+**Done since the MVP:** all 19 playbooks (PB-00 to PB-18) are available; direct chat with any agent, with the Chief of Staff answering or delegating; everything day to day is configured in the app (providers, connectors, local files, profile, fallback order, budgets, data policy, per-agent models, offline model).
+
 **Next**
-- PB-02 Meeting Prep & Debrief, PB-06 Program Risk Review, PB-07 Idea to Validated Opportunity, PB-09 AI Opportunity to Governed Agent, PB-11 Spec to Engineering Delivery Plan, PB-12 Data Product Design.
-- Streaming output in the UI; per-message cost display.
+- Validate PB-02 to PB-18 against benchmark cases, as for the first set.
+- Connector tools inside chat (chat answers from the conversation and attached files today).
+- Streaming output in the UI.
 - SSO for multi-user deployments.
 
 **Later**
 - Gated write actions (send email, update work items), each with an approval record, audit trail and rollback.
 - Scheduled runs (morning brief).
-- PB-14 Market Growth Thesis (needs licensed market data), PB-16 NPT Event Review, PB-17 Training & Agent Blueprint, PB-18 Invention Disclosure Check.
 - Live drilling data (WITSML/ETP), only with written latency requirements and a safety case.
 
 ## Success metrics

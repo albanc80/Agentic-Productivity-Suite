@@ -1,0 +1,45 @@
+id: invention-disclosure
+code: PB-18
+name: Invention Disclosure Check
+area: Product development
+desk: product
+status: mvp
+summary: "Prepares an invention for patent counsel: structured disclosure, prior-art leads, novelty view and open questions. Not legal advice."
+patterns: [P3, P4, P5]
+triggers: [patent, invention, prior art, novelty, disclosure, ip, intellectual property, patentable]
+inputs:
+  - {id: invention, label: "The invention: problem, how it works, what is new", type: longtext, required: true, untrusted: false}
+  - {id: field, label: "Technical field", type: text}
+  - {id: known_art, label: "Known products, papers or patents", type: longtext}
+  - {id: disclosure_status, label: "Has it been shown, sold or published? When?", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: disclosure
+    kind: agent
+    title: Structured disclosure
+    agent: product-strategist
+    task: |
+      Structure the invention as a disclosure: problem, prior approaches and their limits, the solution, the key
+      elements, alternatives and variations, advantages with evidence, and drawings to prepare.
+  - id: prior_art
+    kind: agent
+    title: Prior art and novelty
+    agent: patent-researcher
+    task: |
+      From the disclosure and known art: prior-art search terms and classifications to use, the closest references
+      found or to check, element-by-element comparison, and a novelty view with confidence. Flag any public
+      disclosure ("{{inputs.disclosure_status}}") that may affect filing. Not legal advice.
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: prior_art
+    on_fail: revise
+    task: Challenge the novelty view, missing search angles and claims stated without a reference.
+  - id: approve
+    kind: gate
+    title: Hand-off to patent counsel
+    required_role: Inventor or IP lead
+    instructions: A named person confirms the package goes to patent counsel. The suite files nothing and gives no legal advice.
+    payload_from: prior_art
+deliverable: prior_art

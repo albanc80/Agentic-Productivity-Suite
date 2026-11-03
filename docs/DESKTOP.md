@@ -47,7 +47,7 @@ cd backend && uv sync --group desktop && uv run pyinstaller ../desktop/productiv
 
 The result is `backend/dist/ProductivitySuite/`. To package it, use `desktop/linux/build_deb.sh` (Linux) or `wix build desktop\windows\productivity-suite.wxs` (Windows; see the workflow for the exact arguments). Run `ProductivitySuite` (or `ProductivitySuite.exe`). A Linux build of this spec was produced and run headless in offline mode, including a Well Plan Review run with the casing calculator. Windows and macOS builds have not been tested yet.
 
-- **Models** are set up in the app: Settings → Model providers (On/Off switch and Edit per provider). See the README.
+- **Everything you change day to day is set up in the app:** Settings → Models, Connectors (including Local files folders), Profile, and Policies & budgets. The files in `~/.productivity-suite/` only set the starting defaults.
 - **Settings and data** live in `~/.productivity-suite/` (`suite.yaml`, `connectors.yaml`, `profile.yaml`, `data/`). They are created on first run and kept across upgrades. Override the location with `SUITE_USER_DIR`.
 - **Windows** needs the Microsoft Edge WebView2 runtime for the native window. It ships with current Windows 10 and 11; without it the launcher opens the browser.
 - **Linux** needs GTK or Qt WebKit libraries for the native window; otherwise it opens the browser.

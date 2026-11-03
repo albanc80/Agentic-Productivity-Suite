@@ -76,7 +76,8 @@ class ModelRouter:
         for name, cfg in self.settings.providers.items():
             ok, reason = self.availability(name)
             out.append({"name": name, "type": cfg.type, "locality": cfg.locality, "base_url": cfg.base_url,
-                        "enabled": cfg.enabled, "available": ok, "reason": reason, "api_key_env": cfg.api_key_env,
+                        "enabled": cfg.enabled, "available": ok, "reason": reason,
+                        "offline_paused": cfg.locality == "cloud" and self.settings.offline, "api_key_env": cfg.api_key_env,
                         "api_key_source": self.key_source(cfg), "edited_in_app": cfg.edited_in_app,
                         "endpoint": name.startswith("ep-"), "note": cfg.note,
                         "models": [m.model_dump() for m in self.settings.models if m.provider == name]})

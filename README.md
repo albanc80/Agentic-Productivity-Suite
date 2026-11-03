@@ -2,9 +2,9 @@
 
 A platform-agnostic application that turns a library of specialist agents into governed, repeatable workflows for professionals: daily planning, decisions, management, product development, engineering and investment cases.
 
-One front door routes each request to a **playbook**: a fixed sequence of steps in which specialist agents work in order or in parallel. A different agent reviews the work, and anything that would leave the app waits for a named person. Agents can run on local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, mixed in one run. They read live context through read-only MCP connectors (GitHub, Microsoft 365, Databricks, Azure DevOps, Jira/Confluence, local files).
+Two front doors. **Chat** with the Chief of Staff, who answers or brings in up to three specialists, or with any single agent, for anything. Or route a request to a **playbook**: a fixed sequence of steps in which specialist agents work in order or in parallel. A different agent reviews the work, and anything that would leave the app waits for a named person. Agents can run on local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, mixed in one run. They read live context through read-only MCP connectors (GitHub, Microsoft 365, Databricks, Azure DevOps, Jira/Confluence, local files).
 
-> Status: MVP. Eight playbooks plus Quick Ask, with 34 agents in 8 desks. Runs in the browser, as a desktop app, and fully offline with local models. See [docs/PLAN.md](docs/PLAN.md) for the plan, decisions and roadmap.
+> Status: MVP. 19 playbooks (PB-00 to PB-18) and direct chat, with 34 agents in 8 desks. Everything day to day is set up in the app's Settings. Runs in the browser, as a desktop app, and fully offline with local models. See [docs/PLAN.md](docs/PLAN.md) for the plan, decisions and roadmap.
 
 ## Quick start
 
@@ -39,19 +39,19 @@ cd frontend && npm install && npm run dev
 | OpenAI, DeepSeek, OpenRouter | cloud | Edit → API key, or export `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` or `OPENROUTER_API_KEY`. Add the models you use. |
 | Anthropic | cloud | Edit → API key, or export `ANTHROPIC_API_KEY`. |
 
-Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fallback chain. The first model that is available *and* allowed for the run's data class is used. If it errors or declines, the next one is tried. You can override chains per agent (`agent_overrides`) or per playbook step (`models:`).
+Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fallback chain. The first model that is available *and* allowed for the run's data class is used. If it errors or declines, the next one is tried. Change the order in Settings → Models → Fallback order. **Online**, each agent can use its own model (Agents → pick an agent → Model for this agent); its tier chain stays as the fallback. **Offline**, one local model goes first for every agent (Settings → Models → Model for every agent when offline, or automatic). Per-step choices (`models:` in a playbook) stay in the playbook files.
 
-**Offline mode** switches off every cloud provider and every connector that needs the internet. Toggle it from the top bar or Settings; the choice persists. The default can also come from `offline: true` or `SUITE_OFFLINE=1`.
+**Offline mode** pauses every cloud provider and every connector that needs the internet in one step, without changing your per-provider choices; going online restores them. Toggle it from the top bar or Settings; the choice persists. The default can also come from `offline: true` or `SUITE_OFFLINE=1`.
 
 **Model endpoints from the app.** Settings → Model endpoints connects to any OpenAI-compatible server without editing files, such as a small model served from a phone or a laptop on your network. Enter the address, pick a model, choose tiers. Addresses on your own network count as local; others count as cloud.
 
-**Data classes.** Each run is tagged `public`, `internal`, `confidential` or `restricted`, and `data_classes` decides which provider localities may receive it. By default, `restricted` runs only reach local models. You are responsible for the credentials and data you use; this policy is how you keep sensitive work local.
+**Data classes.** Each run is tagged `public`, `internal`, `confidential` or `restricted`, and Settings → Policies & budgets decides which classes may reach cloud models. `restricted` always stays on local models. You are responsible for the credentials and data you use; this policy is how you keep sensitive work local.
 
 Settings → Model providers shows each provider's state and has a **Test** button once it is ready. When **Find models** fails, the message says why: a 401 means the server wants an API key, a 404 usually means the address should end in `/v1`, and "could not reach" means nothing is listening there.
 
 ## Connectors (MCP, read-only)
 
-Copy `config/connectors.example.yaml` to `config/connectors.yaml` to customise. A connector becomes available when the environment variables it references are set. Setup notes and what to verify are in [docs/CONNECTORS.md](docs/CONNECTORS.md).
+Set them up in Settings → Connectors: switch one on, open **Edit**, fill in what it needs (tokens are write-only), and **Test**. **Local files** is built in: choose one or more folders and agents can list, search and read files there (including PDF, Word and Excel), offline too, with nothing else to install. Setup notes and what to verify are in [docs/CONNECTORS.md](docs/CONNECTORS.md).
 
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
@@ -67,7 +67,17 @@ Copy `config/connectors.example.yaml` to `config/connectors.yaml` to customise. 
 | PB-08 | Opportunity to PRD and Feature Slices | pipeline + fan-out + review |
 | PB-10 | Architecture Review & ADR | options → security/ops/QA reviews → ADR → review → gate |
 | PB-13 | Investment Case | fan-out → synthesis → review → gate |
+| PB-02 | Meeting Prep & Debrief | context → brief or debrief → review |
+| PB-06 | Program Risk Review | schedule ∥ cost of delay ∥ stakeholder signals → register → review → gate |
+| PB-07 | Idea to Validated Opportunity | framing → value ∥ feasibility → experiments → review |
+| PB-09 | AI Opportunity to Governed Agent | opportunity → design → evaluation ∥ threat model → blueprint → review → gate |
+| PB-11 | Spec to Engineering Delivery Plan | slices → backend ∥ frontend ∥ QA ∥ release → plan → review → gate |
+| PB-12 | Data Product Design | design → contracts ∥ semantics → spec → data review → gate |
+| PB-14 | Market Growth Thesis | market ∥ strategy → thesis → review (uses only data you provide) |
 | PB-15 | Well Plan Review (safety-critical) | deterministic calculators → engineering review → NPT ∥ field challenge → review → engineer sign-off |
+| PB-16 | NPT Event Review (safety-critical) | timeline and precursors → field view → actions → review → engineer sign-off |
+| PB-17 | Training & Agent Blueprint | optional agent blueprint → training design → review |
+| PB-18 | Invention Disclosure Check | disclosure → prior art and novelty → review → hand-off gate (not legal advice) |
 
 Playbooks are YAML in `playbooks/`; the schema is in `backend/app/playbooks.py`. They are validated at startup, and a reviewer can never review its own agent's work.
 
@@ -101,7 +111,7 @@ cd backend && uv run pytest
 cd backend && uv run python ../scripts/run_evals.py
 ```
 
-The first runs 58 tests: engine, providers (mocked HTTP), MCP over stdio, API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
+The first runs 91 tests: engine, every playbook end to end, chat and delegation, settings made in the app, providers (mocked HTTP), MCP (including the built-in Local files), API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
 
 ## Project layout
 

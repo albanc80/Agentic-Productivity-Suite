@@ -1,0 +1,60 @@
+id: data-product-design
+code: PB-12
+name: Data Product Design
+area: Data
+desk: data
+status: mvp
+summary: Designs a data product from consumer questions to contracts, quality rules, semantics, lineage and ownership, with an independent data review.
+patterns: [P2, P3, P4]
+triggers: [data product, dataset, data contract, metrics, dashboard, semantic model, ontology, data quality, kpi, lakehouse]
+inputs:
+  - {id: product, label: "Data product and who uses it", type: longtext, required: true, untrusted: false}
+  - {id: questions, label: "Questions it must answer", type: longtext}
+  - {id: sources, label: "Source systems and known issues", type: longtext}
+  - {id: constraints, label: "Freshness, latency, access and compliance needs", type: text}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: design
+    kind: agent
+    title: Product and metrics design
+    agent: data-studio
+    task: |
+      Design "{{inputs.product}}": consumers and their decisions, metric definitions with formulas and units, grain,
+      freshness and latency targets, serving pattern, and the minimum viable version.
+    connectors: [databricks-genie, databricks-uc-functions]
+  - id: foundations
+    kind: parallel
+    title: Contracts and semantics
+    steps:
+      - id: contract
+        kind: agent
+        agent: eng-data-engineer
+        title: Pipelines and data contracts
+        task: "Pipelines, data contracts (schema, owners, SLAs), quality rules with thresholds, lineage and failure handling."
+      - id: semantics
+        kind: agent
+        agent: ontology-engineer
+        title: Semantic model
+        task: "Competency questions, entities and relationships, mappings from source fields, units and naming conventions."
+  - id: spec
+    kind: agent
+    title: Data product spec
+    agent: data-studio
+    context_from: [design, contract, semantics]
+    task: |
+      One spec: purpose, consumers, metrics, model, contracts, quality rules, lineage, access and entitlements,
+      ownership (producer, steward, consumer), success metric and release plan.
+  - id: data_review
+    kind: review
+    title: Independent data review
+    agent: data-quality-reviewer
+    target: spec
+    on_fail: revise
+    task: Check definitions, units, grain, statistical claims, quality thresholds and lineage gaps.
+  - id: approve
+    kind: gate
+    title: Data owner approval
+    required_role: Data owner
+    instructions: A named data owner approves the contract and ownership. The suite changes no data.
+    payload_from: spec
+deliverable: spec

@@ -22,26 +22,60 @@ export interface ModelEndpoint {
   tools: boolean; use_for: string[]; provider?: string; ref?: string; locality?: "local" | "cloud";
   api_key?: string; has_api_key?: boolean;
 }
-export interface ModelEdit { model: string; context_tokens: number; max_output_tokens: number; tools: boolean }
+export interface ModelEdit {
+  model: string; context_tokens: number; max_output_tokens: number; tools: boolean;
+  price_in_per_mtok?: number | null; price_out_per_mtok?: number | null;
+}
 export interface ProviderEdit {
   enabled?: boolean; base_url?: string; api_key?: string; clear_api_key?: boolean; models?: ModelEdit[];
 }
 export interface Desk { id: string; name: string; lead: string; summary: string; members: string[] }
 export interface ProviderInfo {
   name: string; type: string; locality: "local" | "cloud"; base_url: string | null; available: boolean; reason: string;
-  enabled: boolean; api_key_env: string | null; api_key_source: "env" | "app" | "config" | null; edited_in_app: boolean;
+  enabled: boolean; offline_paused: boolean; api_key_env: string | null; api_key_source: "env" | "app" | "config" | null; edited_in_app: boolean;
   endpoint: boolean; note: string;
   models: { ref: string; context_tokens: number; max_output_tokens: number; tools: boolean; price_in_per_mtok: number; price_out_per_mtok: number; note: string }[];
+}
+export interface ConnectorVariable {
+  name: string; secret: boolean; flag: boolean; optional: boolean; default: string; set: boolean;
+  source: "env" | "app" | null; value: string | null;
 }
 export interface ConnectorInfo {
   id: string; name: string; description: string; transport: string; status: string; error: string; setup: string;
   verify: string; required_env: string[]; tools: { name: string; allowed: boolean; reason: string }[];
+  enabled: boolean; network: boolean; offline_paused: boolean; builtin: boolean; folders: string[]; variables: ConnectorVariable[];
 }
+export interface Profile {
+  name: string; role: string; organization_context: string; goals: string[]; working_preferences: string[]; domain_notes: string;
+}
+export interface Budgets {
+  max_run_cost_usd: number; max_run_tokens: number; max_steps: number; max_tool_calls_per_step: number;
+  max_tool_result_chars: number; max_context_fraction: number;
+}
+export interface GeneralEdit {
+  budgets?: Budgets; persona_chat?: boolean; persona_exports?: boolean; store_prompts?: boolean;
+  default_data_class?: string; cloud_allowed?: Record<string, boolean>; tiers?: Record<string, string[]>;
+  agent_models?: Record<string, string | null>; offline_model?: string;
+}
+export interface ChatDelegation { agent: string; question: string; answer: string; model: string | null; error?: string | null }
+export interface ChatMsg {
+  role: "user" | "assistant"; content: string; at: string; agent?: string; model?: string;
+  files?: { id: string; name: string }[]; delegations?: ChatDelegation[]; warnings?: string[];
+  suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cost_usd?: number; seconds?: number;
+}
+export interface ChatSummary {
+  id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;
+  created_at: string; updated_at: string; messages: number;
+}
+export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[] }
 export interface Overview {
   desks: Desk[]; agents: AgentCard[]; playbooks: PlaybookCard[]; providers: ProviderInfo[]; tiers: Record<string, string[]>;
   connectors: ConnectorInfo[]; data_classes: Record<string, string[]>; default_data_class: string; kill_switch: boolean; offline: boolean;
   offline_override: boolean | null; endpoints: ModelEndpoint[];
-  budgets: Record<string, number>; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
+  budgets: Budgets; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
+  profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; model_refs: string[]; general_edited: string[];
+  agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;
+  agent_overrides: Record<string, string[]>;
   warnings: string[]; pending_approvals: number;
 }
 export interface Claim { text: string; label: string; trace: string | null }
@@ -131,6 +165,19 @@ export const api = {
   deleteDemoRuns: () => call<{ deleted: number }>("/api/runs?demo=true", { method: "DELETE" }),
   saveEndpoint: (ep: ModelEndpoint) => call<ModelEndpoint>("/api/endpoints", { method: "POST", body: JSON.stringify(ep) }),
   deleteEndpoint: (id: string) => call<{ deleted: string }>(`/api/endpoints/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  updateConnector: (id: string, edit: { enabled?: boolean; values?: Record<string, string>; clear?: string[]; folders?: string[] }) =>
+    call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(edit) }),
+  resetConnector: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/settings`, { method: "DELETE" }),
+  saveGeneral: (edit: GeneralEdit) => call<Overview>("/api/settings/general", { method: "PUT", body: JSON.stringify(edit) }),
+  resetGeneral: (part: "tiers" | "budgets" | "all") => call<Overview>(`/api/settings/general/${part}`, { method: "DELETE" }),
+  saveProfile: (p: Profile) => call<Profile>("/api/settings/profile", { method: "PUT", body: JSON.stringify(p) }),
+  resetProfile: () => call<Profile>("/api/settings/profile", { method: "DELETE" }),
+  chats: () => call<ChatSummary[]>("/api/chats"),
+  chat: (id: string) => call<ChatDetail>(`/api/chats/${id}`),
+  startChat: (agent_id: string, data_class?: string) => call<ChatDetail>("/api/chats", { method: "POST", body: JSON.stringify({ agent_id, data_class }) }),
+  sendChat: (id: string, content: string, files: string[] = []) =>
+    call<ChatMsg>(`/api/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content, files }) }),
+  deleteChat: (id: string) => call<{ deleted: number }>(`/api/chats/${id}`, { method: "DELETE" }),
   killSwitch: (on: boolean) => call<{ on: boolean }>("/api/admin/kill-switch", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),
   exportUrl: (id: string, format: "md" | "html") => `/api/runs/${id}/export?format=${format}`,
 };

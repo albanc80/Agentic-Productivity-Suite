@@ -31,7 +31,7 @@ from mcp import Client, StdioServerParameters
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 from pydantic import BaseModel, Field
 
-from .settings import env_refs, expand_env
+from .settings import env_refs, env_vars, expand_env
 
 log = logging.getLogger("suite.connectors")
 
@@ -48,7 +48,7 @@ class ConnectorConfig(BaseModel):
     id: str
     name: str
     description: str = ""
-    transport: Literal["stdio", "http"]
+    transport: Literal["stdio", "http", "builtin"]
     command: str | None = None
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
@@ -63,9 +63,39 @@ class ConnectorConfig(BaseModel):
     requires: list[str] = Field(default_factory=list)  # extra env vars that must be set (explicit opt-in)
     setup: str = ""
     verify: str = ""  # what to double-check against upstream docs
+    folders: list[str] = Field(default_factory=list)  # builtin local-files: folders agents may read
 
     def required_env(self) -> set[str]:
         return env_refs([self.args, self.env, self.url or "", self.headers, self.command or ""]) | set(self.requires)
+
+    def variables(self) -> dict[str, str | None]:
+        """Settings this connector reads: variable name -> default (None = required)."""
+        out = env_vars([self.args, self.env, self.url or "", self.headers, self.command or ""])
+        for r in self.requires:
+            out.setdefault(r, None)
+        return out
+
+
+SECRET_NAME = re.compile(r"(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|_KEY$|_PAT$)", re.I)
+
+
+def is_secret(var: str) -> bool:
+    return bool(SECRET_NAME.search(var))
+
+
+class ConnectorSetting(BaseModel):
+    """Choices made in the app for one connector, layered over connectors.yaml."""
+
+    enabled: bool | None = None
+    folders: list[str] | None = None
+
+
+BUILTIN_LOCAL_FILES = ConnectorConfig(
+    id="local-files", name="Local files", transport="builtin", network=False,
+    description="Read files in folders you choose: reports, exports, notes, PDFs, Word and Excel files.",
+    setup="Choose one or more folders. Agents can list, search and read files inside them, and nothing else. "
+          "Nothing is written or deleted. Works offline; no other software is needed.",
+)
 
 
 def tool_allowed(cfg: ConnectorConfig, name: str, annotations: Any | None) -> tuple[bool, str]:
@@ -200,23 +230,62 @@ class ConnectorManager:
                  in_process: dict[str, Any] | None = None, offline: bool = False):
         import os
 
-        self.env = dict(os.environ) if env is None else env
-        self.configs = {c.id: c for c in configs}
-        self._in_process = in_process or {}
-        self.offline = offline  # tests: connector id -> MCPServer instance
+        self.base_env = dict(os.environ) if env is None else env
+        self.values: dict[str, str] = {}  # variables entered in the app (shared by every connector that uses them)
+        self.env = dict(self.base_env)
+        self.file_configs = {c.id: _normalize(c) for c in configs}
+        self.configs = dict(self.file_configs)
+        self._in_process = in_process or {}  # tests: connector id -> MCPServer instance
+        self.offline = offline
         self.workers: dict[str, ConnectorWorker] = {}
 
     @classmethod
-    def from_file(cls, path: Path | None, offline: bool = False) -> ConnectorManager:
-        if not path or not path.exists():
-            return cls([], offline=offline)
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return cls([ConnectorConfig.model_validate(c) for c in raw.get("connectors", [])], offline=offline)
+    def from_file(cls, path: Path | None, offline: bool = False, presets: Path | None = None) -> ConnectorManager:
+        """Load connectors.yaml. Presets (the shipped example) fill in connectors the file does not list,
+        so connectors added in newer versions appear for people whose file was copied earlier."""
+        configs: dict[str, ConnectorConfig] = {}
+        for src in (presets, path):
+            if src and src.exists():
+                raw = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
+                for c in raw.get("connectors", []):
+                    cfg = ConnectorConfig.model_validate(c)
+                    configs[cfg.id] = cfg
+        return cls(list(configs.values()), offline=offline)
+
+    def apply_settings(self, settings: dict[str, ConnectorSetting], values: dict[str, str]) -> None:
+        """Layer the app's choices over the file. Environment variables still win over values typed in the app."""
+        self.values = {k: v for k, v in values.items() if v}
+        self.env = {**self.values, **{k: v for k, v in self.base_env.items() if v}}
+        self.configs = {}
+        for cid, cfg in self.file_configs.items():
+            st = settings.get(cid)
+            upd: dict[str, Any] = {}
+            if st and st.enabled is not None:
+                upd["enabled"] = st.enabled
+            if st and st.folders is not None:
+                upd["folders"] = st.folders
+            self.configs[cid] = cfg.model_copy(update=upd) if upd else cfg
+
+    async def restart(self, cids: list[str] | None = None) -> None:
+        """Stop workers so the next use starts them with the current settings."""
+        for cid in list(cids or self.workers):
+            w = self.workers.pop(cid, None)
+            if w:
+                await w.stop()
 
     # ------------------------------------------------------------ status
 
     def missing_env(self, cid: str) -> list[str]:
-        return sorted(v for v in self.configs[cid].required_env() if not self.env.get(v))
+        cfg = self.configs[cid]
+        if cfg.transport == "builtin":
+            return []
+        return sorted(v for v in cfg.required_env() if not self.env.get(v))
+
+    def missing(self, cid: str) -> list[str]:
+        cfg = self.configs[cid]
+        if cfg.transport == "builtin":
+            return [] if cfg.folders else ["a folder"]
+        return self.missing_env(cid)
 
     def configured(self, cid: str) -> bool:
         cfg = self.configs.get(cid)
@@ -224,7 +293,20 @@ class ConnectorManager:
             return False
         if self.offline and cfg.network:
             return False
-        return cid in self._in_process or not self.missing_env(cid)
+        return cid in self._in_process or not self.missing(cid)
+
+    def variables(self, cid: str) -> list[dict]:
+        out = []
+        for name, default in sorted(self.configs[cid].variables().items()):
+            env = self.base_env.get(name)
+            app = self.values.get(name)
+            secret = is_secret(name)
+            flag = name in self.configs[cid].requires
+            out.append({"name": name, "secret": secret, "flag": flag, "optional": default is not None,
+                        "default": default or "", "set": bool(env or app),
+                        "source": "env" if env else ("app" if app else None),
+                        "value": None if secret or env else (app or "")})
+        return out
 
     def describe(self) -> list[dict]:
         out = []
@@ -233,15 +315,18 @@ class ConnectorManager:
             if not cfg.enabled:
                 status, err = "disabled", ""
             elif self.offline and cfg.network:
-                status, err = "offline", "needs internet; offline mode is on"
+                status, err = "offline", "paused: needs the internet and offline mode is on"
             elif not self.configured(cid):
-                status, err = "unconfigured", "missing: " + ", ".join(self.missing_env(cid))
+                status, err = "unconfigured", "needs: " + ", ".join(self.missing(cid))
             else:
                 status, err = (w.state.status, w.state.error) if w else ("idle", "")
             tools = [{"name": t.name, "allowed": t.allowed, "reason": t.reason} for t in (w.state.tools if w else [])]
             out.append({"id": cid, "name": cfg.name, "description": cfg.description, "transport": cfg.transport,
                         "status": status, "error": err, "setup": cfg.setup, "verify": cfg.verify,
-                        "required_env": sorted(cfg.required_env()), "tools": tools})
+                        "enabled": cfg.enabled, "network": cfg.network, "offline_paused": bool(self.offline and cfg.network),
+                        "builtin": cfg.transport == "builtin", "folders": list(cfg.folders),
+                        "required_env": sorted(cfg.required_env()) if cfg.transport != "builtin" else [],
+                        "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools})
         return out
 
     # ------------------------------------------------------------ lifecycle
@@ -249,6 +334,10 @@ class ConnectorManager:
     def _target(self, cfg: ConnectorConfig):
         if cfg.id in self._in_process:
             return lambda: self._in_process[cfg.id]
+        if cfg.transport == "builtin":
+            from .local_files import build_server
+            server = build_server(cfg.folders)
+            return lambda: server
         if cfg.transport == "stdio":
             if not cfg.command:
                 raise ConnectorError(f"{cfg.id}: stdio connector needs a command")
@@ -269,7 +358,7 @@ class ConnectorManager:
         if cid not in self.configs:
             raise ConnectorError(f"unknown connector '{cid}'")
         if not self.configured(cid):
-            raise ConnectorError(f"connector '{cid}' is not configured (missing: {', '.join(self.missing_env(cid)) or 'enabled flag'})")
+            raise ConnectorError(f"connector '{cid}' is not configured (needs: {', '.join(self.missing(cid)) or 'to be switched on'})")
         w = self.workers.get(cid)
         if w is None:
             w = ConnectorWorker(self.configs[cid], self._target(self.configs[cid]))
@@ -308,3 +397,10 @@ class ConnectorManager:
         if not parts and res.structured_content is not None:
             parts.append(json.dumps(res.structured_content, default=str)[:20000])
         return "\n".join(parts), bool(res.is_error)
+
+
+def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:
+    """The local-files connector is built in. Older files launched it through Node.js (npx); use the built-in one."""
+    if cfg.id == "local-files" and cfg.transport != "builtin":
+        return BUILTIN_LOCAL_FILES.model_copy(update={"enabled": cfg.enabled})
+    return cfg
