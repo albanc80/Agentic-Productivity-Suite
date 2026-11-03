@@ -456,7 +456,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .thinking { display: flex; gap: 10px; align-items: center; color: var(--muted); }
 .delegations { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
 .delegations summary { cursor: pointer; font-size: .85rem; color: var(--accent); }
-.delegation { padding: 10px 0 4px 12px; border-left: 2px solid var(--border-strong); margin: 8px 0 0 2px; }
+.delegation { padding: 10px 12px 6px; margin: 8px 0 0; border: 1px solid var(--border); border-radius: var(--r-control); background: var(--surface-2); }
 .chat-compose { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0 14px; display: flex; flex-direction: column; gap: 8px; }
 .chat-compose textarea { width: 100%; resize: vertical; }
 .file-btn { position: relative; display: inline-flex; align-items: center; padding: 7px 12px; border: 1px solid var(--border-strong); border-radius: var(--r-control); cursor: pointer; font-size: .85rem; background: var(--surface); }
