@@ -5,7 +5,7 @@
 Installers are built by GitHub Actions (`.github/workflows/desktop-build.yml`). Binaries are not stored in the repository.
 
 - **Pull requests and manual runs:** open the workflow run under the repository's **Actions** tab and download the `productivity-suite-windows-msi` or `productivity-suite-linux-deb` artifact (a zip containing the installer).
-- **Releases:** pushing a tag such as `v0.1.0` attaches both installers to a GitHub Release.
+- **Releases:** both installers are attached to a GitHub Release. To publish one, either push a tag such as `v0.1.0`, or run the *Desktop installers* workflow manually on `main` (Actions → Desktop installers → Run workflow) with `release_tag` set to `v<version>`; the tag must match `backend/app/__init__.py`.
 
 Every build is checked before upload. The packaged app is started headless and offline and must serve the UI and complete a Well Plan Review casing calculation (`desktop/smoke_test.py`). The installer is then installed, the installed app is smoke-tested the same way, and it is uninstalled again.
 
