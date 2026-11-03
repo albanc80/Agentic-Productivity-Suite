@@ -1,0 +1,61 @@
+id: prd
+code: PB-08
+name: Opportunity to PRD and Feature Slices
+area: Product development
+desk: product
+status: mvp
+summary: From an opportunity to a spec with testable acceptance criteria, feasibility and QA checks, a delivery sequence and an independent review.
+patterns: [P2, P3, P4]
+triggers: [prd, spec, specification, requirements, user stories, feature, product requirements, acceptance criteria, epic]
+inputs:
+  - {id: opportunity, label: "Opportunity or feature idea", type: longtext, required: true, untrusted: false}
+  - {id: users, label: "Users and context of use", type: text}
+  - {id: outcome, label: "Outcome metric (how success is measured)", type: text}
+  - {id: constraints, label: "Constraints and non-goals", type: text}
+  - {id: context, label: "Research, feedback or existing docs", type: longtext}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: problem
+    kind: agent
+    title: Problem and outcome
+    agent: product-strategist
+    task: |
+      For the opportunity "{{inputs.opportunity}}": define the problem, users and jobs to be done, the outcome
+      metric (use "{{inputs.outcome}}" if given, otherwise propose one with a baseline question), scope and
+      non-goals, and the riskiest assumptions with a cheap test for each.
+  - id: draft_spec
+    kind: agent
+    title: Draft spec and feature slices
+    agent: spec-lead
+    task: |
+      Draft the spec: problem statement, goals and non-goals, user stories, functional requirements with
+      testable acceptance criteria, edge cases, analytics and guardrails, rollout and open questions.
+      Slice the work into features of 1-3 days named "<action> <result> <object>".
+  - id: checks
+    kind: parallel
+    title: Feasibility and testability
+    steps:
+      - {id: feasibility, kind: agent, agent: enterprise-architect, title: Feasibility,
+         task: "Assess feasibility of the draft spec: simplest architecture, integrations, NFRs, security and data risks, and anything that changes the slicing.",
+         connectors: [github]}
+      - {id: testability, kind: agent, agent: eng-qa, title: Testability and risk,
+         task: "Pre-implementation risk analysis: which acceptance criteria are untestable or ambiguous, the test strategy per feature, and the highest-risk paths."}
+  - id: sequence
+    kind: agent
+    title: Delivery sequence
+    agent: program-manager
+    task: "Sequence the feature slices into a delivery plan with dependencies, milestones and the first thin slice to ship."
+  - id: final_spec
+    kind: agent
+    title: Final PRD
+    agent: spec-lead
+    task: |
+      Produce the final PRD integrating the feasibility, testability and sequencing findings. Mark every
+      change from the draft. Keep acceptance criteria testable.
+  - id: review
+    kind: review
+    title: Independent review
+    agent: critical-mentor
+    target: final_spec
+    on_fail: revise
+deliverable: final_spec

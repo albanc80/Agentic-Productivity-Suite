@@ -1,0 +1,40 @@
+id: daily-plan
+code: PB-01
+name: Daily Plan & Priorities
+area: Daily work
+desk: command
+status: mvp
+summary: Turns today's calendar, open work and inbox into three outcomes, time blocks and a delegate / batch / decline list.
+patterns: [P2]
+triggers: [plan my day, daily plan, priorities, today, morning, agenda, schedule, focus]
+inputs:
+  - {id: date, label: "Day to plan", type: text, default: today, help: "today, tomorrow or a date"}
+  - {id: priorities, label: "Your top priorities this week", type: longtext, untrusted: false}
+  - {id: calendar, label: "Calendar (paste, or leave empty if Microsoft 365 is connected)", type: longtext}
+  - {id: tasks, label: "Open tasks and commitments", type: longtext}
+  - {id: inbox, label: "Messages that need attention", type: longtext}
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: digest
+    kind: agent
+    title: What changed and what is blocked
+    agent: zero-status
+    task: |
+      Build a short digest for {{inputs.date}} from the open tasks, messages and any connected trackers:
+      what changed, what is blocked, what is due, and who is waiting on the user. Every item needs a trace.
+      Report work items only. Do not characterise people.
+    connectors: [azure-devops, github, atlassian]
+  - id: plan
+    kind: agent
+    title: Day plan
+    agent: chief-of-staff
+    mode: daily
+    task: |
+      Plan {{inputs.date}} for the user.
+      1. Top three outcomes for the day, each tied to a stated priority.
+      2. Time blocks with realistic durations around fixed meetings. Protect one focus block.
+      3. Delegate / batch / decline list with a one-line reason each.
+      4. Risks to today's plan and the single next action to start now.
+      Use the calendar input or connected calendar; if neither exists, say the plan is calendar-blind.
+    connectors: [microsoft365]
+deliverable: plan

@@ -1,0 +1,23 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# Local configuration and data (may contain your data or settings)
+config/suite.yaml
+config/connectors.yaml
+config/profile.yaml
+data/
+evals/data/
+evals/reports/
+*.db
+*.db-wal
+*.db-shm
+.env

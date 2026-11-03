@@ -1,0 +1,78 @@
+id: decision-brief
+code: PB-03
+name: Pressure-Tested Decision Brief
+area: Daily work
+desk: command
+status: mvp
+summary: Frames a decision, gets specialist views, has an independent critic attack it, and returns a decision memo.
+patterns: [P2, P3, P4]
+triggers: [decision, decide, should we, options, trade off, tradeoff, choose, recommendation, pressure test, potato]
+inputs:
+  - {id: decision, label: "Decision to make", type: text, required: true}
+  - {id: context, label: "Background, facts and constraints", type: longtext}
+  - {id: options, label: "Options you are considering (optional)", type: longtext, untrusted: false}
+  - {id: criteria, label: "What matters most (criteria)", type: text}
+  - {id: deadline, label: "Decide by", type: text}
+  - id: lenses
+    label: Specialist views
+    type: multiselect
+    options: [business, architecture, delivery, product, strategy, operations]
+    default: [business, delivery]
+  - id: challenge_mode
+    label: Challenge style
+    type: select
+    options: [standard, hostile]
+    default: standard
+    help: "hostile = Potato mode: three failure points, two unsupported assumptions, one missing counterargument"
+  - {id: documents, label: "Files", type: documents}
+steps:
+  - id: frame
+    kind: agent
+    title: Frame the decision
+    agent: chief-of-staff
+    task: |
+      Frame the decision "{{inputs.decision}}" (decide by: {{inputs.deadline}}).
+      Give: the decision in one sentence, facts (traced), assumptions, unknowns, realistic options
+      including doing nothing, and decision criteria (use "{{inputs.criteria}}" if given).
+      Do not recommend yet.
+  - id: views
+    kind: parallel
+    title: Specialist views
+    steps:
+      - {id: view_business, kind: agent, when: {input: lenses, contains: business}, agent: business-analyst,
+         title: Business case view,
+         task: "Assess each framed option on value, cost, ROI/TCO direction and benefits realisation. Show any math and its assumptions."}
+      - {id: view_architecture, kind: agent, when: {input: lenses, contains: architecture}, agent: enterprise-architect,
+         title: Architecture view,
+         task: "Assess technical feasibility, reversibility, security and operational risk of each framed option."}
+      - {id: view_delivery, kind: agent, when: {input: lenses, contains: delivery}, agent: program-manager,
+         title: Delivery view,
+         task: "Assess schedule, dependencies, resourcing and execution risk of each framed option."}
+      - {id: view_product, kind: agent, when: {input: lenses, contains: product}, agent: product-strategist,
+         title: Product view,
+         task: "Assess each option against the customer problem, outcome metric and adoption risk."}
+      - {id: view_strategy, kind: agent, when: {input: lenses, contains: strategy}, agent: strategy-advisor,
+         title: Strategy view,
+         task: "Assess strategic fit, competitive effect and opportunity cost of each option."}
+      - {id: view_operations, kind: agent, when: {input: lenses, contains: operations}, agent: domain-sme,
+         title: Operations view,
+         task: "Assess operational relevance, field adoption, HSE implications and measurable operational value of each option."}
+  - id: challenge
+    kind: review
+    title: Independent challenge
+    agent: critical-mentor
+    target: frame
+    task: |
+      Challenge mode: {{inputs.challenge_mode}}.
+      Attack the framing and the specialist views together. If the mode is "hostile", the deliverable must be
+      exactly three sections: Three Failure Points; Two Unsupported Assumptions; One Missing Counterargument.
+      Be direct; attack the argument, never the person.
+  - id: memo
+    kind: agent
+    title: Decision memo
+    agent: chief-of-staff
+    task: |
+      Write the decision memo for "{{inputs.decision}}": Decision, Facts, Assumptions, Options, Criteria,
+      Recommendation, Risks and mitigations, Best and worst case, When to revisit, Next action (owner, date).
+      Address every finding from the independent challenge, or say why you reject it.
+deliverable: memo

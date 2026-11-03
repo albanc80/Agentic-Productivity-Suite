@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/schemas/ontology-build-manifest.schema.json",
+  "title": "Ontology Build Manifest",
+  "type": "object",
+  "required": ["domain", "mode", "standard_profile", "version", "artifacts", "quality"],
+  "properties": {
+    "domain": {"type": "string", "minLength": 1},
+    "mode": {"enum": ["IDENTIFY", "ASSESS", "BUILD", "EXTEND", "MIGRATE", "PRODUCTIONIZE"]},
+    "standard_profile": {"enum": ["stable", "preview"]},
+    "reasoning_profile": {"enum": ["none", "rdfs", "owl2-rl", "owl2-el", "owl2-ql", "owl2-dl"]},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "path"],
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string"},
+          "path": {"type": "string"},
+          "checksum": {"type": "string"}
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["score", "critical_gates_passed"],
+      "properties": {
+        "score": {"type": "number", "minimum": 0, "maximum": 100},
+        "critical_gates_passed": {"type": "boolean"},
+        "known_issues": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

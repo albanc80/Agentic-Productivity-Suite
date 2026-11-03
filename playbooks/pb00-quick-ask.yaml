@@ -1,0 +1,26 @@
+id: quick-ask
+code: PB-00
+name: Ask the Chief of Staff
+area: Daily work
+desk: command
+style: chat
+status: mvp
+summary: A direct question or small task that does not need a full workflow. The Chief of Staff answers and names a better playbook if one fits.
+patterns: [P2]
+triggers: [question, quick, ask, help, explain, what is, how do]
+inputs:
+  - {id: request, label: "What do you need?", type: longtext, required: true, untrusted: false}
+  - {id: context, label: "Context or pasted material (optional)", type: longtext}
+  - {id: documents, label: "Files (optional)", type: documents}
+steps:
+  - id: answer
+    kind: agent
+    title: Answer
+    agent: chief-of-staff
+    task: |
+      Answer or complete the request: {{inputs.request}}
+      Keep it proportionate: a short request gets a short answer. If the request is really a decision,
+      a status update, a scope change, a PRD, an architecture review or an investment case, answer briefly
+      and recommend the matching playbook by name.
+    connectors: [microsoft365, github, local-files]
+deliverable: answer
