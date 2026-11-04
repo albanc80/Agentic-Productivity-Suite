@@ -30,3 +30,6 @@ installers/
 *.msi
 *.deb
 install.log
+
+# Original agent configurations (source for scripts/ingest_agents.py); kept out of the repository
+Productivity-Agents-Configs.zip
