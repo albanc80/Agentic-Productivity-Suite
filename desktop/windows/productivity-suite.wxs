@@ -10,26 +10,26 @@
   User settings and data live in %USERPROFILE%\.productivity-suite and survive uninstall.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package Name="Productivity Suite"
-           Manufacturer="Productivity Suite"
+  <Package Name="Agentic Productivity Suite"
+           Manufacturer="Alberto Ancona"
            Version="$(var.Version)"
            UpgradeCode="53BE070A-4D7D-4B03-AA06-1DB55247D604"
            Scope="perMachine"
            Compressed="yes">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Productivity Suite is already installed." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Agentic Productivity Suite is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- The Icon Id keeps the .ico extension: Windows uses it to read the icon for the shortcut and Apps list. -->
     <Icon Id="ProductivitySuite.ico" SourceFile="$(var.IconFile)" />
     <Property Id="ARPPRODUCTICON" Value="ProductivitySuite.ico" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/ilbambinomx/Productivity-Agents" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/albanc80/Agentic-Productivity-Suite" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="INSTALLFOLDER" Name="Productivity Suite" />
+      <Directory Id="INSTALLFOLDER" Name="Agentic Productivity Suite" />
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
 
-    <Feature Id="Main" Title="Productivity Suite">
+    <Feature Id="Main" Title="Agentic Productivity Suite">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="MainExecutable" />
       <ComponentRef Id="StartMenuShortcut" />
@@ -50,7 +50,7 @@
     <!-- A plain (non-advertised) shortcut pointing at the exe, with the icon set explicitly. Advertised
          shortcuts take their icon from the Icon table under stricter naming rules and can show blank. -->
     <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
-      <Shortcut Id="StartMenuShortcut" Name="Productivity Suite"
+      <Shortcut Id="StartMenuShortcut" Name="Agentic Productivity Suite"
                 Description="Governed agent playbooks that run on your computer"
                 Target="[INSTALLFOLDER]ProductivitySuite.exe" WorkingDirectory="INSTALLFOLDER"
                 Icon="ProductivitySuite.ico" IconIndex="0" />

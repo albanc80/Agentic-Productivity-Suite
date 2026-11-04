@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Desktop launcher: runs the Productivity Suite locally in its own window.
+"""Desktop launcher: runs the Agentic Productivity Suite locally in its own window.
 
     python desktop/launcher.py              # native window (pywebview), falls back to the browser
     python desktop/launcher.py --offline    # local models and local files only
@@ -72,7 +72,7 @@ def wait_healthy(url: str, timeout: float = 30) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Run the Productivity Suite locally.")
+    ap = argparse.ArgumentParser(description="Run the Agentic Productivity Suite locally.")
     ap.add_argument("--offline", action="store_true", help="local models and local files only")
     ap.add_argument("--headless", action="store_true", help="run the server without opening a window")
     ap.add_argument("--browser", action="store_true", help="open the default browser instead of a native window")
@@ -106,7 +106,7 @@ def main() -> int:
     thread = threading.Thread(target=server.run, name="suite-server", daemon=True)
     thread.start()
     wait_healthy(url)
-    print(f"Productivity Suite running at {url}  (data: {udir})", flush=True)
+    print(f"Agentic Productivity Suite running at {url}  (data: {udir})", flush=True)
 
     try:
         if args.headless:
@@ -142,7 +142,7 @@ def _open_window(url: str) -> bool:
         except Exception:  # noqa: BLE001 - cosmetic only
             pass
     try:
-        webview.create_window("Productivity Suite", url, width=1360, height=900, min_size=(420, 640))
+        webview.create_window("Agentic Productivity Suite", url, width=1360, height=900, min_size=(420, 640))
         webview.start(icon=str(icon) if icon.is_file() else None)
         return True
     except Exception as e:  # noqa: BLE001 - no GUI backend available

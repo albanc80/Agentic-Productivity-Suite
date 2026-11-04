@@ -1,4 +1,4 @@
-# Productivity Suite: plan and decisions
+# Agentic Productivity Suite: plan and decisions
 
 Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 

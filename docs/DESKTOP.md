@@ -11,7 +11,7 @@ Every build is checked before upload. The packaged app is started headless and o
 
 | OS | File | Install | Remove |
 |---|---|---|---|
-| Windows 10/11 (x64) | `ProductivitySuite-<version>-x64.msi` | Double-click, or `msiexec /i ProductivitySuite-<version>-x64.msi`. Installs to *Program Files\Productivity Suite* with a Start menu shortcut. Installing a newer version upgrades in place. | Settings → Apps, or `msiexec /x <file>.msi` |
+| Windows 10/11 (x64) | `ProductivitySuite-<version>-x64.msi` | Double-click, or `msiexec /i ProductivitySuite-<version>-x64.msi`. Installs to *Program Files\Agentic Productivity Suite* with a Start menu shortcut. Installing a newer version upgrades in place. | Settings → Apps, or `msiexec /x <file>.msi` |
 | Ubuntu 22.04+ / Debian 12+ (amd64) | `productivity-suite_<version>_amd64.deb` | `sudo apt install ./productivity-suite_<version>_amd64.deb`, then run `productivity-suite` or use the app menu | `sudo apt remove productivity-suite` |
 
 Settings and data stay in your home folder (`.productivity-suite`) and survive uninstalling.
