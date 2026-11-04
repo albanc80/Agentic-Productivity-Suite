@@ -4,7 +4,7 @@ Status: accepted · 2026-11-04
 
 ## Context
 The repository is public. Committed agent files exposed each agent's full instructions, its persona
-and which source agents it was built from. That design is the suite's main differentiator. The
+and how each agent was composed. That design is the suite's main differentiator. The
 installers bundled the same files.
 
 ## Decision
