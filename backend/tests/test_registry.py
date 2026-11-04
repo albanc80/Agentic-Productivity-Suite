@@ -46,7 +46,7 @@ def test_private_agent_layer_is_never_committed():
     assert not [f for f in files if f.startswith(("private-registry/", "registry/agents/"))]
     assert "registry/INGEST_REPORT.md" not in files and "scripts/ingest_agents.py" not in files
     catalog = (ROOT / "registry" / "catalog.yaml").read_text(encoding="utf-8")
-    for key in ("instructions:", "persona:", "merged_from:", "source:"):
+    for key in ("instructions:", "persona:", "merged_from:", "source:", "callsign:"):
         assert key not in catalog, key
 
 

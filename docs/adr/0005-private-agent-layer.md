@@ -10,7 +10,7 @@ installers bundled the same files.
 ## Decision
 Split every agent into two layers:
 
-- **Public catalog** (`registry/catalog.yaml`, committed): id, name, callsign, desk, summary,
+- **Public catalog** (`registry/catalog.yaml`, committed): id, name, desk, summary,
   capabilities, default tier, safety flag, skills, tools and mode summaries. This is what the UI shows.
 - **Private layer** (`<private>/agents/<agent-id>.yaml`, never committed or bundled): instructions,
   persona, mode instructions, source and merge lineage. The ingest tool and its report live there too.

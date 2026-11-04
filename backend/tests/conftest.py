@@ -89,7 +89,7 @@ def fake_openai_server(seen: list, models=("qwen2.5-3b-instruct", "gemma-2-2b-it
 
 
 def agent_of(system: str) -> str:
-    m = re.search(r"^You are acting as: (.+?) \(", system, re.M)
+    m = re.search(r"^You are acting as: (.+)$", system, re.M)
     return m.group(1) if m else ""
 
 

@@ -98,7 +98,7 @@ def build_system(*, agent: Agent, mode: str | None, registry: Registry, policies
     if review:
         sections.append(("review", REVIEW_RULES, 0))
     instructions = instructions_override or agent.instructions_for(mode)
-    head = f"You are acting as: {agent.name} ({agent.callsign})\n{agent.summary}\n"
+    head = f"You are acting as: {agent.name}\n{agent.summary}\n"
     sections.append(("agent", "# Your role\n\n" + head + "\n" + instructions, 1))
     skills = list(dict.fromkeys(agent.core_skills + extra_skills))
     for sid in skills:

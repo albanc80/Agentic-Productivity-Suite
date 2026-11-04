@@ -20,7 +20,7 @@ export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentI
       <div className="stack-lg">
         <header className="stack-sm">
           <a href="#/agents" className="small">← Agents</a>
-          <span className="code">{ov.desks.find((d) => d.id === detail.desk)?.name} · {detail.callsign}</span>
+          <span className="code">{ov.desks.find((d) => d.id === detail.desk)?.name}{ov.desks.some((d) => d.lead === detail.id) ? " · desk lead" : ""}</span>
           <h1>{detail.name}</h1>
           <p className="muted measure">{detail.summary}</p>
           <AgentModel ov={ov} agentId={detail.id} tier={detail.default_tier} onChange={onChange} />
@@ -88,7 +88,7 @@ export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentI
               const a = ov.agents.find((x) => x.id === id)!;
               return (
                 <a key={id} className="card pb" href={`#/agents/${id}`}>
-                  <span className="code">{a.callsign}{d.lead === id ? " · lead" : ""}</span>
+                  {d.lead === id && <span className="code">Desk lead</span>}
                   <strong>{a.name}</strong>
                   <span className="muted">{a.summary}</span>
                   <span className="meta">{a.core_skills.length + a.skills.length} skills{Object.keys(a.modes).length ? ` · ${Object.keys(a.modes).length + 1} modes` : ""}{a.safety_critical ? " · safety-critical" : ""}{!ov.offline && ov.agent_models[id] ? ` · ${ov.agent_models[id]}` : ""}</span>
