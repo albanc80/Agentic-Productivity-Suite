@@ -18,9 +18,9 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 
 ## Agent consolidation
 
-38 source agents became 34 suite agents in 8 desks (`registry/desks.yaml`):
+34 suite agents in 8 desks (`registry/desks.yaml`). The public catalog (`registry/catalog.yaml`) holds what each agent is and does; the full instructions, personas and lineage are a private layer kept outside the repository (ADR 0005).
 
-- Platform-specific skills (Copilot exercise builders, Copilot Studio hardening and readiness) and branding skills were dropped. `registry/INGEST_REPORT.md` lists every change.
+- Platform-specific skills and branding skills were dropped during compilation.
 
 ## Risk mitigation map
 
@@ -43,8 +43,9 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 | People evaluated in reports | Operating rule 4; deliverable screening flags evaluative language | `guards.scan_people_eval` | `test_injection_and_redaction` |
 | Secrets in logs | Credentials only via env; audit and stored prompts redacted; prompts hashed by default | `guards.redact`, `store.py` | `test_injection_and_redaction` |
 | Exposure on a network | Binds to localhost; optional bearer token | `main.py` | `test_api_token` |
-| Brand or personal data in code | Ingest strips them; residue test fails the build; vendor names are blocked in every tracked file | `scripts/ingest_agents.py` | `test_registry_is_platform_neutral`, `test_no_vendor_brand_anywhere` |
+| Brand or personal data in code | Ingest strips them; residue test fails the build; vendor names are blocked in every tracked file | private ingest tool, `backend/tests/test_registry.py` | `test_registry_is_platform_neutral`, `test_no_vendor_brand_anywhere` |
 | Agent design exposed in the UI | The API sends only a capability summary, skills, tools and mode summaries; instructions, persona and lineage stay server-side | `Agent.public`, `/api/agents/{id}` | `test_overview_and_catalog` |
+| Agent design exposed in the repository or installers | Instructions, personas and lineage are a private layer outside the repository, loaded at runtime; installers never bundle it | `Registry`, `settings.private_registry_dir`, `.gitignore` | `test_private_agent_layer_is_never_committed`, `test_private_layer_overlays_the_catalog` |
 | Persona degrading documents | Persona is a separate prompt layer, off for documents by default | `prompts.build_system`, `engine.start` | `test_conditional_parallel_steps_and_persona_off_for_documents` |
 
 ## Roadmap

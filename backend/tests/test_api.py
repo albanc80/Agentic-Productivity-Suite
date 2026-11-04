@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.registry import Registry
 from app.settings import load_settings
-from tests.conftest import ROOT, fake_openai_server
+from tests.conftest import PRIVATE_FIXTURE, ROOT, fake_openai_server
 
 KEYS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "OPENROUTER_API_KEY", "SUITE_API_TOKEN", "SUITE_OFFLINE")
 
@@ -58,7 +58,7 @@ def test_overview_and_catalog(client):
     assert not private & set(a), private & set(a)
     assert not any(private & set(x) for x in o["agents"])
     body = client.get("/api/agents/chief-of-staff").text + client.get("/api/overview").text
-    cos = Registry(ROOT / "registry", ROOT / "config" / "policies").agent("chief-of-staff")
+    cos = Registry(ROOT / "registry", ROOT / "config" / "policies", PRIVATE_FIXTURE).agent("chief-of-staff")
     assert cos.instructions[:120] not in body and cos.persona.text[:80] not in body
     assert client.get("/api/agents/nope").status_code == 404
 

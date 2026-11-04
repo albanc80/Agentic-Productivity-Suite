@@ -178,7 +178,7 @@ async def test_conditional_parallel_steps_and_persona_off_for_documents(make_eng
     status = {s["step_id"]: s["status"] for s in eng.store.steps(rid)}
     assert status["view_business"] == "skipped" and status["view_architecture"] == "COMPLETE"
     cos_call = next(c for c in cloud.calls if agent_of(c["system"]) == "Chief of Staff")
-    assert "persona_x" not in cos_call["system"]  # documents are written without persona by default
+    assert "FIXTURE PERSONA" not in cos_call["system"]  # documents are written without persona by default
 
 
 def test_reviewer_cannot_review_own_work(make_engine):

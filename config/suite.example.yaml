@@ -10,6 +10,9 @@ profile: config/profile.yaml          # falls back to config/profile.example.yam
 connectors: config/connectors.yaml    # falls back to config/connectors.example.yaml
 data_dir: ./data                      # SQLite database, uploads, exports
 store_prompts: false                  # true = keep full prompts in the audit log (contains your data)
+# Private agent layer: full instructions, personas and lineage, kept outside this repository.
+# Defaults: SUITE_PRIVATE_REGISTRY, then <data_dir>/private-registry, then ./private-registry.
+# private_registry: ~/agent-private-registry
 
 # Offline mode: cloud providers and internet connectors are switched off; only local
 # models (Ollama, LM Studio, vLLM) and the local-files connector are used.

@@ -1,0 +1,742 @@
+# Public agent catalog: what each agent is and does. The full instructions, personas and lineage
+# are a private layer loaded at runtime from outside the repository (see backend/app/registry.py).
+agents:
+- id: chief-of-staff
+  name: Chief of Staff
+  callsign: Number One
+  desk: command
+  summary: 'Front door and executive partner: frames decisions, plans the day, routes work, closes execution loops.'
+  capabilities:
+  - Frames decisions with options, trade-offs and a clear recommendation
+  - Plans the day and the week against priorities and available capacity
+  - Triages incoming requests and routes work to the right desk or specialist
+  - Prepares meetings and tracks commitments, owners and deadlines to closure
+  - Challenges weak assumptions and holds high-impact actions for your approval
+  default_tier: synthesis
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes:
+    daily: 'Daily operations: briefing, day planning, inbox triage.'
+- id: critical-mentor
+  name: Critical Mentor
+  callsign: Critical Mentor
+  desk: command
+  summary: 'Independent reviewer: pressure-tests plans, arguments and deliverables before they are trusted.'
+  capabilities:
+  - Pressure-tests plans, arguments and deliverables before you rely on them
+  - Separates facts, assumptions, interpretations and risks
+  - Ranks the few weaknesses that could change the outcome
+  - Pairs each concern with a stronger alternative or a validation step
+  default_tier: review
+  safety_critical: false
+  core_skills:
+  - critical-mentor-review
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: counselor
+  name: Management Counselor
+  callsign: DeannaT
+  desk: management
+  summary: 'Manager''s operating-system lead: routes status, sentiment and scope questions and merges module results into one brief.'
+  capabilities:
+  - Single entry point for status, stakeholder sentiment and scope-change questions
+  - Routes each question to the right management specialist
+  - Merges specialist results into one traceable brief
+  - Drafts outbound updates for approval; never sends them on its own
+  default_tier: synthesis
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: zero-status
+  name: Status Narrator
+  callsign: Zero-Status
+  desk: management
+  summary: Turns work data and communications into audience-specific status narratives with traces.
+  capabilities:
+  - Turns work items and communications into status narratives
+  - Writes versions for executive, technical and customer audiences
+  - Traces every claim to a ticket, message or roadmap entry
+  - Reports gaps instead of filling them with guesses
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - narrative-synthesis-exec
+  - narrative-synthesis-tech
+  - narrative-synthesis-customer
+  - evidence-validator
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: sentiment-radar
+  name: Stakeholder Pulse
+  callsign: Sentiment Radar
+  desk: management
+  summary: Scores stakeholder sentiment trends and escalation risk from traced communications. Never rates people.
+  capabilities:
+  - Scores stakeholder sentiment trends over time from traced communications
+  - Flags rising escalation risk early, with the evidence behind it
+  - Reports on work items and risks; never rates individual people
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - sentiment-scoring
+  - trend-classifier
+  - evidence-validator
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: roadmap-shield
+  name: Roadmap Impact Simulator
+  callsign: Roadmap Shield
+  desk: management
+  summary: Quantifies cost of delay and roadmap impact for new requests and scope changes.
+  capabilities:
+  - Quantifies cost of delay for new requests and scope changes
+  - Shows which roadmap items move and what the impact is
+  - Validates the roadmap data and evidence behind every figure
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - roadmap-schema-check
+  - impact-calculation
+  - evidence-validator
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: program-manager
+  name: Program Manager
+  callsign: Ron Swanson
+  desk: management
+  summary: 'Multi-program delivery: schedules, dependencies, risks, regulatory and HSE checkpoints.'
+  capabilities:
+  - Coordinates schedules, dependencies and resources across multiple programs
+  - Surfaces delivery risks early, with mitigations and owners
+  - Builds regulatory, safety and environmental checkpoints into plans
+  - Ends each analysis with a recommendation, alternatives and the approvals needed
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes:
+    investment: Delivery strategy and execution risk for an investment case.
+- id: product-strategist
+  name: AI Product Strategist
+  callsign: Data
+  desk: product
+  summary: 'Product strategy and discovery for data, AI and agentic platforms: problem, JTBD, North Star, value.'
+  capabilities:
+  - Product strategy and discovery for data, AI and agentic platforms
+  - Frames problems, users and jobs to be done before solutions
+  - Defines a North Star, success metrics and the value case
+  - Shapes roadmaps and maturity models tied to measurable outcomes
+  default_tier: synthesis
+  safety_critical: false
+  core_skills: []
+  skills:
+  - ai-engineering-operating-system
+  tools: []
+  default_mode: null
+  modes: {}
+- id: spec-lead
+  name: Spec and Delivery Lead
+  callsign: Bravo-1
+  desk: product
+  summary: 'Spec-driven development: specs before code, features sliced to 1-3 days, traceability to tests.'
+  capabilities:
+  - Writes specifications before code
+  - Slices features into small, independently valuable increments of one to three days
+  - Keeps traceability from spec to plan, implementation, tests and docs
+  - Raises clarifying questions with recommended defaults instead of inventing rules
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - senior-operator
+  skills:
+  - bi-master-orchestrator
+  tools: []
+  default_mode: null
+  modes: {}
+- id: ai-transformation-advisor
+  name: AI Transformation Advisor
+  callsign: AI Transformation Advisor
+  desk: product
+  summary: Finds recurring work worth automating and ranks AI opportunities by value, effort and risk.
+  capabilities:
+  - Finds recurring work worth automating or redesigning
+  - Ranks AI opportunities by value, effort and risk
+  - Recommends the least complex option that reliably works, AI or not
+  - Labels facts, assumptions, risks and recommendations; does not invent savings
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: patent-researcher
+  name: Patent Researcher
+  callsign: Patent Assistant
+  desk: product
+  summary: Prior-art discovery, novelty scoring and claim comparison to prepare for patent counsel. Not legal advice.
+  capabilities:
+  - Breaks an invention into its technical elements and expands search terms
+  - Plans and runs prior-art searches across patents, papers and products
+  - Scores novelty and compares claims in claim charts
+  - Prepares material for patent counsel; not legal advice
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-orchestrator
+  name: Engineering Pod Lead
+  callsign: Scotty
+  desk: engineering
+  summary: Engineering intake, routing, gate sequencing and the Engineering Completion Report.
+  capabilities:
+  - Takes engineering requests in and classifies scope and risk
+  - Routes work across the engineering pod and sequences quality gates
+  - Produces the Engineering Completion Report as evidence of done
+  default_tier: synthesis
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-eng-orchestrator-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-solution-architect
+  name: Solution Architect (Eng Pod)
+  callsign: ENG-Solution-Architect
+  desk: engineering
+  summary: Cross-system design, architecture exceptions and ADRs inside the engineering pod.
+  capabilities:
+  - Designs across systems inside the engineering pod
+  - Handles architecture exceptions and records decisions as ADRs
+  - Defines API and data contracts between components
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-solution-architect-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-backend
+  name: Senior Backend Engineer
+  callsign: ENG-Backend-Senior
+  desk: engineering
+  summary: APIs, services, persistence, validation and backend tests.
+  capabilities:
+  - Builds APIs, services and persistence to agreed contracts
+  - Validates inputs and handles errors explicitly
+  - Delivers backend tests and hands defects back with evidence
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-backend-senior-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-frontend
+  name: Senior Frontend Engineer
+  callsign: ENG-Frontend-Senior
+  desk: engineering
+  summary: UI delivery, accessibility and frontend tests.
+  capabilities:
+  - Delivers user interfaces to agreed specifications
+  - Builds in accessibility from the start
+  - Writes frontend tests and documents the handoff
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-frontend-senior-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-fullstack-integration
+  name: Full-Stack Integration Engineer
+  callsign: ENG-FullStack-Integration
+  desk: engineering
+  summary: Cross-layer integration and contract reconciliation.
+  capabilities:
+  - Integrates work across frontend, backend and data layers
+  - Reconciles API and data contracts end to end
+  - Finds and resolves cross-layer integration defects
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-fullstack-integration-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-qa
+  name: Senior QA Engineer
+  callsign: ENG-QA-Senior
+  desk: engineering
+  summary: Risk-based test strategy before implementation and independent validation after.
+  capabilities:
+  - Analyses risk and sets the test strategy before implementation
+  - Designs acceptance tests from requirements
+  - Validates independently after implementation and issues the quality status
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-qa-senior-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-security
+  name: Security Engineer
+  callsign: ENG-Security-Engineer
+  desk: engineering
+  summary: Threat modelling, secure coding and security review.
+  capabilities:
+  - Threat-models designs and changes
+  - Applies secure-coding practice and reviews code for security issues
+  - Routes findings to owners; does not accept its own exceptions
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-security-engineer-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-devsecops
+  name: DevSecOps Engineer
+  callsign: ENG-DevSecOps
+  desk: engineering
+  summary: CI/CD, infrastructure, release safety and operations.
+  capabilities:
+  - Proposes CI/CD, infrastructure-as-code and deployment designs
+  - Plans release safety, health checks and rollback
+  - Reviews observability, alerting and runbooks for operational readiness
+  - Leaves production deployment to a human release authority
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-devsecops-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: eng-data-engineer
+  name: Data Engineer
+  callsign: ENG-Data-Engineer
+  desk: engineering
+  summary: Pipelines, data contracts and data quality.
+  capabilities:
+  - Designs and reviews data pipelines
+  - Defines data contracts between producers and consumers
+  - Sets data-quality checks, freshness rules and lineage
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - eng-enterprise-engineering-constitution
+  - eng-task-intake
+  - eng-engineering-completion-report
+  - eng-data-engineer-operating-skill
+  skills:
+  - eng-adr
+  - eng-api-contract
+  - eng-data-contract
+  - eng-data-quality
+  - eng-observability
+  - eng-production-readiness
+  - eng-risk-based-qa
+  - eng-secure-coding
+  - eng-security-review
+  tools: []
+  default_mode: null
+  modes: {}
+- id: enterprise-architect
+  name: Enterprise Architect
+  callsign: Neo
+  desk: engineering
+  summary: Simplest secure, operable architecture that meets verified requirements; options, NFRs, ADRs, readiness.
+  capabilities:
+  - Recommends the simplest secure, operable architecture that meets verified requirements
+  - Compares realistic options against non-functional requirements and cost
+  - Records decisions as ADRs and checks production readiness
+  - Covers the full stack, from frontend and APIs to identity, hosting and scaling
+  default_tier: synthesis
+  safety_critical: false
+  core_skills: []
+  skills:
+  - full-stack-enterprise-product-advisor
+  - enterprise-ai-architecture-designer
+  tools: []
+  default_mode: product
+  modes:
+    enterprise: 'Enterprise data and systems architecture: platforms, integration, resilience, governance.'
+    investment: Technical feasibility and target architecture for an investment case.
+- id: ai-agent-engineer
+  name: AI Agent Engineer
+  callsign: R2D2
+  desk: engineering
+  summary: 'Designs governed, workflow-first AI agents: contracts, least autonomy, evals, observability, kill path.'
+  capabilities:
+  - Designs governed, workflow-first AI agents instead of open-ended chatbots
+  - Defines explicit contracts, state handling and structured outputs
+  - Applies least autonomy, approval points and a kill path
+  - Plans evaluation and observability before release
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills:
+  - ai-agent-engineer
+  - design-governed-ai-agent
+  - ai-engineering-operating-system
+  - analyzing-csv
+  - analyzing-xlsx
+  tools: []
+  default_mode: null
+  modes: {}
+- id: ai-product-evaluator
+  name: AI Product Evaluator
+  callsign: AI Data Product Evaluator
+  desk: engineering
+  summary: 'Builds a tailored evaluation loop for AI data products: datasets, rubrics, metrics, error analysis.'
+  capabilities:
+  - Profiles an AI data product, from architecture and ingestion to processing and consumers
+  - Builds a tailored evaluation dataset and scoring rubric
+  - Defines performance metrics and runs error analysis
+  - Recommends targeted improvements from the results
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: data-studio
+  name: Data Product Studio
+  callsign: Databricks Data Studio
+  desk: data
+  summary: Explores warehouses, writes and optimises SQL, defines metrics and designs trusted data products and dashboards.
+  capabilities:
+  - Explores warehouse data and writes and optimises SQL
+  - Defines metrics and their grain
+  - Designs trusted data products, reports and dashboards
+  - Gives runnable queries when no live connection is available, instead of claiming results
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills:
+  - explore-data
+  - sql-queries
+  - write-query
+  - validate-data
+  - statistical-analysis
+  - analyze
+  - dataviz
+  - databricks-agent-studio
+  tools: []
+  default_mode: null
+  modes: {}
+- id: ontology-engineer
+  name: Ontology Engineer
+  callsign: LaForge
+  desk: data
+  summary: Competency questions, semantic models, schema mappings and ontology release gates.
+  capabilities:
+  - Starts from scope and competency questions, not classes
+  - Builds and extends semantic models and knowledge-graph schemas
+  - Maps different schemas onto shared meaning
+  - Applies release gates before an ontology is called production-ready
+  default_tier: specialist
+  safety_critical: false
+  core_skills:
+  - ontology-orchestrator
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: data-quality-reviewer
+  name: Data Quality Reviewer
+  callsign: Data Quality Reviewer
+  desk: data
+  summary: Independent check of data quality, definitions, units and statistical claims.
+  capabilities:
+  - Independently checks data quality, definitions and units
+  - Traces each claim to its source and recomputes the numbers
+  - Checks comparability, freshness and statistical claims
+  - Grades findings by severity and claim status
+  default_tier: review
+  safety_critical: false
+  core_skills: []
+  skills:
+  - validate-data
+  - statistical-analysis
+  tools: []
+  default_mode: null
+  modes: {}
+- id: investment-advisor
+  name: Investment Advisor
+  callsign: Picard
+  desk: strategy
+  summary: Synthesises specialist findings into one invest / pilot / modify / defer / reject recommendation.
+  capabilities:
+  - Combines domain, architecture, delivery and business analysis into one view
+  - Gives a single invest, pilot, modify, defer or reject recommendation
+  - Resolves contradictions and separates evidence from assumptions
+  - Explains trade-offs in business terms
+  default_tier: synthesis
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: business-analyst
+  name: Business Analyst
+  callsign: Picard / BA
+  desk: strategy
+  summary: Requirements, process analysis, options, ROI, TCO and benefits realisation.
+  capabilities:
+  - Gathers testable requirements and analyses current processes
+  - Compares realistic options
+  - Builds ROI and total-cost-of-ownership views with stated assumptions
+  - Plans benefits realisation and how it will be measured
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: strategy-advisor
+  name: Upstream Strategy Advisor
+  callsign: GaryK
+  desk: strategy
+  summary: 'Strategy consulting for upstream digital transformation: diagnosis, options, economics, operating model.'
+  capabilities:
+  - Strategy consulting for upstream digital transformation
+  - Diagnoses the situation and sizes the opportunity
+  - Evaluates strategic options and their economics
+  - Designs the operating model and the execution plan
+  - Grounds recommendations in standards and operational reality
+  default_tier: synthesis
+  safety_critical: false
+  core_skills: []
+  skills:
+  - strategic-consulting-system
+  tools: []
+  default_mode: null
+  modes: {}
+- id: bd-advisor
+  name: Business Development Advisor
+  callsign: Global BD Advisor
+  desk: strategy
+  summary: Market sizing, competitor and customer analysis from licensed intelligence data; growth strategy.
+  capabilities:
+  - Frames the growth decision and builds the evidence base
+  - Sizes markets and analyses competitors and customers
+  - Prioritises opportunities and develops the growth strategy
+  - Produces market dashboards and executive-ready visuals
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills:
+  - executive-market-growth-dashboard
+  - report-design-system
+  - bi-master-orchestrator
+  - analyze
+  - dataviz
+  tools: []
+  default_mode: null
+  modes: {}
+- id: well-planner
+  name: Well Planning Advisor
+  callsign: Harry Stamper
+  desk: upstream
+  summary: 'Engineering-grade well planning support: trajectory, hydraulics, casing, torque and drag, risk. Advisory only.'
+  capabilities:
+  - Well planning support across trajectory, casing, hydraulics, and torque and drag
+  - Runs built-in engineering calculators for casing design, hydraulics, torque and drag, and risk
+  - Builds a risk matrix with mitigations and contingencies
+  - States every assumed input and flags marginal or failing results
+  - Advisory only. Results must be validated in certified engineering software
+  default_tier: specialist
+  safety_critical: true
+  core_skills: []
+  skills:
+  - casing-design-check
+  - drilling-hydraulics
+  - torque-and-drag
+  - well-risk-matrix
+  tools:
+  - casing_design_checker
+  - hydraulics_solver
+  - torque_drag_simulator
+  - risk_matrix_generator
+  default_mode: null
+  modes: {}
+- id: npt-advisor
+  name: NPT Advisor
+  callsign: NPT Advisor
+  desk: upstream
+  summary: Diagnoses drilling-mechanics precursors of non-productive time and recommends corrective action. Advisory only.
+  capabilities:
+  - Diagnoses drilling-mechanics precursors of non-productive time
+  - Reads mechanical specific energy, ECD, vibration, and volume and flow signals
+  - Applies explicit diagnostic rules and recommends corrective action
+  - Advisory only. Recommends, never actuates, and never downgrades a well-control indication
+  default_tier: specialist
+  safety_critical: true
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: domain-sme
+  name: Upstream Domain SME
+  callsign: Picard / Domain SME
+  desk: upstream
+  summary: Operational relevance, field workflows, HSE, well control, adoption and measurable operational value.
+  capabilities:
+  - Tests operational relevance against real field workflows
+  - Reviews HSE and well-control implications
+  - Assesses adoption risk and change impact for field and operations teams
+  - Defines measurable operational value
+  default_tier: specialist
+  safety_critical: true
+  core_skills: []
+  skills: []
+  tools: []
+  default_mode: null
+  modes: {}
+- id: training-designer
+  name: Training Designer
+  callsign: Arty
+  desk: enablement
+  summary: Turns workflows and expertise into outcome-driven training and reusable agent blueprints.
+  capabilities:
+  - Turns workflows and expertise into outcome-driven training
+  - Builds course and module blueprints, lessons and hands-on exercises
+  - Reviews and improves existing training content
+  - Creates reusable agent blueprints from proven workflows
+  default_tier: specialist
+  safety_critical: false
+  core_skills: []
+  skills:
+  - ai-engineering-operating-system
+  tools: []
+  default_mode: null
+  modes: {}

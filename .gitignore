@@ -31,5 +31,8 @@ installers/
 *.deb
 install.log
 
-# Original agent configurations (source for scripts/ingest_agents.py); kept out of the repository
+# Original agent configurations (source for the private ingest tool); kept out of the repository
 Productivity-Agents-Configs.zip
+
+# Private agent layer (instructions, personas, lineage) - never commit
+/private-registry/

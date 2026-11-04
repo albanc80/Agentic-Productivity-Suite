@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -17,6 +18,10 @@ from app.settings import Budgets, ModelConfig, ProviderConfig, Settings
 from app.store import Store
 
 ROOT = Path(__file__).resolve().parents[2]
+PRIVATE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "private-registry"
+# Tests never read a real private agent layer: they use a small fake one so results are the
+# same on every machine and in CI, where the private layer does not exist.
+os.environ["SUITE_PRIVATE_REGISTRY"] = str(PRIVATE_FIXTURE)
 
 
 def contract(status="COMPLETE", **kw) -> str:
@@ -110,7 +115,7 @@ def make_engine(settings):
 
     def _make(local_script=None, cloud_script=None, connectors: ConnectorManager | None = None, **overrides):
         s = settings.model_copy(update=overrides)
-        reg = Registry(s.registry_dir, s.policies_dir)
+        reg = Registry(s.registry_dir, s.policies_dir, PRIVATE_FIXTURE)
         conns = connectors or ConnectorManager([])
         books, _ = load_playbooks(s.playbooks_dir, reg, set(conns.configs) or None)
         router = ModelRouter(s)

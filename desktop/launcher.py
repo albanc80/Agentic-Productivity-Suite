@@ -91,6 +91,8 @@ def main() -> int:
         "SUITE_UI_DIR": str(root / "frontend" / "dist"),
         "SUITE_NO_AUTOAPP": "1",
     })
+    # The private agent layer is never bundled; it is read from the user folder when present.
+    os.environ.setdefault("SUITE_PRIVATE_REGISTRY", str(udir / "private-registry"))
     if args.offline:
         os.environ["SUITE_OFFLINE"] = "1"
     if not getattr(sys, "frozen", False):
