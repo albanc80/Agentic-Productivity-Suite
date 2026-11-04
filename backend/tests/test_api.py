@@ -8,6 +8,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.registry import Registry
 from app.settings import load_settings
 from tests.conftest import ROOT, fake_openai_server
 
@@ -51,7 +52,14 @@ def test_overview_and_catalog(client):
     assert {p["type"] for p in o["providers"]} <= {"openai_compatible", "anthropic"}
     assert not any("demo" in r for chain in o["tiers"].values() for r in chain)
     a = client.get("/api/agents/chief-of-staff").json()
-    assert a["persona"] == "persona_x" and "daily" in a["modes"]
+    assert "daily" in a["modes"] and a["capabilities"]
+    # The design stays server-side: no instructions, persona or lineage reach the UI.
+    private = {"instructions", "modes_detail", "persona", "persona_text", "merged_from", "source", "instruction_chars"}
+    assert not private & set(a), private & set(a)
+    assert not any(private & set(x) for x in o["agents"])
+    body = client.get("/api/agents/chief-of-staff").text + client.get("/api/overview").text
+    cos = Registry(ROOT / "registry", ROOT / "config" / "policies").agent("chief-of-staff")
+    assert cos.instructions[:120] not in body and cos.persona.text[:80] not in body
     assert client.get("/api/agents/nope").status_code == 404
 
 

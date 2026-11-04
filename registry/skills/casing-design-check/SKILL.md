@@ -59,7 +59,7 @@ These are deliberately conservative single-string screening load cases (gas to s
 4. Surface `warnings` verbatim. An unrecognized grade silently defaults to 80 ksi yield — that must reach the user, never be accepted quietly.
 5. If `total_window_ppg` < 1.5, raise managed pressure drilling and kick tolerance explicitly.
 6. State the load-case assumptions used, since they drive the result.
-7. Close with: "Planning-grade estimate. Validate in certified software (certified engineering software or equivalent) before AFE approval."
+7. Close with: "Planning-grade estimate. Validate in certified engineering software before AFE approval."
 
 ## Limits
 

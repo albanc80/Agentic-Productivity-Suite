@@ -55,7 +55,7 @@ Also accepts `--input params.json` or JSON on stdin.
 3. Every Critical or High hazard gets its mitigation *and* its contingency in the answer, not just the mitigation.
 4. If any hazard scores Critical, say so in the Executive Summary and call for Well Integrity Board escalation.
 5. If the user gave hazards without describing the mechanism, state the assumed mechanism you categorised against.
-6. Close with: "Planning-grade estimate. Validate in certified software (certified engineering software or equivalent) before AFE approval."
+6. Close with: "Planning-grade estimate. Validate in certified engineering software before AFE approval."
 
 ## Limits
 

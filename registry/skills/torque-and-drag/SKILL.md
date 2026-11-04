@@ -62,7 +62,7 @@ Model: soft-string, gravity side force `buoyed weight x sin(inclination)` plus c
 3. Reproduce all `flags` in the answer with their engineering consequence.
 4. Always state the friction factors used and whether they were given or assumed — the result scales almost linearly with them. Run a high-FF sensitivity case on any marginal well.
 5. Sliding: if drag exceeds requested WOB, say WOB delivery is compromised and discuss the alternatives (rotary steerable, lubricant, trajectory smoothing, lighter mud).
-6. Close with: "Planning-grade estimate. Validate in certified software (certified engineering software or equivalent) before AFE approval."
+6. Close with: "Planning-grade estimate. Validate in certified engineering software before AFE approval."
 
 ## Limits
 

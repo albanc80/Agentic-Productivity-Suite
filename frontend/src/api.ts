@@ -13,9 +13,8 @@ export interface PlaybookCard {
   connectors: string[];
 }
 export interface AgentCard {
-  id: string; name: string; callsign: string; desk: string; summary: string; default_tier: string; safety_critical: boolean;
-  persona: string | null; core_skills: string[]; skills: string[]; tools: string[]; modes: Record<string, string>; default_mode: string | null;
-  merged_from: string[]; instruction_chars: number;
+  id: string; name: string; callsign: string; desk: string; summary: string; capabilities: string[]; default_tier: string;
+  safety_critical: boolean; core_skills: string[]; skills: string[]; tools: string[]; modes: Record<string, string>; default_mode: string | null;
 }
 export interface ModelEndpoint {
   id: string; name: string; base_url: string; model: string; context_tokens: number; max_output_tokens: number;
@@ -141,7 +140,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   health: () => call<{ status: string; auth_required: boolean; kill_switch: boolean; version: string }>("/api/health"),
   overview: () => call<Overview>("/api/overview"),
-  agent: (id: string) => call<AgentCard & { instructions: string; modes_detail: Record<string, { summary: string; instructions: string }>; persona_text: string | null; skills_detail: { id: string; description: string; chars: number }[] }>(`/api/agents/${id}`),
+  agent: (id: string) => call<AgentCard & { skills_detail: { id: string; description: string }[] }>(`/api/agents/${id}`),
   route: (text: string, data_class?: string) => call<RouteResult>("/api/route", { method: "POST", body: JSON.stringify({ text, data_class }) }),
   upload: (file: File) => { const fd = new FormData(); fd.append("file", file); return call<{ id: string; name: string; chars: number }>("/api/files", { method: "POST", body: fd }); },
   startRun: (playbook_id: string, inputs: Record<string, unknown>, data_class: string, options: Record<string, unknown>) =>

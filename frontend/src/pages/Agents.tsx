@@ -1,23 +1,21 @@
 import { useEffect, useState } from "react";
 import { api, type Overview } from "../api";
-import { ErrorNote, Markdown, go } from "../ui";
+import { ErrorNote, go } from "../ui";
 
 type Detail = Awaited<ReturnType<typeof api.agent>>;
 
 export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentId: string; onChange: () => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const [mode, setMode] = useState("");
 
   useEffect(() => {
-    setDetail(null); setMode("");
+    setDetail(null);
     if (agentId) api.agent(agentId).then(setDetail).catch(setError);
   }, [agentId]);
 
   if (agentId) {
     if (error) return <ErrorNote error={error} />;
     if (!detail) return <p className="muted">Loading agent…</p>;
-    const text = mode ? detail.modes_detail[mode]?.instructions : detail.instructions;
     return (
       <div className="stack-lg">
         <header className="stack-sm">
@@ -34,26 +32,27 @@ export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentI
           <div className="tags">
             <span className="tag">Default tier: {detail.default_tier}</span>
             {detail.safety_critical && <span className="tag danger">Safety-critical · advisory only</span>}
-            {detail.persona && <span className="tag outline">Persona: {detail.persona}</span>}
             {detail.tools.map((t) => <span key={t} className="tag outline">Tool: {t}</span>)}
-            {detail.merged_from.length > 0 && <span className="tag outline">Merged from: {detail.merged_from.join(", ")}</span>}
           </div>
         </header>
         <div className="run-grid">
           <section className="stack">
-            <div className="row">
-              <h2 className="grow">Instructions</h2>
-              {Object.keys(detail.modes).length > 0 && (
-                <>
-                  <label htmlFor="mode" className="sr-only">Mode</label>
-                  <select id="mode" value={mode} onChange={(e) => setMode(e.target.value)}>
-                    <option value="">Default{detail.default_mode ? ` (${detail.default_mode})` : ""}</option>
-                    {Object.entries(detail.modes).map(([k, v]) => <option key={k} value={k}>{k}: {v}</option>)}
-                  </select>
-                </>
-              )}
-            </div>
-            <article className="card doc"><Markdown text={text || ""} /></article>
+            <h2>What this agent does</h2>
+            <ul className="card doc caps">
+              {detail.capabilities.map((c) => <li key={c}>{c}</li>)}
+            </ul>
+            {Object.keys(detail.modes).length > 0 && (
+              <>
+                <h2>Modes</h2>
+                <ul className="plain stack-sm">
+                  <li className="card small"><strong>{detail.default_mode || "standard"}</strong> <span className="tag">default</span>
+                    <div className="muted">{detail.summary}</div></li>
+                  {Object.entries(detail.modes).map(([k, v]) => (
+                    <li key={k} className="card small"><strong>{k}</strong><div className="muted">{v}</div></li>
+                  ))}
+                </ul>
+              </>
+            )}
           </section>
           <aside className="stack">
             <h2>Skills</h2>
@@ -66,7 +65,6 @@ export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentI
               ))}
               {detail.skills_detail.length === 0 && <li className="muted small">No attached skills.</li>}
             </ul>
-            {detail.persona_text && (<><h2>Persona</h2><div className="card small muted">{detail.persona_text}</div></>)}
           </aside>
         </div>
       </div>

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """hydraulics_solver — extracted from the Senior Well Planner tool library (tools.py).
 
-Planning-grade estimate. Validate in certified software (certified engineering software or
-equivalent) before AFE approval.
+Planning-grade estimate. Validate in certified engineering software before AFE approval.
 
 Usage:
     python hydraulics_solver.py '<json-input>'
