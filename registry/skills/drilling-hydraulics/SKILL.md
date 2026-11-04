@@ -59,7 +59,7 @@ Also accepts `--input params.json` or JSON on stdin.
 4. Reproduce all `flags` with their consequence and a specific corrective action (flow rate, rheology, nozzle change, pipe OD, sweeps).
 5. When you change one parameter to fix a flag, re-run and show the before/after — flow rate up fixes hole cleaning and worsens ECD and SPP simultaneously. Show the tradeoff, never a one-way recommendation.
 6. State whether `drillpipe_id_in` and `bit_nozzles` were supplied or estimated.
-7. Close with: "Planning-grade estimate. Validate in certified software (certified engineering software or equivalent) before AFE approval."
+7. Close with: "Planning-grade estimate. Validate in certified engineering software before AFE approval."
 
 ## Limits
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """torque_drag_simulator — extracted from the Senior Well Planner tool library (tools.py).
 
-Planning-grade estimate. Validate in certified software (certified engineering software or
-equivalent) before AFE approval.
+Planning-grade estimate. Validate in certified engineering software before AFE approval.
 
 Usage:
     python torque_drag_simulator.py '<json-input>'
@@ -164,7 +163,7 @@ def torque_drag_simulator(
         "note": (
             "Soft-string: contact force = tension×dogleg + buoyed-weight×sin(inc); "
             "tension integrated bottom-up. Order-of-magnitude planning estimate. "
-            "Use certified engineering software or equivalent for certified T&D design."
+            "Use certified engineering software for T&D design."
         ),
     }
 

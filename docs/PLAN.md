@@ -43,7 +43,8 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 | People evaluated in reports | Operating rule 4; deliverable screening flags evaluative language | `guards.scan_people_eval` | `test_injection_and_redaction` |
 | Secrets in logs | Credentials only via env; audit and stored prompts redacted; prompts hashed by default | `guards.redact`, `store.py` | `test_injection_and_redaction` |
 | Exposure on a network | Binds to localhost; optional bearer token | `main.py` | `test_api_token` |
-| Brand or personal data in code | Ingest strips them; residue test fails the build | `scripts/ingest_agents.py` | `test_registry_is_platform_neutral` |
+| Brand or personal data in code | Ingest strips them; residue test fails the build; vendor names are blocked in every tracked file | `scripts/ingest_agents.py` | `test_registry_is_platform_neutral`, `test_no_vendor_brand_anywhere` |
+| Agent design exposed in the UI | The API sends only a capability summary, skills, tools and mode summaries; instructions, persona and lineage stay server-side | `Agent.public`, `/api/agents/{id}` | `test_overview_and_catalog` |
 | Persona degrading documents | Persona is a separate prompt layer, off for documents by default | `prompts.build_system`, `engine.start` | `test_conditional_parallel_steps_and_persona_off_for_documents` |
 
 ## Roadmap

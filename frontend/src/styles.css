@@ -489,3 +489,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .switch:disabled { opacity: 1; }
 .switch.is-paused:disabled { opacity: .85; }
 .fit-notes summary { cursor: pointer; } .fit-notes ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* Agent capability summary */
+.caps { margin: 0; padding-left: 2.25rem; }
+.caps li + li { margin-top: 0.35rem; }

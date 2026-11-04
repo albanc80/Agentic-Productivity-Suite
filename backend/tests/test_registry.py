@@ -1,11 +1,17 @@
 """The committed registry is complete, consistent and platform-neutral."""
 
 import re
+import subprocess
+import sys
 
 from app.registry import Registry
 from tests.conftest import ROOT
 
-FORBIDDEN = re.compile(r"(copilot|company|alberto|\bbeto\b|sharepoint|onedrive|work ?iq|dataverse)", re.I)
+sys.path.insert(0, str(ROOT / "scripts"))
+from ingest_agents import BRAND_RE  # noqa: E402  (one encoded deny list, shared with the ingest)
+
+FORBIDDEN = re.compile(rf"(copilot|{BRAND_RE}|alberto|\bbeto\b|sharepoint|onedrive|work ?iq|dataverse)", re.I)
+BRAND = re.compile(BRAND_RE, re.I)
 
 
 def test_registry_is_platform_neutral():
@@ -16,6 +22,27 @@ def test_registry_is_platform_neutral():
                 if FORBIDDEN.search(line) and not line.startswith("#"):
                     hits.append(f"{p.relative_to(ROOT)}:{n}")
     assert hits == [], hits[:10]
+
+
+def test_no_vendor_brand_anywhere():
+    """No vendor company, product or business-line name in any tracked file of any component."""
+    files = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout.split(b"\0")
+    hits = []
+    for rel in filter(None, files):
+        p = ROOT / rel.decode()
+        if not p.is_file():
+            continue
+        data = p.read_bytes()
+        if BRAND.search(data.decode("latin-1")):
+            hits.append(rel.decode())
+    assert hits == [], hits
+
+
+def test_every_agent_has_a_capability_summary():
+    reg = Registry(ROOT / "registry", ROOT / "config" / "policies")
+    for a in reg.agents.values():
+        assert 3 <= len(a.capabilities) <= 6, a.id
+        assert all(isinstance(c, str) and c.strip() and len(c) <= 120 for c in a.capabilities), a.id
 
 
 def test_registry_consistency():

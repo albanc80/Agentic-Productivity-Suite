@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
 from pydantic import BaseModel, Field
@@ -24,6 +25,7 @@ class Agent(BaseModel):
     callsign: str
     desk: str
     summary: str
+    capabilities: list[str] = Field(default_factory=list)
     default_tier: str = "specialist"
     safety_critical: bool = False
     persona: Persona | None = None
@@ -43,11 +45,14 @@ class Agent(BaseModel):
             return self.modes[mode].instructions
         return self.instructions
 
+    # Never sent to the UI: the instructions, the persona and where the agent came from
+    # (source files and the agents it was merged from) are the suite's own design.
+    PRIVATE: ClassVar[frozenset[str]] = frozenset({"instructions", "modes", "persona", "merged_from", "source"})
+
     def public(self) -> dict:
-        d = self.model_dump(exclude={"instructions", "modes", "persona"})
+        """What the UI may show: identity, capability summary, skills, tools and mode summaries."""
+        d = self.model_dump(exclude=set(self.PRIVATE))
         d["modes"] = {k: v.summary for k, v in self.modes.items()}
-        d["persona"] = self.persona.id if self.persona else None
-        d["instruction_chars"] = len(self.instructions)
         return d
 
 

@@ -449,10 +449,10 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         a = suite.registry.agents.get(agent_id)
         if not a:
             raise HTTPException(404, "agent not found")
-        return {**a.public(), "instructions": a.instructions,
-                "modes_detail": {k: v.model_dump() for k, v in a.modes.items()},
-                "persona_text": a.persona.text if a.persona else None,
-                "skills_detail": [suite.registry.skills[s].model_dump() for s in a.core_skills + a.skills]}
+        # Capability summary only: instructions, persona and lineage stay server-side.
+        return {**a.public(),
+                "skills_detail": [suite.registry.skills[s].model_dump(include={"id", "description"})
+                                  for s in a.core_skills + a.skills]}
 
     @app.get("/api/playbooks/{pid}")
     def playbook(pid: str):
