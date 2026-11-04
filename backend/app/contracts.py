@@ -1,8 +1,8 @@
 """The handoff contract every agent step speaks.
 
-HandoffOut (orchestrator -> agent) follows the six-field handoff from the
-Managerial OS agents. HandoffIn (agent -> orchestrator) merges the engineering
-pod's structured handoff with the suite's status vocabulary.
+HandoffOut (orchestrator -> agent) is a six-field handoff. HandoffIn
+(agent -> orchestrator) combines a structured engineering handoff with the
+suite's status vocabulary.
 """
 
 from __future__ import annotations

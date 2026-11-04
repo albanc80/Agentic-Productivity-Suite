@@ -31,8 +31,8 @@ installers/
 *.deb
 install.log
 
-# Original agent configurations (source for the private ingest tool); kept out of the repository
-Productivity-Agents-Configs.zip
+# Archives at the repository root (for example private agent sources); never committed
+/*.zip
 
 # Private agent layer (instructions, personas, lineage) - never commit
 /private-registry/

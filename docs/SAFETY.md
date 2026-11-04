@@ -1,28 +1,9 @@
-# Agentic Productivity Suite: plan and decisions
+# Safety and risk controls
 
-Status: **MVP implemented** (this branch). Last updated 2026-11-03.
+How the suite limits the main risks of running AI agents on real work, where each control lives in
+the code, and which test proves it. Decisions behind these controls are in `docs/adr/`.
 
-## Decisions
-
-| # | Decision | Outcome |
-|---|---|---|
-| D1 | Runtime | Standalone, platform-agnostic app. Agents run on any mix of local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, with per-tier fallback chains. No dependency on the platform the agents were first built in. |
-| D2 | Data clearance | The end user is responsible for the credentials and data they use. The app enforces a data-class → provider-locality policy so sensitive runs can be kept local. |
-| D3 | MVP scope | PB-01, 03, 04, 05, 08, 10, 13, 15, plus PB-00 Quick Ask. PB-15 Well Plan Review was added after the calculators were validated by the owner; user testing follows. |
-| D4 | Personas | On in chat-style playbooks, off in document playbooks and exports. Can be switched per run. Persona text is a separate layer, never mixed into instructions. |
-| D5 | Stack | Python 3.12 / FastAPI / Pydantic, React + Vite + TypeScript, SQLite. One process serves UI and API. |
-| + | Desktop and offline | Local desktop app (pywebview + PyInstaller), offline mode switchable from the UI (persisted), installable web app. See `docs/DESKTOP.md`. |
-| + | Device model endpoints | Any OpenAI-compatible server (e.g. a 2B–4B model on a phone) added from the UI; locality derived from the address. The suite connects only; it never loads or configures models. |
-| + | Visual design | Precision Futurism: bundled fonts, light/dark/system themes, orchestration map and run step rail. |
-| + | Connectors in MVP | GitHub, Microsoft 365 (Graph), Databricks (Genie, UC functions, vector search), Azure DevOps, Jira/Confluence, local files, all read-only. |
-
-## Agent consolidation
-
-34 suite agents in 8 desks (`registry/desks.yaml`). The public catalog (`registry/catalog.yaml`) holds what each agent is and does; the full instructions, personas and lineage are a private layer kept outside the repository (ADR 0005).
-
-- Platform-specific skills and branding skills were dropped during compilation.
-
-## Risk mitigation map
+## Risk controls
 
 | Risk | Control | Where | Verified by |
 |---|---|---|---|
@@ -47,27 +28,3 @@ Status: **MVP implemented** (this branch). Last updated 2026-11-03.
 | Agent design exposed in the UI | The API sends only a capability summary, skills, tools and mode summaries; instructions, persona and lineage stay server-side | `Agent.public`, `/api/agents/{id}` | `test_overview_and_catalog` |
 | Agent design exposed in the repository or installers | Instructions, personas and lineage are a private layer outside the repository, loaded at runtime; installers never bundle it | `Registry`, `settings.private_registry_dir`, `.gitignore` | `test_private_agent_layer_is_never_committed`, `test_private_layer_overlays_the_catalog` |
 | Persona degrading documents | Persona is a separate prompt layer, off for documents by default | `prompts.build_system`, `engine.start` | `test_conditional_parallel_steps_and_persona_off_for_documents` |
-
-## Roadmap
-
-**Now (this MVP).** Exit criteria:
-1. All 7 playbooks pass your review of the benchmark cases (`scripts/run_evals.py`, graded in the report).
-2. Cost and latency per run measured on your provider mix.
-3. No outbound path exists. Done: the suite has no write tools.
-
-**Done since the MVP:** all 19 playbooks (PB-00 to PB-18) are available; direct chat with any agent, with the Chief of Staff answering or delegating; everything day to day is configured in the app (providers, connectors, local files, profile, fallback order, budgets, data policy, per-agent models, offline model).
-
-**Next**
-- Validate PB-02 to PB-18 against benchmark cases, as for the first set.
-- Connector tools inside chat (chat answers from the conversation and attached files today).
-- Streaming output in the UI.
-- SSO for multi-user deployments.
-
-**Later**
-- Gated write actions (send email, update work items), each with an approval record, audit trail and rollback.
-- Scheduled runs (morning brief).
-- Live drilling data (WITSML/ETP), only with written latency requirements and a safety case.
-
-## Success metrics
-
-Set baselines before MVP exit: time to first usable draft per playbook, share of deliverables accepted with minor edits, issues caught by the review step, cost per completed run, runs per week.
