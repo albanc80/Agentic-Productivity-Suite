@@ -6,9 +6,10 @@
 # Every job smoke-tests the packaged app (headless, offline, real calculation)
 # and then installs the package and smoke-tests the installed copy.
 # Pull requests and manual runs publish the installers as workflow artifacts.
-# A release is published either by pushing a tag like v0.1.0, or by running the
-# workflow manually on main with release_tag set (the tag is then created on the
-# commit that was built).
+# A release is published automatically when a merge to main carries an app version
+# that has no tag yet (bump backend/app/__init__.py and merge). It can also be
+# published by pushing a tag like v0.1.0, or by running the workflow manually on
+# main with release_tag set. The tag is created on the commit that was built.
 name: Desktop installers
 
 on:
@@ -16,6 +17,8 @@ on:
   # (a path filter would leave docs-only PRs waiting forever for a required check).
   pull_request:
   push:
+    # A merge to main publishes a release when the app version has no tag yet (see the version job).
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -29,14 +32,49 @@ permissions:
 
 concurrency:
   group: desktop-${{ github.ref }}
-  cancel-in-progress: true
+  # Only superseded pull request runs are cancelled; a release in progress on main is never cut off.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   UV_VERSION: "0.11.32"
   WIX_VERSION: "5.0.2"
 
 jobs:
+  # Decides whether this run publishes a release, and which tag:
+  #   manual run   -> the release_tag input (empty: build only)
+  #   tag push     -> that tag
+  #   push to main -> v<app version> if that tag does not exist yet; otherwise nothing runs
+  version:
+    runs-on: ubuntu-22.04
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      build: ${{ steps.v.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+        run: |
+          version=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('backend/app/__init__.py').read()).group(1))")
+          tag=""; build=true
+          case "${{ github.event_name }}" in
+            workflow_dispatch) tag="$INPUT_TAG" ;;
+            pull_request) ;;
+            push)
+              if [ "${{ github.ref_type }}" = "tag" ]; then
+                tag="${{ github.ref_name }}"
+              elif git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+                echo "v$version is already released; nothing to do."; build=false
+              else
+                tag="v$version"; echo "New version $version on main: releasing $tag."
+              fi ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
   test:
+    needs: version
+    if: needs.version.outputs.build == 'true'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -159,21 +197,21 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
-    needs: [linux-deb, windows-msi]
+    if: needs.version.outputs.tag != ''
+    needs: [version, linux-deb, windows-msi]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     env:
-      TAG: ${{ inputs.release_tag || github.ref_name }}
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
       - name: Check the tag matches the app version and the branch
         run: |
           version=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('backend/app/__init__.py').read()).group(1))")
           if [ "$TAG" != "v$version" ]; then echo "Tag $TAG does not match app version $version"; exit 1; fi
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "Manual releases must be run on main"; exit 1
+          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref_type }}" != "tag" ]; then
+            if [ "${{ github.ref }}" != "refs/heads/main" ]; then echo "Releases must be built from main"; exit 1; fi
           fi
       - uses: actions/download-artifact@v8
         with: { path: installers, merge-multiple: true }
