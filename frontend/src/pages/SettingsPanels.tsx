@@ -102,7 +102,8 @@ export function ChainsEditor({ ov, onChange }: { ov: Overview; onChange: () => v
 function varLabel(n: string) {
   return n.toLowerCase().split("_").map((w, i) => (i === 0 ? w[0].toUpperCase() + w.slice(1) : w)).join(" ")
     .replace(/\bid\b/g, "ID").replace(/\burl\b/g, "URL").replace(/\bapi\b/g, "API").replace(/\bmcp\b/gi, "MCP")
-    .replace(/\buc\b/g, "UC").replace(/\bvs\b/g, "vector search").replace(/\bms365\b/gi, "Microsoft 365");
+    .replace(/\buc\b/g, "UC").replace(/\bvs\b/g, "vector search").replace(/\bms365\b/gi, "Microsoft 365")
+    .replace(/\bgoogle\b/gi, "Google").replace(/\boauth\b/gi, "OAuth").replace(/^User Google email$/, "Google email (default account)");
 }
 
 const STATUS_TEXT: Record<string, string> = {

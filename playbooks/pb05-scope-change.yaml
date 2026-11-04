@@ -34,7 +34,7 @@ steps:
         title: Stakeholder impact
         agent: sentiment-radar
         task: "How will each affected stakeholder group likely react to accepting, deferring or swapping this request? Trace every signal. Score topics, never people."
-        connectors: [microsoft365]
+        connectors: [microsoft365, google-workspace]
       - id: schedule
         kind: agent
         title: Schedule and dependencies

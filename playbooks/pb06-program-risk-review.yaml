@@ -37,7 +37,7 @@ steps:
         agent: sentiment-radar
         title: Stakeholder signals
         task: "Score sentiment trends and escalation risk by topic from the messages. Trace every signal. Never rate people."
-        connectors: [microsoft365]
+        connectors: [microsoft365, google-workspace]
   - id: register
     kind: agent
     title: Risk register and moves

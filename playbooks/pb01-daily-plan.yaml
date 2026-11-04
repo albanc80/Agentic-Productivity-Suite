@@ -10,7 +10,7 @@ triggers: [plan my day, daily plan, priorities, today, morning, agenda, schedule
 inputs:
   - {id: date, label: "Day to plan", type: text, default: today, help: "today, tomorrow or a date"}
   - {id: priorities, label: "Your top priorities this week", type: longtext, untrusted: false}
-  - {id: calendar, label: "Calendar (paste, or leave empty if Microsoft 365 is connected)", type: longtext}
+  - {id: calendar, label: "Calendar (paste, or leave empty if Microsoft 365 or Google Workspace is connected)", type: longtext}
   - {id: tasks, label: "Open tasks and commitments", type: longtext}
   - {id: inbox, label: "Messages that need attention", type: longtext}
   - {id: documents, label: "Files", type: documents}
@@ -36,5 +36,5 @@ steps:
       3. Delegate / batch / decline list with a one-line reason each.
       4. Risks to today's plan and the single next action to start now.
       Use the calendar input or connected calendar; if neither exists, say the plan is calendar-blind.
-    connectors: [microsoft365]
+    connectors: [microsoft365, google-workspace]
 deliverable: plan

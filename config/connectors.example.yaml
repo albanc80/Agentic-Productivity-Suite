@@ -29,18 +29,54 @@ connectors:
     verify: Image name, GITHUB_READ_ONLY and GITHUB_TOOLSETS variables in github/github-mcp-server README.
 
   - id: microsoft365
-    name: Microsoft 365 (Graph)
-    description: Mail, calendar, OneDrive files and Teams messages through Microsoft Graph.
+    name: Microsoft 365 (Outlook, OneDrive, Teams)
+    description: Outlook mail and calendar, OneDrive files, contacts, To Do tasks and OneNote through Microsoft Graph (read-only). Teams and SharePoint with the work preset.
     transport: stdio
     command: npx
-    args: [-y, "@softeria/ms-365-mcp-server", --read-only, --org-mode]
+    args: [-y, "@softeria/ms-365-mcp-server", --read-only, --preset, "${MS365_MCP_PRESET:-personal}"]
     env:
       MS365_MCP_CLIENT_ID: ${MS365_MCP_CLIENT_ID:-}
       MS365_MCP_TENANT_ID: ${MS365_MCP_TENANT_ID:-}
+      MS365_MCP_ORG_MODE: ${MS365_MCP_ORG_MODE:-}
     requires: [MS365_MCP_ENABLED]
+    accounts: {param: account, vars: [MS365_ACCOUNTS]}
     timeout_s: 90
-    setup: Community server (Softeria). Sign in once with the device-code flow described in its README, then set MS365_MCP_ENABLED=1. Work accounts may need admin consent for Mail.Read and Calendars.Read. Remove --org-mode for personal accounts.
-    verify: Package name and the --read-only / --org-mode flags in the softeria/ms-365-mcp-server README.
+    setup: >-
+      Community server (Softeria). Sign in once by running `npx -y @softeria/ms-365-mcp-server --login`
+      and following the code shown, then set MS365_MCP_ENABLED=1. The default preset `personal` covers
+      mail, calendar, OneDrive files, contacts, tasks, OneNote and search. Work or school account: set
+      MS365_MCP_ORG_MODE=1; for Teams, SharePoint and shared mailboxes also set MS365_MCP_PRESET=work
+      (or `all`). Work tenants may need admin consent for the requested Graph permissions. Requires Node.js.
+      Several accounts: run --login once per account, then list them in MS365_ACCOUNTS (comma-separated,
+      default first). Agents may then use only those accounts.
+    verify: Package name, the --read-only and --preset flags, the preset names, MS365_MCP_ORG_MODE and the multi-account `account` argument in the softeria/ms-365-mcp-server README and PRESETS.md.
+
+  - id: google-workspace
+    name: Google Workspace (Gmail, Calendar, Drive)
+    description: Gmail, Google Calendar and Google Drive, plus Docs, Sheets, Slides, Tasks and Contacts (read-only).
+    transport: stdio
+    command: uvx
+    args: [workspace-mcp, --read-only, --tool-tier, "${GOOGLE_WORKSPACE_TOOL_TIER:-core}",
+           --tools, gmail, calendar, drive, docs, sheets, slides, tasks, contacts]
+    env:
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      USER_GOOGLE_EMAIL: ${USER_GOOGLE_EMAIL}
+      WORKSPACE_MCP_PORT: ${WORKSPACE_MCP_PORT:-8000}
+    accounts: {param: user_google_email, vars: [USER_GOOGLE_EMAIL, GOOGLE_OTHER_ACCOUNTS]}
+    timeout_s: 120
+    setup: >-
+      Community server (taylorwilsdon/google_workspace_mcp, MIT). In Google Cloud Console create a project,
+      enable the Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides, Google Tasks
+      and People APIs, and create an OAuth client. If you choose the Web application type, add
+      http://localhost:8000/oauth2callback as an authorised redirect URI (change the port with
+      WORKSPACE_MCP_PORT). Enter the client ID, the client secret and your Google address (USER_GOOGLE_EMAIL).
+      The first time an agent reads your data the server opens your browser for Google sign-in; approve it
+      and run the step again. Tokens are kept in ~/.google_workspace_mcp/credentials. Requires uv (uvx).
+      GOOGLE_WORKSPACE_TOOL_TIER=extended adds more read tools (for example labels and threads).
+      Several accounts: put the extra addresses in GOOGLE_OTHER_ACCOUNTS (comma-separated); each one
+      signs in through the browser the first time it is used. USER_GOOGLE_EMAIL stays the default.
+    verify: Package name (workspace-mcp on PyPI), the --read-only, --tool-tier and --tools flags, the variable names, the per-call user_google_email argument and the OAuth redirect in the google_workspace_mcp README and docs.
 
   - id: databricks-genie
     name: Databricks Genie

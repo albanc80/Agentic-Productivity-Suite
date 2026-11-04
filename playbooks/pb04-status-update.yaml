@@ -28,7 +28,7 @@ steps:
       Write status narratives for {{inputs.project}} covering {{inputs.window}} for these audiences: {{inputs.audiences}}.
       Use the work data, messages and connected trackers. Every bullet carries a trace (ticket, message
       sender and time, or roadmap row). Customer-facing text must not expose internal traces or names.
-    connectors: [azure-devops, github, atlassian, microsoft365]
+    connectors: [azure-devops, github, atlassian, microsoft365, google-workspace]
   - id: evidence
     kind: tool
     title: Evidence check
@@ -41,7 +41,7 @@ steps:
     task: |
       From the messages and notes for {{inputs.project}} ({{inputs.window}}), flag escalation risk and
       sentiment trend per stakeholder group, each with a trace. Score topics and work items, never people.
-    connectors: [microsoft365]
+    connectors: [microsoft365, google-workspace]
   - id: brief
     kind: agent
     title: Combined brief and drafts

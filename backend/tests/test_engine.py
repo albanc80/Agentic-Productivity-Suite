@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from app.connectors import ConnectorConfig, ConnectorManager
 from app.contracts import Status
 from app.engine import RunStopped
 from app.playbooks import Playbook, PlaybookError, validate
@@ -132,6 +133,27 @@ async def test_mcp_tool_loop_read_only_and_injection_flag(make_engine, tracker_c
     assert any("prompt injection" in w for w in step["warnings"])
     assert step["tool_calls"][0]["tool"] == "github__get_issue"
     assert json.loads(json.dumps(step["output"]))["handoff"]["evidence"] == "EXECUTED"
+
+
+async def test_connected_accounts_are_named_in_the_task(make_engine):
+    from tests.test_connectors import _mail_server
+    seen = {}
+
+    def script(system, messages, tools):
+        seen["user"] = messages[0]["content"]
+        return "Done.\n" + contract()
+
+    conns = ConnectorManager([ConnectorConfig(id="microsoft365", name="Microsoft 365", transport="stdio",
+                                              command="unused", accounts={"param": "account", "vars": ["MS365_ACCOUNTS"]})],
+                             env={"MS365_ACCOUNTS": "work@corp.com,me@home.net"}, in_process={"microsoft365": _mail_server()})
+    eng, *_ = make_engine(cloud_script=script, connectors=conns)
+    try:
+        rid = await eng.start("quick-ask", {"request": "What is in my inbox?"})
+        await run_to_rest(eng, rid)
+    finally:
+        await conns.shutdown()
+    assert "Connected accounts:" in seen["user"]
+    assert "Microsoft 365: work@corp.com (default), me@home.net" in seen["user"] and "`account` argument" in seen["user"]
 
 
 async def test_fact_without_trace_downgraded_and_false_evidence_corrected(make_engine):
