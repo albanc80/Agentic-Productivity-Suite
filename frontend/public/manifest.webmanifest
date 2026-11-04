@@ -1,6 +1,6 @@
 {
-  "name": "Productivity Suite",
-  "short_name": "Suite",
+  "name": "Agentic Productivity Suite",
+  "short_name": "Agentic Suite",
   "description": "Governed agent playbooks for daily work, management, product, engineering and operations.",
   "start_url": "/",
   "scope": "/",

@@ -1,4 +1,4 @@
-# Productivity Suite
+# Agentic Productivity Suite
 
 A platform-agnostic application that turns a library of specialist agents into governed, repeatable workflows for professionals: daily planning, decisions, management, product development, engineering and investment cases.
 

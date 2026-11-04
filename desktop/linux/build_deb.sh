@@ -35,8 +35,8 @@ Priority: optional
 Architecture: ${ARCH}
 Installed-Size: ${SIZE_KB}
 Recommends: xdg-utils, libwebkit2gtk-4.1-0
-Maintainer: Productivity Suite <noreply@users.noreply.github.com>
-Homepage: https://github.com/ilbambinomx/Productivity-Agents
+Maintainer: Agentic Productivity Suite <noreply@users.noreply.github.com>
+Homepage: https://github.com/albanc80/Agentic-Productivity-Suite
 Description: Governed agent playbooks for daily work, management, product,
  engineering and upstream operations. Runs locally; works offline with local
  models. Opens in your browser when no native web view is available.

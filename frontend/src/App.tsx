@@ -95,7 +95,7 @@ export default function App() {
         <div className="topbar-inner">
           <a className="brand" href="#/">
             <img className="brand-mark" src="/icon.svg" alt="" width="28" height="28" />
-            <span>Productivity<span className="brand-accent">Suite</span></span>
+            <span><span className="brand-eyebrow">Agentic</span> Productivity<span className="brand-accent">Suite</span></span>
           </a>
           <nav aria-label="Main">
             {NAV.map((n) => (

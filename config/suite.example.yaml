@@ -1,4 +1,4 @@
-# Productivity Suite configuration.
+# Agentic Productivity Suite configuration.
 # Copy to config/suite.yaml and edit. config/suite.yaml is git-ignored.
 #
 # Credentials never go in this file. Each provider names the environment
@@ -77,7 +77,7 @@ providers:
     locality: cloud
     base_url: https://openrouter.ai/api/v1
     api_key_env: OPENROUTER_API_KEY
-    headers: {X-Title: Productivity Suite}
+    headers: {X-Title: Agentic Productivity Suite}
   anthropic:
     type: anthropic
     locality: cloud

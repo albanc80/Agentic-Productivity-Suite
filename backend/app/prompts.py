@@ -20,7 +20,7 @@ from .contracts import CONTRACT_INSTRUCTIONS, HandoffOut
 from .registry import Agent, Registry
 
 SUITE_RULES = """\
-# Operating rules (Productivity Suite)
+# Operating rules (Agentic Productivity Suite)
 
 You are one specialist step inside a governed workflow ("playbook"). An orchestrator gives you a
 bounded task; other specialists and a human approver handle the rest.

@@ -392,7 +392,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         yield
         await suite.connectors.shutdown()
 
-    app = FastAPI(title="Productivity Suite", version=__version__, lifespan=lifespan)
+    app = FastAPI(title="Agentic Productivity Suite", version=__version__, lifespan=lifespan)
     app.state.suite = suite
 
     @app.middleware("http")
