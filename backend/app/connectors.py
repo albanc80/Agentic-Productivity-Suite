@@ -44,6 +44,21 @@ WRITE_WORD = re.compile(
     re.I)
 
 
+class AccountsConfig(BaseModel):
+    """Several accounts behind one connector (for example a work and a personal mailbox).
+
+    The server picks the account from one tool argument (``param``). The accounts the user allows are
+    listed in settings (``vars``, each comma-separated; the first account listed is the default). The
+    suite refuses calls to any other account and fills in the default when a call names none.
+    """
+
+    param: str
+    vars: list[str]
+
+
+ACCOUNT_SPLIT = re.compile(r"[\s,;]+")
+
+
 class ConnectorConfig(BaseModel):
     id: str
     name: str
@@ -64,6 +79,7 @@ class ConnectorConfig(BaseModel):
     setup: str = ""
     verify: str = ""  # what to double-check against upstream docs
     folders: list[str] = Field(default_factory=list)  # builtin local-files: folders agents may read
+    accounts: AccountsConfig | None = None  # several accounts behind one server
 
     def required_env(self) -> set[str]:
         return env_refs([self.args, self.env, self.url or "", self.headers, self.command or ""]) | set(self.requires)
@@ -73,6 +89,8 @@ class ConnectorConfig(BaseModel):
         out = env_vars([self.args, self.env, self.url or "", self.headers, self.command or ""])
         for r in self.requires:
             out.setdefault(r, None)
+        for v in self.accounts.vars if self.accounts else []:
+            out.setdefault(v, "")
         return out
 
 
@@ -287,6 +305,35 @@ class ConnectorManager:
             return [] if cfg.folders else ["a folder"]
         return self.missing_env(cid)
 
+    def accounts(self, cid: str) -> list[str]:
+        """Accounts the user allows on this connector, default first (empty: the server decides)."""
+        cfg = self.configs.get(cid)
+        if not cfg or not cfg.accounts:
+            return []
+        out: list[str] = []
+        for var in cfg.accounts.vars:
+            for a in ACCOUNT_SPLIT.split(self.env.get(var, "") or ""):
+                if a and a.lower() not in (x.lower() for x in out):
+                    out.append(a)
+        return out
+
+    def _with_account(self, cid: str, info: ToolInfo, arguments: dict) -> dict:
+        """Refuse accounts the user did not list; name the default account when the call names none."""
+        cfg = self.configs[cid]
+        allowed = self.accounts(cid)
+        if not cfg.accounts or not allowed:
+            return arguments
+        param = cfg.accounts.param
+        value = arguments.get(param)
+        if value not in (None, ""):
+            if str(value).strip().lower() not in (a.lower() for a in allowed):
+                raise ConnectorError(f"account '{value}' is not enabled for {cfg.name}; "
+                                     f"allowed: {', '.join(allowed)}")
+            return arguments
+        if param in ((info.input_schema or {}).get("properties") or {}):
+            return {**arguments, param: allowed[0]}
+        return arguments
+
     def configured(self, cid: str) -> bool:
         cfg = self.configs.get(cid)
         if not cfg or not cfg.enabled:
@@ -387,6 +434,7 @@ class ConnectorManager:
             raise ConnectorError(f"connector '{cid}' has no tool '{tool}'")
         if not info.allowed:
             raise ConnectorError(f"tool '{cid}.{tool}' is blocked by the read-only policy ({info.reason})")
+        arguments = self._with_account(cid, info, arguments)
         res = await w.request("call", {"name": tool, "arguments": arguments})
         parts: list[str] = []
         for block in res.content or []:

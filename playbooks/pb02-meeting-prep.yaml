@@ -28,7 +28,7 @@ steps:
       For "{{inputs.meeting}}", summarise the relevant open work items, recent changes and commitments from the
       background and any connected trackers. Every item needs a trace. Report work items only; do not
       characterise people.
-    connectors: [azure-devops, github, atlassian, microsoft365]
+    connectors: [azure-devops, github, atlassian, microsoft365, google-workspace]
   - id: meeting_output
     kind: agent
     title: Brief or debrief

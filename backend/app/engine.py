@@ -474,10 +474,12 @@ class Engine:
                           window=resolve_window(i.get("window") or i.get("date") or None, date.today()),
                           constraints=str(constraints)[:1000])
 
-    async def _tool_specs(self, ctx: RunCtx, step: Step, agent_tools: list[str], has_skills: bool) -> tuple[list[ToolSpec], dict, list[str]]:
+    async def _tool_specs(self, ctx: RunCtx, step: Step, agent_tools: list[str],
+                          has_skills: bool) -> tuple[list[ToolSpec], dict, list[str], list[str]]:
         specs: list[ToolSpec] = []
         routes: dict[str, tuple[str, Any]] = {}
         notes: list[str] = []
+        account_lines: list[str] = []
         for cid in step.connectors:
             if not self.connectors.configured(cid):
                 notes.append(f"connector {cid} not configured (agent worked from provided inputs)")
@@ -490,6 +492,13 @@ class Engine:
             for t in infos:
                 specs.append(ToolSpec(t.qualified, f"[{cid}, read-only] {t.description}", t.input_schema or {"type": "object"}))
                 routes[t.qualified] = ("mcp", (cid, t.name))
+            accounts = self.connectors.accounts(cid)
+            if accounts and infos:
+                cfg = self.connectors.configs[cid]
+                listed = ", ".join([f"{accounts[0]} (default)"] + accounts[1:])
+                account_lines.append(
+                    f"- {cfg.name}: {listed}. Choose the account with the `{cfg.accounts.param}` argument; "
+                    "calls to any other account are refused. Say which account each fact came from.")
         for name in dict.fromkeys(step.tools + agent_tools):
             t = TOOLS[name]
             specs.append(ToolSpec(name, t.description, t.parameters))
@@ -499,7 +508,7 @@ class Engine:
                                   {"type": "object", "required": ["skill"],
                                    "properties": {"skill": {"type": "string"}, "resource": {"type": "string"}}}))
             routes[SKILL_TOOL] = ("skill", None)
-        return specs, routes, notes
+        return specs, routes, notes, account_lines
 
     async def _exec_tool(self, ctx: RunCtx, routes: dict, name: str, args: dict, agent_skills: list[str]) -> tuple[str, bool, list[str]]:
         kind, target = routes.get(name, (None, None))
@@ -560,10 +569,10 @@ class Engine:
                         priors, data_blocks, review: bool, feedback, sid: str, pre_warnings: list[str]) -> StepResult:
         use_tools = cand.model.tools
         agent_tools = agent.tools if use_tools else []
-        specs, routes, tool_notes = ([], {}, [])
+        specs, routes, tool_notes, account_lines = ([], {}, [], [])
         on_demand = [s for s in agent.skills if s not in agent.core_skills + step.skills]
         if use_tools:
-            specs, routes, tool_notes = await self._tool_specs(ctx, step, agent_tools, bool(on_demand))
+            specs, routes, tool_notes, account_lines = await self._tool_specs(ctx, step, agent_tools, bool(on_demand))
         elif step.connectors or step.tools:
             tool_notes.append(f"{cand.ref} has no tool calling; connectors and tools were not used in this step")
 
@@ -571,6 +580,8 @@ class Engine:
         system = build_system(agent=agent, mode=step.mode, registry=self.registry, policies=self.s.output_policies,
                               profile=self.profile, persona=persona, extra_skills=step.skills,
                               has_skill_tool=SKILL_TOOL in routes, review=review)
+        if account_lines:
+            task = task.rstrip() + "\n\nConnected accounts:\n" + "\n".join(account_lines)
         user = build_user(handoff=handoff, task=task, priors=priors, data_blocks=data_blocks,
                           review_target=step.target if review else None, feedback=feedback)
         tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3

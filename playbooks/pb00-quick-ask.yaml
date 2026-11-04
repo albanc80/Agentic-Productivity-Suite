@@ -22,5 +22,5 @@ steps:
       Keep it proportionate: a short request gets a short answer. If the request is really a decision,
       a status update, a scope change, a PRD, an architecture review or an investment case, answer briefly
       and recommend the matching playbook by name.
-    connectors: [microsoft365, github, local-files]
+    connectors: [microsoft365, google-workspace, github, local-files]
 deliverable: answer
