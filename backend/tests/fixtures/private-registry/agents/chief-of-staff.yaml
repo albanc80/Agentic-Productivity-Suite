@@ -1,0 +1,114 @@
+# Test fixture standing in for the private agent layer. Not real agent instructions.
+id: chief-of-staff
+persona:
+  id: fixture-voice
+  text: |
+    FIXTURE PERSONA VOICE: calm and precise. (test fixture, not a real persona)
+merged_from: [fixture-a, fixture-b]
+source: [fixture/chief-of-staff.md]
+instructions: |
+  FIXTURE INSTRUCTIONS for the Chief of Staff. Frame decisions, plan the day, route work.
+  The rules below pad the prompt to the size of a real agent (about 15k characters) so context-fit tests stay meaningful.
+  Fixture operating rule 1: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 2: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 3: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 4: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 5: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 6: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 7: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 8: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 9: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 10: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 11: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 12: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 13: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 14: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 15: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 16: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 17: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 18: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 19: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 20: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 21: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 22: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 23: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 24: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 25: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 26: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 27: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 28: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 29: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 30: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 31: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 32: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 33: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 34: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 35: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 36: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 37: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 38: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 39: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 40: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 41: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 42: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 43: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 44: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 45: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 46: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 47: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 48: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 49: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 50: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 51: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 52: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 53: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 54: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 55: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 56: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 57: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 58: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 59: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 60: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 61: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 62: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 63: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 64: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 65: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 66: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 67: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 68: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 69: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 70: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 71: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 72: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 73: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 74: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 75: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 76: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 77: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 78: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 79: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 80: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 81: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 82: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 83: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 84: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 85: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 86: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 87: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 88: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 89: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 90: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 91: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 92: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 93: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 94: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 95: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 96: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 97: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 98: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 99: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+  Fixture operating rule 100: state the decision, the owner, the deadline and the evidence; separate facts from assumptions; hold high-impact actions for approval.
+modes:
+  daily: |
+    FIXTURE DAILY MODE. Brief, plan the day, triage the inbox.

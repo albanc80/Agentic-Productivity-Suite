@@ -53,6 +53,14 @@ The result is `backend/dist/ProductivitySuite/`. To package it, use `desktop/lin
 - **Linux** needs GTK or Qt WebKit libraries for the native window; otherwise it opens the browser.
 - The app is not code-signed. macOS Gatekeeper and Windows SmartScreen will warn until you sign it.
 
+## Private agent layer
+
+The installers do not contain the agents' full instructions, personas or lineage. Copy your private
+layer folder (it holds `agents/<agent-id>.yaml`) to `~/.productivity-suite/private-registry`
+(`%USERPROFILE%\.productivity-suite\private-registry` on Windows), or set `SUITE_PRIVATE_REGISTRY`
+to its location, then restart the app. Without it the app runs, each agent works from its public
+capability summary, and Settings shows a warning.
+
 ## Offline mode
 
 Switch it from the app: the **Online / Offline** switch in the top bar, or Settings → Connection mode. The choice is saved and survives restarts; **Use config default** returns to the file setting. You can also set the default with `offline: true` in `suite.yaml`, `SUITE_OFFLINE=1`, or `--offline` on the launcher. When offline:

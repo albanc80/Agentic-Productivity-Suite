@@ -108,10 +108,11 @@ def public_endpoint(e: Endpoint) -> dict:
 class Suite:
     def __init__(self, settings: Settings, connectors: ConnectorManager | None = None, http_client=None):
         self.settings = settings
-        self.registry = Registry(settings.registry_dir, settings.policies_dir)
+        self.registry = Registry(settings.registry_dir, settings.policies_dir, settings.private_registry_dir)
         self.connectors = connectors or ConnectorManager.from_file(
             settings.connectors_path, offline=settings.offline, presets=settings.home / "config" / "connectors.example.yaml")
         self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs))
+        self.warnings = self.registry.warnings + self.warnings
         self.store = Store(settings.data_dir / "suite.db")
         self.models = ModelRouter(settings, http_client=http_client)
         self.file_profile = load_profile(settings)

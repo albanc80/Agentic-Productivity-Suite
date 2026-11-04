@@ -1,0 +1,4 @@
+# Test fixture: a private file with no matching catalog agent must be ignored with a warning.
+id: unknown-agent
+instructions: |
+  Should never load.
