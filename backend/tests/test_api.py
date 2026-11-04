@@ -54,7 +54,8 @@ def test_overview_and_catalog(client):
     a = client.get("/api/agents/chief-of-staff").json()
     assert "daily" in a["modes"] and a["capabilities"]
     # The design stays server-side: no instructions, persona or lineage reach the UI.
-    private = {"instructions", "modes_detail", "persona", "persona_text", "merged_from", "source", "instruction_chars"}
+    private = {"instructions", "modes_detail", "persona", "persona_text", "merged_from", "source", "instruction_chars",
+               "callsign"}
     assert not private & set(a), private & set(a)
     assert not any(private & set(x) for x in o["agents"])
     body = client.get("/api/agents/chief-of-staff").text + client.get("/api/overview").text

@@ -22,7 +22,7 @@ def server(seen: list, delegate: bool = True):
         body = json.loads(req.content)
         system = body["messages"][0]["content"]
         user = body["messages"][-1]["content"]
-        role = system.split("You are acting as: ", 1)[1].split(" (", 1)[0]
+        role = system.split("You are acting as: ", 1)[1].split("\n", 1)[0]
         seen.append({"host": req.url.host, "model": body["model"], "role": role, "system": system, "user": user})
         if "Decide how to handle" in system:
             text = json.dumps({"action": "delegate", "why": "needs specialists", "agents": [

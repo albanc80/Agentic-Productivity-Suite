@@ -3,7 +3,6 @@
 agents:
 - id: chief-of-staff
   name: Chief of Staff
-  callsign: Number One
   desk: command
   summary: 'Front door and executive partner: frames decisions, plans the day, routes work, closes execution loops.'
   capabilities:
@@ -22,7 +21,6 @@ agents:
     daily: 'Daily operations: briefing, day planning, inbox triage.'
 - id: critical-mentor
   name: Critical Mentor
-  callsign: Critical Mentor
   desk: command
   summary: 'Independent reviewer: pressure-tests plans, arguments and deliverables before they are trusted.'
   capabilities:
@@ -40,7 +38,6 @@ agents:
   modes: {}
 - id: counselor
   name: Management Counselor
-  callsign: DeannaT
   desk: management
   summary: 'Manager''s operating-system lead: routes status, sentiment and scope questions and merges module results into one brief.'
   capabilities:
@@ -57,7 +54,6 @@ agents:
   modes: {}
 - id: zero-status
   name: Status Narrator
-  callsign: Zero-Status
   desk: management
   summary: Turns work data and communications into audience-specific status narratives with traces.
   capabilities:
@@ -78,7 +74,6 @@ agents:
   modes: {}
 - id: sentiment-radar
   name: Stakeholder Pulse
-  callsign: Sentiment Radar
   desk: management
   summary: Scores stakeholder sentiment trends and escalation risk from traced communications. Never rates people.
   capabilities:
@@ -97,7 +92,6 @@ agents:
   modes: {}
 - id: roadmap-shield
   name: Roadmap Impact Simulator
-  callsign: Roadmap Shield
   desk: management
   summary: Quantifies cost of delay and roadmap impact for new requests and scope changes.
   capabilities:
@@ -116,7 +110,6 @@ agents:
   modes: {}
 - id: program-manager
   name: Program Manager
-  callsign: Ron Swanson
   desk: management
   summary: 'Multi-program delivery: schedules, dependencies, risks, regulatory and HSE checkpoints.'
   capabilities:
@@ -134,7 +127,6 @@ agents:
     investment: Delivery strategy and execution risk for an investment case.
 - id: product-strategist
   name: AI Product Strategist
-  callsign: Data
   desk: product
   summary: 'Product strategy and discovery for data, AI and agentic platforms: problem, JTBD, North Star, value.'
   capabilities:
@@ -152,7 +144,6 @@ agents:
   modes: {}
 - id: spec-lead
   name: Spec and Delivery Lead
-  callsign: Bravo-1
   desk: product
   summary: 'Spec-driven development: specs before code, features sliced to 1-3 days, traceability to tests.'
   capabilities:
@@ -171,7 +162,6 @@ agents:
   modes: {}
 - id: ai-transformation-advisor
   name: AI Transformation Advisor
-  callsign: AI Transformation Advisor
   desk: product
   summary: Finds recurring work worth automating and ranks AI opportunities by value, effort and risk.
   capabilities:
@@ -188,7 +178,6 @@ agents:
   modes: {}
 - id: patent-researcher
   name: Patent Researcher
-  callsign: Patent Assistant
   desk: product
   summary: Prior-art discovery, novelty scoring and claim comparison to prepare for patent counsel. Not legal advice.
   capabilities:
@@ -205,7 +194,6 @@ agents:
   modes: {}
 - id: eng-orchestrator
   name: Engineering Pod Lead
-  callsign: Scotty
   desk: engineering
   summary: Engineering intake, routing, gate sequencing and the Engineering Completion Report.
   capabilities:
@@ -234,7 +222,6 @@ agents:
   modes: {}
 - id: eng-solution-architect
   name: Solution Architect (Eng Pod)
-  callsign: ENG-Solution-Architect
   desk: engineering
   summary: Cross-system design, architecture exceptions and ADRs inside the engineering pod.
   capabilities:
@@ -263,7 +250,6 @@ agents:
   modes: {}
 - id: eng-backend
   name: Senior Backend Engineer
-  callsign: ENG-Backend-Senior
   desk: engineering
   summary: APIs, services, persistence, validation and backend tests.
   capabilities:
@@ -292,7 +278,6 @@ agents:
   modes: {}
 - id: eng-frontend
   name: Senior Frontend Engineer
-  callsign: ENG-Frontend-Senior
   desk: engineering
   summary: UI delivery, accessibility and frontend tests.
   capabilities:
@@ -321,7 +306,6 @@ agents:
   modes: {}
 - id: eng-fullstack-integration
   name: Full-Stack Integration Engineer
-  callsign: ENG-FullStack-Integration
   desk: engineering
   summary: Cross-layer integration and contract reconciliation.
   capabilities:
@@ -350,7 +334,6 @@ agents:
   modes: {}
 - id: eng-qa
   name: Senior QA Engineer
-  callsign: ENG-QA-Senior
   desk: engineering
   summary: Risk-based test strategy before implementation and independent validation after.
   capabilities:
@@ -379,7 +362,6 @@ agents:
   modes: {}
 - id: eng-security
   name: Security Engineer
-  callsign: ENG-Security-Engineer
   desk: engineering
   summary: Threat modelling, secure coding and security review.
   capabilities:
@@ -408,7 +390,6 @@ agents:
   modes: {}
 - id: eng-devsecops
   name: DevSecOps Engineer
-  callsign: ENG-DevSecOps
   desk: engineering
   summary: CI/CD, infrastructure, release safety and operations.
   capabilities:
@@ -438,7 +419,6 @@ agents:
   modes: {}
 - id: eng-data-engineer
   name: Data Engineer
-  callsign: ENG-Data-Engineer
   desk: engineering
   summary: Pipelines, data contracts and data quality.
   capabilities:
@@ -467,7 +447,6 @@ agents:
   modes: {}
 - id: enterprise-architect
   name: Enterprise Architect
-  callsign: Neo
   desk: engineering
   summary: Simplest secure, operable architecture that meets verified requirements; options, NFRs, ADRs, readiness.
   capabilities:
@@ -488,7 +467,6 @@ agents:
     investment: Technical feasibility and target architecture for an investment case.
 - id: ai-agent-engineer
   name: AI Agent Engineer
-  callsign: R2D2
   desk: engineering
   summary: 'Designs governed, workflow-first AI agents: contracts, least autonomy, evals, observability, kill path.'
   capabilities:
@@ -510,7 +488,6 @@ agents:
   modes: {}
 - id: ai-product-evaluator
   name: AI Product Evaluator
-  callsign: AI Data Product Evaluator
   desk: engineering
   summary: 'Builds a tailored evaluation loop for AI data products: datasets, rubrics, metrics, error analysis.'
   capabilities:
@@ -527,7 +504,6 @@ agents:
   modes: {}
 - id: data-studio
   name: Data Product Studio
-  callsign: Databricks Data Studio
   desk: data
   summary: Explores warehouses, writes and optimises SQL, defines metrics and designs trusted data products and dashboards.
   capabilities:
@@ -552,7 +528,6 @@ agents:
   modes: {}
 - id: ontology-engineer
   name: Ontology Engineer
-  callsign: LaForge
   desk: data
   summary: Competency questions, semantic models, schema mappings and ontology release gates.
   capabilities:
@@ -570,7 +545,6 @@ agents:
   modes: {}
 - id: data-quality-reviewer
   name: Data Quality Reviewer
-  callsign: Data Quality Reviewer
   desk: data
   summary: Independent check of data quality, definitions, units and statistical claims.
   capabilities:
@@ -589,7 +563,6 @@ agents:
   modes: {}
 - id: investment-advisor
   name: Investment Advisor
-  callsign: Picard
   desk: strategy
   summary: Synthesises specialist findings into one invest / pilot / modify / defer / reject recommendation.
   capabilities:
@@ -606,7 +579,6 @@ agents:
   modes: {}
 - id: business-analyst
   name: Business Analyst
-  callsign: Picard / BA
   desk: strategy
   summary: Requirements, process analysis, options, ROI, TCO and benefits realisation.
   capabilities:
@@ -623,7 +595,6 @@ agents:
   modes: {}
 - id: strategy-advisor
   name: Upstream Strategy Advisor
-  callsign: GaryK
   desk: strategy
   summary: 'Strategy consulting for upstream digital transformation: diagnosis, options, economics, operating model.'
   capabilities:
@@ -642,7 +613,6 @@ agents:
   modes: {}
 - id: bd-advisor
   name: Business Development Advisor
-  callsign: Global BD Advisor
   desk: strategy
   summary: Market sizing, competitor and customer analysis from licensed intelligence data; growth strategy.
   capabilities:
@@ -664,7 +634,6 @@ agents:
   modes: {}
 - id: well-planner
   name: Well Planning Advisor
-  callsign: Harry Stamper
   desk: upstream
   summary: 'Engineering-grade well planning support: trajectory, hydraulics, casing, torque and drag, risk. Advisory only.'
   capabilities:
@@ -690,7 +659,6 @@ agents:
   modes: {}
 - id: npt-advisor
   name: NPT Advisor
-  callsign: NPT Advisor
   desk: upstream
   summary: Diagnoses drilling-mechanics precursors of non-productive time and recommends corrective action. Advisory only.
   capabilities:
@@ -707,7 +675,6 @@ agents:
   modes: {}
 - id: domain-sme
   name: Upstream Domain SME
-  callsign: Picard / Domain SME
   desk: upstream
   summary: Operational relevance, field workflows, HSE, well control, adoption and measurable operational value.
   capabilities:
@@ -724,7 +691,6 @@ agents:
   modes: {}
 - id: training-designer
   name: Training Designer
-  callsign: Arty
   desk: enablement
   summary: Turns workflows and expertise into outcome-driven training and reusable agent blueprints.
   capabilities:

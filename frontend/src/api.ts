@@ -13,7 +13,7 @@ export interface PlaybookCard {
   connectors: string[];
 }
 export interface AgentCard {
-  id: string; name: string; callsign: string; desk: string; summary: string; capabilities: string[]; default_tier: string;
+  id: string; name: string; desk: string; summary: string; capabilities: string[]; default_tier: string;
   safety_critical: boolean; core_skills: string[]; skills: string[]; tools: string[]; modes: Record<string, string>; default_mode: string | null;
 }
 export interface ModelEndpoint {

@@ -24,7 +24,6 @@ class Agent(BaseModel):
 
     id: str
     name: str
-    callsign: str
     desk: str
     summary: str
     capabilities: list[str] = Field(default_factory=list)
