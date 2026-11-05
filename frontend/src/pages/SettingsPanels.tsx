@@ -333,13 +333,13 @@ export function ProfilePanel({ ov, onChange }: { ov: Overview; onChange: () => v
         <p className="muted small measure">Sent with every model call so agents know who they work for. Keep it short; empty fields are left out. Do not put secrets here.</p>
       </div>
       <div className="card stack">
-        <div className="ep-grid">
+        <div className="pair-grid">
           <div className="field"><label htmlFor="pf-name">Name</label><input id="pf-name" value={p.name} onChange={(e) => set("name", e.target.value)} placeholder="Optional" /></div>
           <div className="field"><label htmlFor="pf-role">Role</label><input id="pf-role" value={p.role} onChange={(e) => set("role", e.target.value)} placeholder="e.g. Drilling engineering manager" /></div>
         </div>
         <div className="field"><label htmlFor="pf-org">Organisation context</label>
           <textarea id="pf-org" rows={2} value={p.organization_context} onChange={(e) => set("organization_context", e.target.value)} placeholder="Industry, team, what your organisation does" /></div>
-        <div className="ep-grid">
+        <div className="pair-grid">
           <div className="field"><label htmlFor="pf-goals">Goals (one per line)</label>
             <textarea id="pf-goals" rows={4} value={goals} onChange={(e) => setGoals(e.target.value)} /></div>
           <div className="field"><label htmlFor="pf-prefs">How you like answers (one per line)</label>
