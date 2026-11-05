@@ -521,6 +521,8 @@ class Engine:
             for t in infos:
                 specs.append(ToolSpec(t.qualified, f"[{cid}, read-only] {t.description}", t.input_schema or {"type": "object"}))
                 routes[t.qualified] = ("mcp", (cid, t.name))
+            if infos:
+                account_lines += [f"- {self.connectors.configs[cid].name}: {line}" for line in self.connectors.context_lines(cid)]
             accounts = self.connectors.accounts(cid)
             if accounts and infos:
                 cfg = self.connectors.configs[cid]
@@ -610,7 +612,7 @@ class Engine:
                               profile=self.profile, persona=persona, extra_skills=step.skills,
                               has_skill_tool=SKILL_TOOL in routes, review=review)
         if account_lines:
-            task = task.rstrip() + "\n\nConnected accounts:\n" + "\n".join(account_lines)
+            task = task.rstrip() + "\n\nConnected accounts and scope:\n" + "\n".join(account_lines)
         user = build_user(handoff=handoff, task=task, priors=priors, data_blocks=data_blocks,
                           review_target=step.target if review else None, feedback=feedback)
         tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3

@@ -152,7 +152,7 @@ async def test_connected_accounts_are_named_in_the_task(make_engine):
         await run_to_rest(eng, rid)
     finally:
         await conns.shutdown()
-    assert "Connected accounts:" in seen["user"]
+    assert "Connected accounts and scope:" in seen["user"]
     assert "Microsoft 365: work@corp.com (default), me@home.net" in seen["user"] and "`account` argument" in seen["user"]
 
 

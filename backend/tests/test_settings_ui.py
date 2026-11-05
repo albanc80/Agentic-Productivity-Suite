@@ -108,35 +108,42 @@ def test_local_files_set_up_from_the_app(factory, shared):
 
 def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch):
     with factory() as c:
-        gen = cn(c.get("/api/overview").json(), "databricks-genie")
-        names = {v["name"]: v for v in gen["variables"]}
+        db = cn(c.get("/api/overview").json(), "databricks")
+        names = {v["name"]: v for v in db["variables"]}
         assert names["DATABRICKS_TOKEN"]["secret"] and not names["DATABRICKS_HOST"]["secret"]
-        assert gen["status"] == "disabled" and not gen["enabled"] and "DATABRICKS_TOKEN" in gen["missing"]
-        r = c.put("/api/connectors/databricks-genie", json={"enabled": True})
+        assert db["status"] == "disabled" and not db["enabled"] and "DATABRICKS_TOKEN" in db["missing"]
+        assert any(m.startswith("at least one of: Genie space") for m in db["missing"])
+        # one connector: shared fields first and required, each service's fields after them and optional
+        order = [v["name"] for v in db["variables"]]
+        assert order[:2] == ["DATABRICKS_HOST", "DATABRICKS_TOKEN"] and not names["DATABRICKS_HOST"]["optional"]
+        assert names["DATABRICKS_GENIE_SPACE_ID"]["optional"] and names["DATABRICKS_GENIE_SPACE_ID"]["part"] == "genie"
+        assert names["DATABRICKS_UC_SCHEMA"]["part"] == "functions" and names["DATABRICKS_HOST"]["part"] is None
+        r = c.put("/api/connectors/databricks", json={"enabled": True})
         assert r.status_code == 422 and "DATABRICKS_HOST" in r.json()["detail"]  # cannot switch on before setup
-        r = c.put("/api/connectors/databricks-genie", json={"values": {
+        r = c.put("/api/connectors/databricks", json={"values": {
             "DATABRICKS_HOST": "https://adb-1.azuredatabricks.net", "DATABRICKS_TOKEN": "dapi-secret-1",
             "DATABRICKS_GENIE_SPACE_ID": "space1"}})
-        gen = r.json()
-        assert gen["status"] == "disabled" and gen["missing"] == [], gen  # set up, but still off until switched on
-        gen = c.put("/api/connectors/databricks-genie", json={"enabled": True}).json()
-        assert gen["status"] == "idle", gen
-        vals = {v["name"]: v for v in gen["variables"]}
+        db = r.json()
+        assert db["status"] == "disabled" and db["missing"] == [], db  # set up, but still off until switched on
+        assert {p["id"]: p["ready"] for p in db["parts"]} == {"genie": True, "functions": False, "search": False}
+        db = c.put("/api/connectors/databricks", json={"enabled": True}).json()
+        assert db["status"] == "idle", db
+        vals = {v["name"]: v for v in db["variables"]}
         assert vals["DATABRICKS_TOKEN"]["set"] and vals["DATABRICKS_TOKEN"]["value"] is None
         assert vals["DATABRICKS_HOST"]["value"] == "https://adb-1.azuredatabricks.net"
         o = c.get("/api/overview")
         assert "dapi-secret-1" not in o.text and "dapi-secret-1" not in c.get("/api/audit").text
-        # The host and token entered once also serve the other Databricks connectors.
-        uc = cn(o.json(), "databricks-uc-functions")
-        assert {v["name"] for v in uc["variables"] if v["set"]} >= {"DATABRICKS_HOST", "DATABRICKS_TOKEN"}
+        # A second service needs only its own fields: the host and token are entered once.
+        db = c.put("/api/connectors/databricks", json={"values": {"DATABRICKS_UC_CATALOG": "main", "DATABRICKS_UC_SCHEMA": "ops"}}).json()
+        assert {p["id"]: p["ready"] for p in db["parts"]}["functions"] is True
         # Saving with an empty secret keeps it; an empty plain value clears it.
-        gen = c.put("/api/connectors/databricks-genie", json={"values": {"DATABRICKS_TOKEN": "", "DATABRICKS_GENIE_SPACE_ID": ""}}).json()
-        vals = {v["name"]: v for v in gen["variables"]}
+        db = c.put("/api/connectors/databricks", json={"values": {"DATABRICKS_TOKEN": "", "DATABRICKS_GENIE_SPACE_ID": ""}}).json()
+        vals = {v["name"]: v for v in db["variables"]}
         assert vals["DATABRICKS_TOKEN"]["set"] and not vals["DATABRICKS_GENIE_SPACE_ID"]["set"]
-        assert c.put("/api/connectors/databricks-genie", json={"values": {"NOT_USED": "x"}}).status_code == 422
-        assert c.put("/api/connectors/databricks-genie", json={"values": {"DATABRICKS_HOST": "a\nb"}}).status_code == 422
-        gen = c.put("/api/connectors/databricks-genie", json={"clear": ["DATABRICKS_TOKEN"]}).json()
-        assert not {v["name"]: v for v in gen["variables"]}["DATABRICKS_TOKEN"]["set"]
+        assert c.put("/api/connectors/databricks", json={"values": {"NOT_USED": "x"}}).status_code == 422
+        assert c.put("/api/connectors/databricks", json={"values": {"DATABRICKS_HOST": "a\nb"}}).status_code == 422
+        db = c.put("/api/connectors/databricks", json={"clear": ["DATABRICKS_TOKEN"]}).json()
+        assert not {v["name"]: v for v in db["variables"]}["DATABRICKS_TOKEN"]["set"]
         # Opt-in flags (Microsoft 365 needs a one-time sign-in first) are ticked in the app.
         m = cn(c.get("/api/overview").json(), "microsoft365")
         assert m["status"] == "disabled" and any(v["flag"] for v in m["variables"])
@@ -146,7 +153,7 @@ def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch
         assert c.put("/api/connectors/microsoft365", json={"enabled": False}).json()["status"] == "disabled"
     monkeypatch.setenv("DATABRICKS_HOST", "https://from-env")
     with factory() as c:  # the environment wins over a value typed in the app
-        v = {x["name"]: x for x in cn(c.get("/api/overview").json(), "databricks-genie")["variables"]}
+        v = {x["name"]: x for x in cn(c.get("/api/overview").json(), "databricks")["variables"]}
         assert v["DATABRICKS_HOST"]["source"] == "env" and v["DATABRICKS_HOST"]["value"] is None
 
 

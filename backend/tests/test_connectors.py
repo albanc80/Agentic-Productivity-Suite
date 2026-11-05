@@ -144,3 +144,67 @@ def test_every_shipped_connector_starts_switched_off():
     mgr = ConnectorManager.from_file(None, presets=ROOT / "config" / "connectors.example.yaml")
     assert mgr.configs and not [cid for cid, c in mgr.configs.items() if c.enabled]
     assert not [d["id"] for d in mgr.describe() if d["status"] != "disabled"]
+
+
+def db_cfg(**kw) -> ConnectorConfig:
+    return ConnectorConfig.model_validate({
+        "id": "db", "name": "Databricks", "transport": "http", "enabled": True,
+        "headers": {"Authorization": "Bearer ${DB_TOKEN}"},
+        "parts": [{"id": "genie", "name": "Genie space", "url": "${DB_HOST}/genie/${DB_SPACE}"},
+                  {"id": "search", "name": "Vector Search", "url": "${DB_HOST}/vs/${DB_CAT}/${DB_SCHEMA}"}], **kw})
+
+
+async def test_grouped_connector_runs_each_ready_part_under_one_switch():
+    env = {"DB_HOST": "https://ws", "DB_TOKEN": "t"}
+    mgr = ConnectorManager([db_cfg()], env=env, in_process={"db.genie": fake_server, "db.search": fake_server})
+    assert mgr.missing("db") == ["at least one of: Genie space; Vector Search"]
+    mgr.apply_settings({}, {"DB_SPACE": "s1"})
+    assert mgr.missing("db") == [] and [p.id for p in mgr.ready_parts("db")] == ["genie"]
+    try:
+        tools = {t.name: t for t in await mgr.tools("db", allowed_only=False)}
+        assert set(tools) >= {"genie.get_issue", "genie.create_issue"} and not any(n.startswith("search.") for n in tools)
+        assert tools["genie.get_issue"].qualified == "db__genie_get_issue" and not tools["genie.create_issue"].allowed
+        text, err = await mgr.call("db", "genie.get_issue", {"key": "DEMO-1"})
+        assert "Login fails" in text and not err
+        with pytest.raises(ConnectorError, match="read-only policy"):
+            await mgr.call("db", "genie.create_issue", {"title": "x"})
+        assert next(d for d in mgr.describe() if d["id"] == "db")["status"] == "ready"
+    finally:
+        await mgr.shutdown()
+
+
+def test_grouped_connector_fields_and_the_merge_of_the_old_databricks_connectors(tmp_path):
+    from tests.conftest import ROOT
+    old = tmp_path / "connectors.yaml"  # a file copied from an older version still lists the three connectors
+    old.write_text("connectors:\n" + "".join(
+        f"  - {{id: {i}, name: x, transport: http, url: 'https://x'}}\n"
+        for i in ("databricks-genie", "databricks-uc-functions", "databricks-search")), encoding="utf-8")
+    mgr = ConnectorManager.from_file(old, presets=ROOT / "config" / "connectors.example.yaml")
+    assert "databricks" in mgr.configs and not {"databricks-genie", "databricks-search"} & set(mgr.configs)
+    assert mgr.replaced_by()["databricks-uc-functions"] == "databricks"
+    from app.connectors import ConnectorSetting
+    mgr.apply_settings({"databricks-genie": ConnectorSetting(enabled=True)}, {})
+    assert mgr.configs["databricks"].enabled, "the old switch carries over"
+    v = {x["name"]: x for x in mgr.variables("databricks")}
+    assert v["DATABRICKS_HOST"]["label"] == "Workspace URL" and v["DATABRICKS_UC_CATALOG"]["part"] == "functions"
+
+
+def test_required_fields_come_first_and_account_lists_follow_them():
+    from tests.conftest import ROOT
+    mgr = ConnectorManager.from_file(None, presets=ROOT / "config" / "connectors.example.yaml")
+    order = [v["name"] for v in mgr.variables("google-workspace")]
+    assert order[:4] == ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "USER_GOOGLE_EMAIL", "GOOGLE_OTHER_ACCOUNTS"]
+    for c in mgr.configs.values():
+        if c.transport != "builtin":
+            assert c.steps and c.docs_url.startswith("https://"), f"{c.id} needs setup steps and a docs link"
+
+
+def test_github_needs_only_a_token_and_names_the_repositories():
+    from tests.conftest import ROOT
+    mgr = ConnectorManager.from_file(None, presets=ROOT / "config" / "connectors.example.yaml")
+    v = {x["name"]: x for x in mgr.variables("github")}
+    assert not v["GITHUB_PERSONAL_ACCESS_TOKEN"]["optional"] and v["GITHUB_HOST"]["optional"] and v["GITHUB_REPOS"]["optional"]
+    mgr.apply_settings({}, {"GITHUB_PERSONAL_ACCESS_TOKEN": "t",
+                            "GITHUB_REPOS": "https://github.com/acme/portal, acme/api.git"})
+    assert mgr.missing("github") == []
+    assert mgr.context_lines("github") == ["Repositories the person works in: acme/portal, acme/api. Use these unless asked about others."]

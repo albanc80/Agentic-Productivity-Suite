@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type Budgets, type ConnectorInfo, type Overview, type Profile } from "../api";
+import { api, type Budgets, type ConnectorInfo, type ConnectorVariable, type Overview, type Profile } from "../api";
 import { ErrorNote } from "../ui";
 
 /** On/off switch: a real button with role="switch". `paused` shows it locked off by offline mode. */
@@ -107,6 +107,31 @@ function varLabel(n: string) {
     .replace(/\bgoogle\b/gi, "Google").replace(/\boauth\b/gi, "OAuth").replace(/^User Google email$/, "Google email (default account)");
 }
 
+// A setup step: commands are set off by three spaces in the text ("run   npx … --login   and …"); addresses are links.
+function StepText({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/\s{3,}/).map((part, i) => (i % 2 === 1
+        ? <code key={i}>{part}</code>
+        : <span key={i}>{part.split(/(https?:\/\/[^\s)]+)/).map((bit, j) => (/^https?:\/\//.test(bit)
+          ? <a key={j} href={bit.replace(/[.,;:]$/, "")} target="_blank" rel="noreferrer">{bit}</a> : bit))}</span>))}
+    </>
+  );
+}
+
+function SetupGuide({ c }: { c: ConnectorInfo }) {
+  return (
+    <div className="setup-guide stack-sm">
+      {c.setup && <p className="small muted">{c.setup}</p>}
+      {c.steps.length > 0 && (
+        <ol className="setup-steps small">{c.steps.map((st, i) => <li key={i}><StepText text={st} /></li>)}</ol>
+      )}
+      {c.docs_url && <p className="small"><a href={c.docs_url} target="_blank" rel="noreferrer">Full setup guide for this server ↗</a></p>}
+      {c.verify && <p className="help">Check before relying on it: {c.verify}</p>}
+    </div>
+  );
+}
+
 const STATUS_TEXT: Record<string, string> = {
   idle: "Ready", ready: "Connected", connecting: "Connecting", error: "Error", unconfigured: "Needs setup",
   disabled: "Off", offline: "Paused offline",
@@ -166,7 +191,7 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
       {c.missing.length > 0 && !c.offline_paused && (
         <p className="small provider-reason">Needs: {c.missing.map((n) => {
           const v = c.variables.find((x) => x.name === n);
-          return v?.flag ? "the one-time sign-in confirmation" : /^[A-Z0-9_]+$/.test(n) ? varLabel(n).toLowerCase() : n;
+          return v?.flag ? "the one-time sign-in confirmation" : /^[A-Z0-9_]+$/.test(n) ? (v?.label || varLabel(n)).toLowerCase() : n;
         }).join(", ")}. Open Edit to set it up{c.enabled ? "" : ", then switch it on"}.</p>
       )}
       {c.status === "error" && <p className="small note bad">{c.error}</p>}
@@ -203,7 +228,7 @@ function FoldersEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }) 
   }
   return (
     <form className="provider-edit stack" onSubmit={save}>
-      <p className="small muted measure">{c.setup}</p>
+      <p className="small muted">{c.setup}</p>
       {folders.map((f, i) => (
         <div key={i} className="ep-row">
           <div className="field grow">
@@ -248,18 +273,13 @@ function VariablesEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }
     setBusy(true);
     try { await api.resetConnector(c.id); onDone(); } catch (err) { setError(err); } finally { setBusy(false); }
   }
-  const label = varLabel;
-  return (
-    <form className="provider-edit stack" onSubmit={save}>
-      <p className="small muted measure">{c.setup}</p>
-      {c.verify && <p className="help">Check before relying on it: {c.verify}</p>}
-      <div className="ep-grid">
-        {c.variables.map((v) => {
+  const label = (v: ConnectorVariable) => v.label || varLabel(v.name);
+  const field = (v: ConnectorVariable) => {
           const id = `${c.id}-${v.name}`;
           if (v.source === "env") {
             return (
               <div key={v.name} className="field">
-                <span className="label-like">{label(v.name)}</span>
+                <span className="label-like">{label(v)}</span>
                 <span className="muted small">Set by the environment variable <code>{v.name}</code></span>
               </div>
             );
@@ -279,10 +299,11 @@ function VariablesEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }
           }
           return (
             <div key={v.name} className="field">
-              <label htmlFor={id}>{label(v.name)}{!v.optional && <span className="req" aria-label="required"> *</span>}</label>
+              <label htmlFor={id}>{label(v)}{!v.optional && <span className="req" aria-label="required"> *</span>}</label>
               <input id={id} type={v.secret ? "password" : "text"} value={vals[v.name] ?? ""} autoComplete="off" spellCheck={false}
                 placeholder={v.secret && v.set ? "•••••••• (saved)" : v.default || ""}
                 onChange={(e) => setVals((x) => ({ ...x, [v.name]: e.target.value }))} />
+              {v.hint && <span className="help">{v.hint}</span>}
               <span className="help"><code>{v.name}</code>{v.optional ? " · optional" : ""}{v.secret ? " · never shown again once saved" : ""}</span>
               {v.secret && v.set && v.source === "app" && (
                 <label className="check small"><input type="checkbox" checked={clear.includes(v.name)}
@@ -290,8 +311,19 @@ function VariablesEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }
               )}
             </div>
           );
-        })}
-      </div>
+  };
+  const shared = c.variables.filter((v) => !v.part);
+  return (
+    <form className="provider-edit stack" onSubmit={save}>
+      <SetupGuide c={c} />
+      <div className="ep-grid">{shared.map(field)}</div>
+      {c.parts.map((p) => (
+        <fieldset key={p.id} className="plain part-fields">
+          <legend><strong>{p.name}</strong> <span className={`pill ${p.ready ? "ok" : "neutral"}`}>{p.ready ? "on" : "off until filled in"}</span></legend>
+          {p.description && <span className="small muted">{p.description}</span>}
+          <div className="ep-grid">{c.variables.filter((v) => v.part === p.id).map(field)}</div>
+        </fieldset>
+      ))}
       <p className="help">Values are saved unencrypted in the app's database on this computer and shared by connectors that use the same name (for example the Databricks host and token). They are passed only to this connector.</p>
       <ErrorNote error={error} />
       <div className="row-tight">

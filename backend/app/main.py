@@ -112,7 +112,8 @@ class Suite:
         self.registry = Registry(settings.registry_dir, settings.policies_dir, settings.private_registry_dir)
         self.connectors = connectors or ConnectorManager.from_file(
             settings.connectors_path, offline=settings.offline, presets=settings.home / "config" / "connectors.example.yaml")
-        self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs))
+        self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs),
+                                                      self.connectors.replaced_by())
         self.warnings = self.registry.warnings + self.warnings
         self.store = Store(settings.data_dir / "suite.db")
         self.models = ModelRouter(settings, http_client=http_client)
