@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -22,6 +23,9 @@ PRIVATE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "private-regist
 # Tests never read a real private agent layer: they use a small fake one so results are the
 # same on every machine and in CI, where the private layer does not exist.
 os.environ["SUITE_PRIVATE_REGISTRY"] = str(PRIVATE_FIXTURE)
+# Nor a real Documents folder: copies of chats and deliverables go to a throwaway folder.
+OUTPUTS_FIXTURE = Path(tempfile.mkdtemp(prefix="suite-outputs-"))
+os.environ["SUITE_OUTPUTS_DIR"] = str(OUTPUTS_FIXTURE)
 
 
 def contract(status="COMPLETE", **kw) -> str:

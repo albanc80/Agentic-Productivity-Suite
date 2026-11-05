@@ -21,6 +21,7 @@ from typing import Any
 from .connectors import ConnectorError, ConnectorManager, ToolInfo
 from .contracts import HandoffIn, HandoffOut, Label, Status, parse_handoff, worst
 from .guards import redact, scan_people_eval, wrap_data
+from .outputs import Outputs
 from .playbooks import Playbook, Step, render, render_args, resolve_window
 from .prompts import build_system, build_user, fit
 from .providers import ModelRouter, ProviderError, Resolved, ToolSpec, Usage
@@ -70,8 +71,9 @@ class RunCtx:
 
 class Engine:
     def __init__(self, settings: Settings, registry: Registry, playbooks: dict[str, Playbook], router: ModelRouter,
-                 connectors: ConnectorManager, store: Store, profile: dict):
+                 connectors: ConnectorManager, store: Store, profile: dict, outputs: Outputs | None = None):
         self.s = settings
+        self.outputs = outputs or Outputs(None)
         self.registry = registry
         self.playbooks = playbooks
         self.router = router
@@ -694,6 +696,7 @@ class Engine:
         md = self.assemble(ctx, outcome)
         self.store.update_run(run_id, status="completed", outcome=outcome.value, deliverable=md)
         self.store.audit("run_completed", run_id, outcome=outcome.value)
+        self.outputs.save_run(self.store.run(run_id))
 
     def assemble(self, ctx: RunCtx, outcome: Status) -> str:
         run = self.store.run(ctx.id)

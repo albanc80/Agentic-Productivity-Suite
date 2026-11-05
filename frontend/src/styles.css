@@ -502,3 +502,4 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .answer-file-name { font-family: var(--f-mono, ui-monospace, monospace); font-weight: 600; overflow-wrap: anywhere; }
 .answer-file .primary { margin-left: auto; }
 .copying, .copying * { text-transform: none !important; }
+.outputs-path { display: block; padding: 8px 10px; border-radius: 8px; background: var(--sunken); overflow-wrap: anywhere; }

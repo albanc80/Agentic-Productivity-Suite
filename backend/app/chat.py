@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from .contracts import strip_reasoning
 from .guards import redact, scan_people_eval, wrap_data
+from .outputs import Outputs
 from .prompts import build_system, est_tokens, fit
 from .providers import ModelRouter, ProviderError, Usage
 from .registry import Registry
@@ -104,9 +105,14 @@ class Turn:
 
 class Chat:
     def __init__(self, settings: Settings, registry: Registry, models: ModelRouter, store: Store, profile: dict,
-                 playbooks: dict, killed: callable):
+                 playbooks: dict, killed: callable, outputs: Outputs | None = None):
         self.s, self.registry, self.models, self.store = settings, registry, models, store
         self.profile, self.playbooks, self.killed = profile, playbooks, killed
+        self.outputs = outputs or Outputs(None)
+
+    def _agent_name(self, agent_id: str) -> str:
+        a = self.registry.agents.get(agent_id)
+        return a.name if a else (agent_id or "Agent")
 
     # ------------------------------------------------------------ storage
 
@@ -135,6 +141,7 @@ class Chat:
     def delete(self, cid: str) -> None:
         if not self.store.delete_chat(cid):
             raise KeyError(cid)
+        self.outputs.delete_chat(cid)
         self.store.audit("chat_deleted", None, chat=cid)
 
     # ------------------------------------------------------------ one turn
@@ -195,6 +202,9 @@ class Chat:
         chat["cost_usd"] = round(chat["cost_usd"] + reply["cost_usd"], 6)
         chat["updated_at"] = now()
         self.store.save_chat(chat)
+        self.outputs.save_chat(chat, self._agent_name)
+        if fmt:
+            self.outputs.save_file(chat, msg["file"]["name"], fmt, reply["content"])
         return msg
 
     def _history(self, messages: list[dict]) -> str:

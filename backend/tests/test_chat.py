@@ -149,6 +149,14 @@ def test_answers_export_as_files_and_requested_files_are_offered(make):
         assert c.get(f"/api/chats/{chat['id']}/messages/9/export").status_code == 404
         assert c.get("/api/chats/nope/messages/1/export").status_code == 404
         assert "chat_exported" in [e["event"] for e in c.get("/api/audit").json()]
+        # A readable copy of the chat and the requested file are saved in the outputs folder.
+        from tests.conftest import OUTPUTS_FIXTURE
+        tail = "".join(ch for ch in chat["id"] if ch.isalnum())[-8:]
+        [transcript] = list((OUTPUTS_FIXTURE / "Chats").glob(f"*-{tail}.md"))
+        assert "Give me the risk summary as an HTML file" in transcript.read_text(encoding="utf-8")
+        assert (OUTPUTS_FIXTURE / "Files" / asked["file"]["name"]).exists()
+        c.delete(f"/api/chats/{chat['id']}")
+        assert not list((OUTPUTS_FIXTURE / "Chats").glob(f"*-{tail}.md"))  # deleting the chat deletes the copy
 
 
 def test_raw_html_from_a_model_is_never_rendered_in_exports():

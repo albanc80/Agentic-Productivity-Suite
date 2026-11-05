@@ -453,6 +453,19 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
           <SavedCheck checked={ov.store_prompts} onSave={(v) => apply({ store_prompts: v })}>Keep full prompts in the run record (contains your data; off keeps only a fingerprint)</SavedCheck>
         </div>
       </section>
+
+      <section className="stack" aria-labelledby="out-h">
+        <h2 id="out-h">Outputs folder</h2>
+        <div className="card stack-sm">
+          {ov.outputs_dir ? (
+            <>
+              <code className="outputs-path">{ov.outputs_dir}</code>
+              <p className="small muted measure">Readable copies of your work are saved here: each chat as a Markdown transcript (<code>Chats</code>), every finished playbook deliverable as Markdown and HTML (<code>Runs</code>), and files you ask for in chat (<code>Files</code>). Chats and runs marked Restricted are not copied. Deleting a chat in the app deletes its copy. Your settings, keys and history database stay in the app's own folder.</p>
+            </>
+          ) : <p className="small muted">Switched off. Chats and deliverables stay inside the app.</p>}
+          <p className="small muted">To move or switch it off, set <code>outputs_dir</code> in <code>suite.yaml</code> (or <code>off</code>), or the <code>SUITE_OUTPUTS_DIR</code> environment variable, and restart.</p>
+        </div>
+      </section>
       <ErrorNote error={error} />
       <Saved at={saved} />
       {ov.general_edited.length > 0 && (

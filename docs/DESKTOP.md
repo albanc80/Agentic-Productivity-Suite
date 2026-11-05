@@ -53,6 +53,16 @@ The result is `backend/dist/ProductivitySuite/`. To package it, use `desktop/lin
 - **Linux** needs GTK or Qt WebKit libraries for the native window; otherwise it opens the browser.
 - The app is not code-signed. macOS Gatekeeper and Windows SmartScreen will warn until you sign it.
 
+## Outputs folder
+
+On first start the app creates **Agentic-Suite-Outputs** in your Documents folder (on Windows, wherever Windows says Documents is, including a folder redirected to OneDrive). It keeps readable copies of your work there:
+
+- `Chats/`: one Markdown transcript per chat, updated after every message. Deleting a chat in the app deletes its copy.
+- `Runs/`: every finished playbook deliverable, as `.md` and `.html`.
+- `Files/`: files you ask for in chat ("as an HTML file", "export to markdown").
+
+Chats and runs marked **Restricted** are not copied, because Documents may be synced to a cloud drive. The app's database, with your settings, keys and full history, stays in `~/.productivity-suite`. Settings → Policies & budgets shows the folder. To move it or switch it off, set `outputs_dir` (or `off`) in `suite.yaml`, or `SUITE_OUTPUTS_DIR`, then restart.
+
 ## Private agent layer
 
 The installers do not contain the agents' full instructions, personas or lineage. Copy your private

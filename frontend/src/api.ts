@@ -75,6 +75,7 @@ export interface Overview {
   offline_override: boolean | null; endpoints: ModelEndpoint[];
   budgets: Budgets; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
   profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; model_refs: string[]; general_edited: string[];
+  outputs_dir: string | null;  // readable copies of chats and deliverables; null when switched off
   agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;
   agent_overrides: Record<string, string[]>;
   warnings: string[]; pending_approvals: number;

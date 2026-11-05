@@ -36,6 +36,7 @@ from .engine import Engine, RunStopped
 from .export import to_html
 from .files import UnsupportedFile, extract_text
 from .local_files import FolderError, check_folder
+from .outputs import Outputs
 from .playbooks import load_playbooks
 from .providers import ModelRouter, ProviderError
 from .registry import Registry
@@ -117,8 +118,14 @@ class Suite:
         self.models = ModelRouter(settings, http_client=http_client)
         self.file_profile = load_profile(settings)
         self.profile: dict = {}  # same dict object the engine reads; refreshed in place by apply()
-        self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile)
-        self.chat = Chat(settings, self.registry, self.models, self.store, self.profile, self.playbooks, lambda: self.engine.killed)
+        self.outputs = Outputs(settings.outputs_dir, settings.theme_dir)
+        problem = self.outputs.ensure()
+        if problem:
+            self.warnings.append(problem)
+        self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile,
+                             outputs=self.outputs)
+        self.chat = Chat(settings, self.registry, self.models, self.store, self.profile, self.playbooks, lambda: self.engine.killed,
+                         outputs=self.outputs)
         # File/env configuration is the base; choices made in the app are layered on top and persisted.
         self.base = {"providers": dict(settings.providers), "models": list(settings.models),
                      "tiers": {k: list(v) for k, v in settings.tiers.items()}, "offline": settings.offline,
@@ -444,6 +451,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
                         for k in ProfileEdit.model_fields},
             "profile_saved_in_app": suite.saved_profile() is not None,
             "store_prompts": settings.store_prompts,
+            "outputs_dir": str(settings.outputs_dir) if settings.outputs_dir else None,
             "model_refs": [m.ref for m in settings.models],
             "general_edited": sorted(suite.general().model_dump(exclude_none=True)),
             "agent_models": suite.general().agent_models or {},
