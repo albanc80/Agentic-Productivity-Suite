@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, download, type Approval, type Overview, type RunDetail, type StepRow } from "../api";
-import { ErrorNote, Markdown, Pill, fmtCost, fmtTime } from "../ui";
+import { api, exportRun, type Approval, type ExportResult, type Overview, type RunDetail, type StepRow } from "../api";
+import { ErrorNote, ExportNote, Markdown, Pill, fmtCost, fmtTime } from "../ui";
 import { StepRail } from "../viz";
 
 const LIVE = new Set(["queued", "running"]);
@@ -8,6 +8,14 @@ const LIVE = new Set(["queued", "running"]);
 export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: string; onChange: () => void }) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [exported, setExported] = useState<ExportResult | null>(null);
+  const [exportError, setExportError] = useState<unknown>(null);
+  const [exporting, setExporting] = useState(false);
+  async function doExport(format: "md" | "html") {
+    if (!run) return;
+    setExporting(true); setExported(null); setExportError(null);
+    try { setExported(await exportRun(run.id, format)); } catch (e) { setExportError(e); } finally { setExporting(false); }
+  }
 
   const load = useCallback(async () => {
     try { setRun(await api.run(runId)); setError(null); } catch (e) { setError(e); }
@@ -52,12 +60,13 @@ export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: 
             <button onClick={async () => { try { await api.resume(run.id); load(); } catch (e) { setError(e); } }}>Resume</button>
           )}
           {run.deliverable && <>
-            <button onClick={() => download(run.id, "md").catch(setError)}>Export Markdown</button>
-            <button onClick={() => download(run.id, "html").catch(setError)}>Export HTML</button>
+            <button disabled={exporting} onClick={() => doExport("md")}>Export Markdown</button>
+            <button disabled={exporting} onClick={() => doExport("html")}>Export HTML</button>
           </>}
         </div>
       </header>
       <ErrorNote error={error} />
+      <ExportNote result={exported} error={exportError} />
       {run.demo && <div className="banner warn">Made by the demo provider of an earlier version: no language model produced this content. You can delete it from the Library.</div>}
 
       {pb && <StepRail playbook={pb} steps={run.steps} cursor={run.cursor} runStatus={run.status} />}

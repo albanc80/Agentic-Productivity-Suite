@@ -63,6 +63,13 @@ def _clean_lines(v: list[str]) -> list[str]:
     return [x.strip()[:500] for x in v if x and x.strip()][:20]
 
 
+class OutputsEdit(BaseModel):
+    """The outputs folder: a full path, off, or neither (back to the default)."""
+
+    path: str | None = Field(default=None, max_length=1000)
+    off: bool = False
+
+
 class ProfileEdit(BaseModel):
     name: str = Field(default="", max_length=200)
     role: str = Field(default="", max_length=300)

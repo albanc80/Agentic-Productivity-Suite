@@ -144,6 +144,8 @@ def _open_window(url: str) -> bool:
         except Exception:  # noqa: BLE001 - cosmetic only
             pass
     try:
+        # Downloads are off by default in pywebview: without this, Export and Download buttons do nothing.
+        webview.settings["ALLOW_DOWNLOADS"] = True
         webview.create_window("Agentic Productivity Suite", url, width=1360, height=900, min_size=(420, 640))
         webview.start(icon=str(icon) if icon.is_file() else None)
         return True

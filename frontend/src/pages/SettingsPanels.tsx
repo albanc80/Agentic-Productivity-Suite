@@ -406,6 +406,49 @@ function SavedCheck({ checked, disabled, onSave, children }: { checked: boolean;
   );
 }
 
+// ------------------------------------------------------------------ outputs folder
+
+function OutputsFolder({ ov, onChange }: { ov: Overview; onChange: () => void }) {
+  const o = ov.outputs;
+  const [path, setPath] = useState(o.path || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [saved, setSaved] = useState(0);
+  useEffect(() => { setPath(o.path || ""); }, [o.path]);
+  async function save(edit: { path?: string; off?: boolean }) {
+    setBusy(true); setError(null);
+    try { await api.saveOutputs(edit); setSaved(Date.now()); onChange(); } catch (e) { setError(e); } finally { setBusy(false); }
+  }
+  return (
+    <section className="stack" aria-labelledby="out-h">
+      <div className="stack-sm">
+        <h2 id="out-h">Outputs folder</h2>
+        <p className="muted small measure">Readable copies of your work are saved here: each chat as a Markdown transcript (<code>Chats</code>), every finished playbook deliverable as Markdown and HTML (<code>Runs</code>), and files you ask for or save from chat (<code>Files</code>). Chats and runs marked Restricted are not copied. Your settings, keys and history database stay in the app's own folder.</p>
+      </div>
+      <form className="card stack" onSubmit={(e) => { e.preventDefault(); save({ path }); }}>
+        <div className="ep-row">
+          <div className="field grow">
+            <label htmlFor="out-path">Folder</label>
+            <input id="out-path" value={path} onChange={(e) => setPath(e.target.value)} placeholder={o.default}
+              autoComplete="off" spellCheck={false} />
+            <span className="help">{o.path ? (o.source === "app" ? "Chosen here." : "The default.") : "Switched off: chats and deliverables stay inside the app."} Paste a full path, for example from the File Explorer address bar; the folder is created if needed and applies at once.</span>
+          </div>
+        </div>
+        {o.shared_with_local_files.length > 0 && (
+          <p className="small note">This folder is also shared with agents through Local files ({o.shared_with_local_files.join(", ")}), so agents can read your saved chats and files. Restricted work is never copied here.</p>
+        )}
+        <ErrorNote error={error} />
+        <div className="row-tight">
+          <button className="primary" type="submit" disabled={busy || !path.trim() || path === o.path}>Save folder</button>
+          {o.source === "app" && <button type="button" className="ghost" disabled={busy} onClick={() => save({})}>Use the default ({o.default})</button>}
+          {o.path && <button type="button" className="ghost grow-left" disabled={busy} onClick={() => save({ off: true })}>Switch off</button>}
+          <Saved at={saved} />
+        </div>
+      </form>
+    </section>
+  );
+}
+
 // ------------------------------------------------------------------ policies and budgets
 
 const DC_HELP: Record<string, string> = {
@@ -506,18 +549,7 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
         </div>
       </section>
 
-      <section className="stack" aria-labelledby="out-h">
-        <h2 id="out-h">Outputs folder</h2>
-        <div className="card stack-sm">
-          {ov.outputs_dir ? (
-            <>
-              <code className="outputs-path">{ov.outputs_dir}</code>
-              <p className="small muted measure">Readable copies of your work are saved here: each chat as a Markdown transcript (<code>Chats</code>), every finished playbook deliverable as Markdown and HTML (<code>Runs</code>), and files you ask for in chat (<code>Files</code>). Chats and runs marked Restricted are not copied. Deleting a chat in the app deletes its copy. Your settings, keys and history database stay in the app's own folder.</p>
-            </>
-          ) : <p className="small muted">Switched off. Chats and deliverables stay inside the app.</p>}
-          <p className="small muted">To move or switch it off, set <code>outputs_dir</code> in <code>suite.yaml</code> (or <code>off</code>), or the <code>SUITE_OUTPUTS_DIR</code> environment variable, and restart.</p>
-        </div>
-      </section>
+      <OutputsFolder ov={ov} onChange={onChange} />
       <ErrorNote error={error} />
       <Saved at={saved} />
       {ov.general_edited.length > 0 && (

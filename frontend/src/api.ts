@@ -81,7 +81,8 @@ export interface Overview {
   offline_override: boolean | null; endpoints: ModelEndpoint[];
   budgets: Budgets; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
   profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; model_refs: string[]; general_edited: string[];
-  outputs_dir: string | null;  // readable copies of chats and deliverables; null when switched off
+  outputs_dir: string | null;
+  outputs: { path: string | null; source: "app" | "file" | "default"; default: string; shared_with_local_files: string[] };  // readable copies of chats and deliverables; null when switched off
   agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;
   agent_overrides: Record<string, string[]>;
   warnings: string[]; pending_approvals: number;
@@ -179,6 +180,8 @@ export const api = {
   saveGeneral: (edit: GeneralEdit) => call<Overview>("/api/settings/general", { method: "PUT", body: JSON.stringify(edit) }),
   saveAnswer: (chatId: string, index: number, format: "md" | "html") =>
     call<{ name: string; path: string }>(`/api/chats/${chatId}/messages/${index}/save?format=${format}`, { method: "POST" }),
+  saveOutputs: (edit: { path?: string; off?: boolean }) =>
+    call<Overview>("/api/settings/outputs", { method: "PUT", body: JSON.stringify(edit) }),
   resetGeneral: (part: "tiers" | "budgets" | "all") => call<Overview>(`/api/settings/general/${part}`, { method: "DELETE" }),
   saveProfile: (p: Profile) => call<Profile>("/api/settings/profile", { method: "PUT", body: JSON.stringify(p) }),
   resetProfile: () => call<Profile>("/api/settings/profile", { method: "DELETE" }),
@@ -192,6 +195,28 @@ export const api = {
   exportUrl: (id: string, format: "md" | "html") => `/api/runs/${id}/export?format=${format}`,
 };
 
+export type ExportResult = { saved: true; name: string; path: string } | { saved: false; name: string; why: string };
+
+/** Export into the outputs folder and say where; when that is not possible (folder off, Restricted), download instead. */
+async function exportOr(save: () => Promise<{ name: string; path: string }>, fallback: () => Promise<string>): Promise<ExportResult> {
+  try {
+    const r = await save();
+    return { saved: true, name: r.name, path: r.path };
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 409) throw e;
+    return { saved: false, name: await fallback(), why: e.message };
+  }
+}
+
+export function exportRun(id: string, format: "md" | "html") {
+  return exportOr(() => call<{ name: string; path: string }>(`/api/runs/${id}/export/save?format=${format}`, { method: "POST" }),
+    () => download(id, format));
+}
+
+export function exportAnswer(chatId: string, index: number, format: "md" | "html") {
+  return exportOr(() => api.saveAnswer(chatId, index, format), () => downloadAnswer(chatId, index, format));
+}
+
 export async function download(id: string, format: "md" | "html") {
   return downloadFrom(api.exportUrl(id, format), format);
 }
@@ -201,7 +226,7 @@ export async function downloadAnswer(chatId: string, index: number, format: "md"
   return downloadFrom(`/api/chats/${chatId}/messages/${index}/export?format=${format}`, format);
 }
 
-async function downloadFrom(url: string, format: "md" | "html") {
+async function downloadFrom(url: string, format: "md" | "html"): Promise<string> {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -214,4 +239,5 @@ async function downloadFrom(url: string, format: "md" | "html") {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return name;
 }

@@ -90,6 +90,7 @@ class Outputs:
     def __init__(self, root: Path | None, theme_dir: Path | None = None):
         self.root = root
         self.theme_dir = theme_dir
+        self.last_run_files: dict[str, Path | None] = {}
 
     def ensure(self) -> str | None:
         """Create the folder tree. Returns a readable problem, or None when all is well."""
@@ -173,5 +174,6 @@ class Outputs:
         title = run.get("title") or "Deliverable"
         stem = f"{str(run.get('created_at', ''))[:10]}-{_slug(title)}-{_tail(run['id'])}"
         md = self._write(self.root / "Runs" / f"{stem}.md", run["deliverable"])
-        self._write(self.root / "Runs" / f"{stem}.html", to_html(run["deliverable"], title, self.theme_dir))
+        html = self._write(self.root / "Runs" / f"{stem}.html", to_html(run["deliverable"], title, self.theme_dir))
+        self.last_run_files = {"md": md, "html": html}
         return md

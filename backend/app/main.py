@@ -25,12 +25,13 @@ from .appconfig import (
     ConnectorEdit,
     GeneralEdit,
     GeneralSettings,
+    OutputsEdit,
     ProfileEdit,
     TierPref,
     order_chain,
 )
 from .chat import Chat, ChatError
-from .connectors import ConnectorError, ConnectorManager, ConnectorSetting, is_secret
+from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorSetting, is_secret
 from .endpoints import Endpoint, ModelEdit, ProviderOverride, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
@@ -119,7 +120,9 @@ class Suite:
         self.models = ModelRouter(settings, http_client=http_client)
         self.file_profile = load_profile(settings)
         self.profile: dict = {}  # same dict object the engine reads; refreshed in place by apply()
-        self.outputs = Outputs(settings.outputs_dir, settings.theme_dir)
+        # The outputs folder: the one chosen in Settings, else suite.yaml / SUITE_OUTPUTS_DIR, else Documents.
+        self.file_outputs = settings.outputs_dir
+        self.outputs = Outputs(self._outputs_choice(), settings.theme_dir)
         problem = self.outputs.ensure()
         if problem:
             self.warnings.append(problem)
@@ -256,6 +259,50 @@ class Suite:
         self.store.set_setting("general", g.model_dump(exclude_none=True))
         self.apply()
         self.store.audit("settings_changed", None, fields=sorted(edit.model_dump(exclude_none=True)), by=by)
+
+    # ------------------------------------------------------------ outputs folder
+
+    def outputs_setting(self) -> dict:
+        return self.store.get_setting("outputs_folder", {}) or {}
+
+    def _outputs_choice(self) -> Path | None:
+        st = self.outputs_setting()
+        if st.get("off"):
+            return None
+        return Path(st["path"]) if st.get("path") else self.file_outputs
+
+    def set_outputs(self, path: str | None, off: bool, by: str) -> None:
+        """Choose the outputs folder in the app: a folder, off, or back to the default (path None, off False)."""
+        if off:
+            self.store.set_setting("outputs_folder", {"off": True})
+        elif path:
+            p = Path(path.strip().strip('"')).expanduser()
+            if not p.is_absolute():
+                raise ValueError("Enter the full path of the folder, for example C:\\Users\\you\\Documents\\Outputs.")
+            problem = Outputs(p, self.settings.theme_dir).ensure()
+            if problem:
+                raise ValueError(problem)
+            self.store.set_setting("outputs_folder", {"path": str(p)})
+        else:
+            self.store.set_setting("outputs_folder", {})
+        self.outputs.root = self._outputs_choice()
+        problem = self.outputs.ensure()
+        self.store.audit("outputs_folder_changed", None, path=str(self.outputs.root) if self.outputs.root else None, by=by)
+        if problem:
+            raise ValueError(problem)
+
+    def outputs_info(self) -> dict:
+        from .outputs import default_outputs_dir
+        st = self.outputs_setting()
+        root = self.outputs.root
+        shared = []
+        if root:
+            for folder in self.connectors.configs.get("local-files", ConnectorConfig(id="x", name="x", transport="builtin")).folders:
+                f = Path(folder)
+                if root == f or f in root.parents or root in f.parents:
+                    shared.append(folder)
+        return {"path": str(root) if root else None, "source": "app" if st else ("file" if self.file_outputs != default_outputs_dir() else "default"),
+                "default": str(self.file_outputs or default_outputs_dir()), "shared_with_local_files": shared}
 
     def reset_general(self, part: str, by: str) -> None:
         g = self.general()
@@ -452,7 +499,8 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
                         for k in ProfileEdit.model_fields},
             "profile_saved_in_app": suite.saved_profile() is not None,
             "store_prompts": settings.store_prompts,
-            "outputs_dir": str(settings.outputs_dir) if settings.outputs_dir else None,
+            "outputs_dir": str(suite.outputs.root) if suite.outputs.root else None,
+            "outputs": suite.outputs_info(),
             "model_refs": [m.ref for m in settings.models],
             "general_edited": sorted(suite.general().model_dump(exclude_none=True)),
             "agent_models": suite.general().agent_models or {},
@@ -561,6 +609,24 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except (ValueError, RunStopped) as e:
             raise HTTPException(409, str(e)) from e
         return {"id": rid}
+
+    @app.post("/api/runs/{rid}/export/save")
+    def export_save(rid: str, format: Literal["md", "html"] = "md"):
+        """Export a deliverable into the outputs folder (Runs/) and say where it went."""
+        r = store.run(rid)
+        if not r or not r.get("deliverable"):
+            raise HTTPException(404, "no deliverable yet")
+        if not suite.outputs.root:
+            raise HTTPException(409, "The outputs folder is switched off; choose one in Settings > Policies & budgets.")
+        if r.get("data_class") == "restricted":
+            raise HTTPException(409, "Restricted deliverables are not saved to the outputs folder, which may be synced "
+                                     "to a cloud drive.")
+        suite.outputs.save_run(r)
+        path = suite.outputs.last_run_files.get(format)
+        if not path:
+            raise HTTPException(500, f"The file could not be written to {suite.outputs.root}; see the app log.")
+        store.audit("exported", rid, format=format, saved=True)
+        return {"name": path.name, "path": str(path), "folder": str(path.parent)}
 
     @app.get("/api/runs/{rid}/export")
     def export(rid: str, format: Literal["md", "html"] = "md"):
@@ -799,6 +865,14 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             raise HTTPException(404, "connector not found")
         await suite.reset_connector(cid, "ui")
         return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.put("/api/settings/outputs")
+    def edit_outputs(body: OutputsEdit):
+        try:
+            suite.set_outputs(body.path, body.off, "ui")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return overview()
 
     @app.put("/api/settings/general")
     def edit_general(body: GeneralEdit):

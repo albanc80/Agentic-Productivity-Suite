@@ -236,3 +236,26 @@ def test_restart_stops_workers():
     mgr = ConnectorManager([], env={})
     asyncio.run(mgr.restart())
     assert mgr.workers == {}
+
+
+def test_outputs_folder_is_chosen_in_the_app(factory, tmp_path, shared):
+    from tests.conftest import OUTPUTS_FIXTURE
+    with factory() as c:
+        o = c.get("/api/overview").json()["outputs"]
+        assert o["path"] == str(OUTPUTS_FIXTURE) and o["source"] == "file"
+        assert c.put("/api/settings/outputs", json={"path": "relative/folder"}).status_code == 422
+        target = shared / "Agent outputs"  # inside a folder shared with agents through Local files
+        c.put("/api/connectors/local-files", json={"enabled": True, "folders": [str(shared)]})
+        o = c.put("/api/settings/outputs", json={"path": str(target)}).json()["outputs"]
+        assert o["path"] == str(target) and o["source"] == "app" and o["shared_with_local_files"]
+        assert (target / "Chats").is_dir() and (target / "README.md").exists()
+        chat = c.post("/api/chats", json={}).json()  # new copies go to the new folder at once
+        assert c.get("/api/overview").json()["outputs_dir"] == str(target) and chat["id"]
+        o = c.put("/api/settings/outputs", json={"off": True}).json()
+        assert o["outputs_dir"] is None and o["outputs"]["path"] is None
+        o = c.put("/api/settings/outputs", json={}).json()["outputs"]  # back to the default
+        assert o["path"] == str(OUTPUTS_FIXTURE) and o["source"] == "file"
+    with factory() as c:  # the choice survives a restart
+        c.put("/api/settings/outputs", json={"path": str(tmp_path / "Mine")})
+    with factory() as c:
+        assert c.get("/api/overview").json()["outputs"]["path"] == str(tmp_path / "Mine")

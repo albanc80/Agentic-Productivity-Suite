@@ -100,6 +100,16 @@ def test_run_gate_export_and_audit(client):
     assert md.status_code == 200 and "attachment" in md.headers["content-disposition"]
     html = client.get(f"/api/runs/{rid}/export?format=html").text
     assert html.startswith("<!doctype html>") and "<script" not in html
+    # Export into the outputs folder: the answer says where the file went.
+    from pathlib import Path
+    saved = client.post(f"/api/runs/{rid}/export/save?format=html").json()
+    assert Path(saved["path"]).is_file() and saved["name"].endswith(".html") and "Runs" in saved["folder"]
+    assert Path(client.post(f"/api/runs/{rid}/export/save?format=md").json()["path"]).read_text(encoding="utf-8") == run["deliverable"]
+    assert client.post("/api/runs/nope/export/save").status_code == 404
+    client.put("/api/settings/outputs", json={"off": True})
+    off = client.post(f"/api/runs/{rid}/export/save?format=md")
+    assert off.status_code == 409 and "switched off" in off.json()["detail"]
+    client.put("/api/settings/outputs", json={})
     events = {e["event"] for e in client.get(f"/api/audit?run_id={rid}").json()}
     assert {"run_started", "model_call", "approval_requested", "approval_decided", "run_completed"} <= events
     # Delete: the run and its steps go, the audit trail stays.

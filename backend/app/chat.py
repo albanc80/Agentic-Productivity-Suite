@@ -301,7 +301,7 @@ class Chat:
         if not 0 <= index < len(msgs) or msgs[index].get("role") != "assistant":
             raise KeyError("no agent answer at that position")
         if not self.outputs.root:
-            raise ChatError("The outputs folder is switched off. Use Download instead, or set outputs_dir in suite.yaml.")
+            raise ChatError("The outputs folder is switched off. Choose one in Settings > Policies & budgets, or use Download.")
         if chat.get("data_class") == "restricted":
             raise ChatError("Restricted chats are not saved to the outputs folder, which may be synced to a cloud drive. "
                             "Use Download instead.")
