@@ -49,7 +49,8 @@ export interface Profile {
   name: string; role: string; organization_context: string; goals: string[]; working_preferences: string[]; domain_notes: string;
 }
 export interface Budgets {
-  max_run_cost_usd: number; max_run_tokens: number; max_steps: number; max_tool_calls_per_step: number;
+  enabled: boolean; max_run_cost_usd: number; max_run_tokens: number; max_chat_cost_usd: number; max_chat_tokens: number;
+  max_steps: number; max_tool_calls_per_step: number;
   max_tool_result_chars: number; max_context_fraction: number;
 }
 export interface GeneralEdit {
@@ -62,7 +63,9 @@ export interface ChatMsg {
   role: "user" | "assistant"; content: string; at: string; agent?: string; model?: string;
   files?: { id: string; name: string }[]; delegations?: ChatDelegation[]; warnings?: string[];
   suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cost_usd?: number; seconds?: number;
-  file?: { format: "md" | "html"; name: string };  // set when the person asked for the answer as a file
+  // set when the person asked for the answer as a file; saved_to is where the app wrote it (null: not saved)
+  file?: { format: "md" | "html"; name: string; saved_to?: string | null; source?: number };
+  tool_calls?: { tool: string; arguments: Record<string, unknown>; error: boolean }[];
 }
 export interface ChatSummary {
   id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;
@@ -171,6 +174,8 @@ export const api = {
     call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(edit) }),
   resetConnector: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/settings`, { method: "DELETE" }),
   saveGeneral: (edit: GeneralEdit) => call<Overview>("/api/settings/general", { method: "PUT", body: JSON.stringify(edit) }),
+  saveAnswer: (chatId: string, index: number, format: "md" | "html") =>
+    call<{ name: string; path: string }>(`/api/chats/${chatId}/messages/${index}/save?format=${format}`, { method: "POST" }),
   resetGeneral: (part: "tiers" | "budgets" | "all") => call<Overview>(`/api/settings/general/${part}`, { method: "DELETE" }),
   saveProfile: (p: Profile) => call<Profile>("/api/settings/profile", { method: "PUT", body: JSON.stringify(p) }),
   resetProfile: () => call<Profile>("/api/settings/profile", { method: "DELETE" }),

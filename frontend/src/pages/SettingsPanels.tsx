@@ -425,20 +425,40 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
 
       <form className="stack" aria-labelledby="bud-h" onSubmit={(e) => { e.preventDefault(); apply({ budgets: b }).catch(() => {}); }}>
         <div className="stack-sm">
-          <h2 id="bud-h">Budgets per run</h2>
-          <p className="muted small measure">A run that reaches the cost or token limit pauses and asks whether to continue. Cost uses the prices set on each model.</p>
+          <h2 id="bud-h">Spending limits</h2>
+          <p className="muted small measure">Off by default: runs and chats use what they need. Switch on to cap cost and tokens. A run that reaches its limit pauses before its next step and asks whether to continue (approve doubles the limit, reject stops the run). A chat that would go past its limit stops before the next model call; start a new chat or raise the limit. Cost uses the prices set on each model; local models count tokens but cost nothing.</p>
+        </div>
+        <div className="card stack">
+          <div className="row-tight">
+            <strong className="grow">Apply spending limits</strong>
+            <Switch on={b.enabled} label="Apply spending limits" busy={busy} onToggle={() => {
+              const next = { ...b, enabled: !b.enabled };
+              setB(next); apply({ budgets: next }).catch(() => setB(b));
+            }} />
+          </div>
+          <fieldset className={`plain ${b.enabled ? "" : "is-dim"}`}>
+            <legend className="small muted">{b.enabled ? "Applied to every run and chat" : "Not applied while the switch is off; you can set them now"}</legend>
+            <div className="ep-grid">
+              <div className="field"><label htmlFor="b-cost">Max cost per run (US$)</label><input id="b-cost" type="number" min={0} step="any" value={b.max_run_cost_usd} onChange={(e) => num("max_run_cost_usd", e.target.value)} /></div>
+              <div className="field"><label htmlFor="b-tok">Max tokens per run</label><input id="b-tok" type="number" min={1000} step="any" value={b.max_run_tokens} onChange={(e) => num("max_run_tokens", e.target.value)} /></div>
+              <div className="field"><label htmlFor="b-ccost">Max cost per chat (US$)</label><input id="b-ccost" type="number" min={0} step="any" value={b.max_chat_cost_usd} onChange={(e) => num("max_chat_cost_usd", e.target.value)} /></div>
+              <div className="field"><label htmlFor="b-ctok">Max tokens per chat</label><input id="b-ctok" type="number" min={1000} step="any" value={b.max_chat_tokens} onChange={(e) => num("max_chat_tokens", e.target.value)} /></div>
+            </div>
+          </fieldset>
+        </div>
+        <div className="stack-sm">
+          <h2 id="guard-h">Guardrails</h2>
+          <p className="muted small measure">Always on, whatever the switch above says. They stop runaway loops and keep every prompt inside the model's context window. A run that needs more steps than allowed is refused at the start; one that reaches the limit through revisions stops with a note.</p>
         </div>
         <div className="card stack">
           <div className="ep-grid">
-            <div className="field"><label htmlFor="b-cost">Max cost (US$)</label><input id="b-cost" type="number" min={0} step="any" value={b.max_run_cost_usd} onChange={(e) => num("max_run_cost_usd", e.target.value)} /></div>
-            <div className="field"><label htmlFor="b-tok">Max tokens</label><input id="b-tok" type="number" min={1000} step="any" value={b.max_run_tokens} onChange={(e) => num("max_run_tokens", e.target.value)} /></div>
-            <div className="field"><label htmlFor="b-steps">Max steps</label><input id="b-steps" type="number" min={1} value={b.max_steps} onChange={(e) => num("max_steps", e.target.value)} /></div>
+            <div className="field"><label htmlFor="b-steps">Max steps per run</label><input id="b-steps" type="number" min={1} value={b.max_steps} onChange={(e) => num("max_steps", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-tools">Tool calls per step</label><input id="b-tools" type="number" min={0} value={b.max_tool_calls_per_step} onChange={(e) => num("max_tool_calls_per_step", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-chars">Max characters per tool result</label><input id="b-chars" type="number" min={1000} step="any" value={b.max_tool_result_chars} onChange={(e) => num("max_tool_result_chars", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-frac">Share of the context window for the prompt</label><input id="b-frac" type="number" min={0.2} max={0.95} step="any" value={b.max_context_fraction} onChange={(e) => num("max_context_fraction", e.target.value)} /></div>
           </div>
           <div className="row-tight">
-            <button className="primary" type="submit" disabled={busy}>Save budgets</button>
+            <button className="primary" type="submit" disabled={busy}>Save limits</button>
             {ov.general_edited.includes("budgets") && <button type="button" className="ghost grow-left" disabled={busy}
               onClick={async () => { try { await api.resetGeneral("budgets"); onChange(); } catch (e) { setError(e); } }}>Reset to file defaults</button>}
           </div>

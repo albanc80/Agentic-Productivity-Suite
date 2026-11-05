@@ -59,7 +59,7 @@ On first start the app creates **Agentic-Suite-Outputs** in your Documents folde
 
 - `Chats/`: one Markdown transcript per chat, updated after every message. Deleting a chat in the app deletes its copy.
 - `Runs/`: every finished playbook deliverable, as `.md` and `.html`.
-- `Files/`: files you ask for in chat ("as an HTML file", "export to markdown").
+- `Files/`: files you ask for in chat ("as an HTML file", "export to markdown", "save the previous answer as notes.md") or save with **Save to folder** under an answer.
 
 Chats and runs marked **Restricted** are not copied, because Documents may be synced to a cloud drive. The app's database, with your settings, keys and full history, stays in `~/.productivity-suite`. Settings → Policies & budgets shows the folder. To move it or switch it off, set `outputs_dir` (or `off`) in `suite.yaml`, or `SUITE_OUTPUTS_DIR`, then restart.
 

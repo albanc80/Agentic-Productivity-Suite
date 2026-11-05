@@ -7,7 +7,7 @@ back up:
     <Documents>/Agentic-Suite-Outputs/
         Chats/   one Markdown transcript per chat, rewritten after every message
         Runs/    each finished playbook deliverable, as .md and .html
-        Files/   files asked for in chat ("as an HTML file", "export to markdown")
+        Files/   files asked for in chat ("as an HTML file", "export to markdown") or saved with Save to folder
 
 Restricted chats and runs are not copied: that data class must stay on this computer, and a synced
 Documents folder may not. A write that fails (disk full, folder removed, file locked) is logged and never
@@ -32,7 +32,7 @@ The Agentic Productivity Suite saves readable copies of your work here.
 
 - Chats: one Markdown transcript per chat, updated after every message. Deleting a chat in the app deletes it here.
 - Runs: each finished playbook deliverable, as Markdown and as an HTML page.
-- Files: files you asked for in chat.
+- Files: files you asked for in chat, or saved with the Save to folder button under an answer.
 
 Chats and runs marked Restricted are not copied here; they stay inside the app.
 The app keeps working if you move or delete this folder: it is created again on the next start.

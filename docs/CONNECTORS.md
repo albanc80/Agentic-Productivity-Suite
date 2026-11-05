@@ -16,7 +16,7 @@ Launch commands come from each project's documentation and change between releas
 | Databricks vector search | above + `DATABRICKS_VS_CATALOG`, `DATABRICKS_VS_SCHEMA` | `/api/2.0/mcp/vector-search/...` | Renamed AI Search (`/ai-search/`); the older prefix is documented as working |
 | Azure DevOps | `AZURE_DEVOPS_ORG` | `npx @azure-devops/mcp <org> -d core work work-items repositories wiki`; browser sign-in. No server read-only flag, so the suite's policy is the control | Package and `-d` flag; maintainers recommend their remote server going forward |
 | Jira / Confluence | `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` (+ optional Confluence variables) | Community `ghcr.io/sooperset/mcp-atlassian` with `READ_ONLY_MODE=true` | Image tag; whether `CONFLUENCE_URL` needs `/wiki` |
-| Local files | One or more folders, chosen in Settings | Built into the suite (no Node.js or other install). Tools: list, search, read and file info, all read-only. Paths are resolved, symlinks included, and must stay inside the chosen folders. Reads text, CSV, JSON, YAML, PDF, DOCX and XLSX. Works offline | Nothing external |
+| Local files | One or more folders, chosen in Settings | Built into the suite (no Node.js or other install). Used by playbook steps and by chat agents (on models with tool calling). Tools: list, search, read and file info, all read-only. Paths are resolved, symlinks included, and must stay inside the chosen folders. Reads text, CSV, JSON, YAML, PDF, DOCX and XLSX. Works offline | Nothing external |
 
 ## Several accounts (Microsoft 365 and Google Workspace)
 

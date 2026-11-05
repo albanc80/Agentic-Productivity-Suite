@@ -37,6 +37,10 @@ REPAIR_PROMPT = ("Return only the JSON handoff block for your answer above, in a
                  "schema you were given. No other text.")
 
 
+EDITED_ATTEMPT = 99  # step row recording an approver's edit; not an execution
+BUDGET_NOTE = "The spending limit for this run is reached. Do not call tools. Finish now with what you have."
+
+
 class RunStopped(Exception):
     """Raised to stop driving a run (cancel, kill switch, budget gate)."""
 
@@ -137,6 +141,10 @@ class Engine:
         inputs, errors = self.validate_inputs(pb, raw_inputs)
         if errors:
             raise ValueError("; ".join(errors))
+        n_steps = sum(1 for s in pb.flat_steps() if s.kind != "gate")
+        if n_steps > self.s.budgets.max_steps:
+            raise ValueError(f"{pb.name} has {n_steps} steps, more than the step limit of {self.s.budgets.max_steps}. "
+                             "Raise Max steps in Settings > Policies & budgets.")
         dc = data_class or self.s.default_data_class
         if dc not in self.s.data_classes:
             raise ValueError(f"unknown data class '{dc}'")
@@ -232,6 +240,8 @@ class Engine:
                 if self.killed:
                     raise RunStopped("kill switch")
                 step = ctx.pb.steps[cursor]
+                if self._budget_gate(ctx):  # before every step, so a rejection stops the run before more is spent
+                    return
                 paused = await self._top_step(ctx, step)
                 if paused:
                     return
@@ -263,13 +273,13 @@ class Engine:
                     self._record_skip(ctx, c, "condition not met", parent=step.id)
             pending = [c for c in children if c.id not in ctx.outputs]
             await asyncio.gather(*(self._run_step(ctx, c, parent=step.id) for c in pending))
-            return self._budget_gate(ctx)
+            return False
         if step.id in ctx.outputs:
             return False
         await self._run_step(ctx, step)
         if step.kind == "review":
             await self._maybe_revise(ctx, step)
-        return self._budget_gate(ctx)
+        return False
 
     def _record_skip(self, ctx: RunCtx, step: Step, reason: str, parent: str | None = None) -> None:
         if step.id in ctx.outputs:
@@ -282,6 +292,12 @@ class Engine:
 
     async def _run_step(self, ctx: RunCtx, step: Step, *, parent: str | None = None, attempt: int = 1,
                         feedback: list[str] | None = None) -> None:
+        # Guardrail, always on: revisions and resumed steps count, so a run cannot loop without end.
+        limit = self.s.budgets.max_steps
+        done = sum(1 for r in self.store.steps(ctx.id)
+                   if r["kind"] != "gate" and r["status"] != "skipped" and r["attempt"] != EDITED_ATTEMPT)
+        if done >= limit:
+            raise RunStopped(f"step limit reached ({limit} steps; Max steps in Settings > Policies & budgets)")
         sid = self.store.start_step(ctx.id, step.id, step.kind, parent=parent, agent=step.agent,
                                     title=step.title or step.id, attempt=attempt)
         try:
@@ -360,7 +376,7 @@ class Engine:
             if decided["status"] == "approved" and decided.get("edited") and step.payload_from:
                 # The human edit becomes the authoritative version of that step's output.
                 psid = self.store.start_step(ctx.id, step.payload_from, "agent", title="Edited by approver",
-                                             agent=ctx.outputs.get(step.payload_from, {}).get("agent"), attempt=99)
+                                             agent=ctx.outputs.get(step.payload_from, {}).get("agent"), attempt=EDITED_ATTEMPT)
                 prev = ctx.outputs.get(step.payload_from, {})
                 self.store.finish_step(psid, status=prev.get("status", "COMPLETE"), deliverable=decided["edited"],
                                        output={"handoff": prev.get("handoff")},
@@ -380,30 +396,41 @@ class Engine:
         self.store.audit("approval_requested", ctx.id, step=step.id, role=step.required_role)
         return True
 
-    def _budget_gate(self, ctx: RunCtx) -> bool:
-        run = self.store.run(ctx.id)
-        mult = float(run["options"].get("budget_multiplier", 1))
+    def _over_budget(self, run: dict, tokens: int = 0, cost: float = 0.0) -> list[str]:
+        """What a run is over, counting ``tokens``/``cost`` not yet recorded. Empty when spending limits are off."""
         b = self.s.budgets
+        if not b.enabled:
+            return []
+        mult = float(run["options"].get("budget_multiplier", 1))
         over = []
-        if run["cost_usd"] > b.max_run_cost_usd * mult:
-            over.append(f"cost ${run['cost_usd']:.2f} > ${b.max_run_cost_usd * mult:.2f}")
-        if run["tokens"] > b.max_run_tokens * mult:
-            over.append(f"tokens {run['tokens']} > {int(b.max_run_tokens * mult)}")
-        if not over or ctx.run["cursor"] >= len(ctx.pb.steps) - 1:
-            return False
-        gate_id = f"budget-{int(mult)}"
-        existing = [a for a in self.store.approvals(run_id=ctx.id) if a["step_id"] == gate_id]
-        if existing and existing[0]["status"] == "approved":
-            self.store.update_run(ctx.id, options={**run["options"], "budget_multiplier": mult * 2})
-            return False
-        if existing and existing[0]["status"] == "rejected":
-            raise RunStopped("budget limit reached and continuation was rejected")
-        if not existing:
-            self.store.create_approval(ctx.id, gate_id, "Budget limit reached",
-                                       "This run has used more than its budget (" + ", ".join(over) +
-                                       "). Approve to double the limit and continue, or reject to stop.", None, "")
-        self.store.update_run(ctx.id, status="awaiting_approval")
-        return True
+        if run["cost_usd"] + cost > b.max_run_cost_usd * mult:
+            over.append(f"cost ${run['cost_usd'] + cost:.2f} > ${b.max_run_cost_usd * mult:.2f}")
+        if run["tokens"] + tokens > b.max_run_tokens * mult:
+            over.append(f"tokens {run['tokens'] + tokens} > {int(b.max_run_tokens * mult)}")
+        return over
+
+    def _budget_gate(self, ctx: RunCtx) -> bool:
+        """Checked before every step. Over the limit, the run pauses: approve doubles the limit, reject stops it."""
+        while True:
+            run = self.store.run(ctx.id)
+            over = self._over_budget(run)
+            if not over:
+                return False
+            mult = float(run["options"].get("budget_multiplier", 1))
+            gate_id = f"budget-{int(mult)}"
+            existing = [a for a in self.store.approvals(run_id=ctx.id) if a["step_id"] == gate_id]
+            if existing and existing[0]["status"] == "approved":
+                self.store.update_run(ctx.id, options={**run["options"], "budget_multiplier": mult * 2})
+                continue  # still over at the doubled limit: ask again
+            if existing and existing[0]["status"] == "rejected":
+                raise RunStopped("budget limit reached and continuation was rejected")
+            if not existing:
+                self.store.create_approval(ctx.id, gate_id, "Budget limit reached",
+                                           "This run has used more than its budget (" + ", ".join(over) +
+                                           "). Approve to double the limit and continue, or reject to stop.", None, "")
+                self.store.audit("budget_gate", ctx.id, over=over)
+            self.store.update_run(ctx.id, status="awaiting_approval")
+            return True
 
     async def _maybe_revise(self, ctx: RunCtx, review: Step) -> None:
         out = ctx.outputs.get(review.id) or {}
@@ -599,10 +626,11 @@ class Engine:
         latency = 0
         max_calls = self.s.budgets.max_tool_calls_per_step
         result = None
+        out_of_budget = False
         for _round in range(max_calls + 2):
             if self.killed:
                 raise RunStopped("kill switch")
-            offer = specs if (specs and calls_made < max_calls) else None
+            offer = specs if (specs and calls_made < max_calls and not out_of_budget) else None
             result = await provider.chat(conv, model=cand.model.model, tools=offer,
                                          max_tokens=cand.model.max_output_tokens, effort=cand.model.effort)
             usage += result.usage
@@ -610,6 +638,15 @@ class Engine:
             if not result.tool_calls or not offer:
                 break
             provider.add_assistant(conv, result)
+            # Spending limit, checked before every further model call: once over, the model finishes without tools.
+            over = self._over_budget(self.store.run(ctx.id), usage.input_tokens + usage.output_tokens + usage.cache_read_tokens,
+                                     cand.cost(usage))
+            if over:
+                out_of_budget = True
+                warnings.append("spending limit reached during this step (" + ", ".join(over) +
+                                "); the model was asked to finish without more tool calls")
+                provider.add_tool_results(conv, [(c.id, BUDGET_NOTE, True) for c in result.tool_calls])
+                continue
             outputs = []
             for call in result.tool_calls[: max_calls - calls_made]:
                 content, is_err, flags = await self._exec_tool(ctx, routes, call.name, call.arguments, agent.skills)

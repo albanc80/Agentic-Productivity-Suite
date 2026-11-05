@@ -109,7 +109,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
           {chat ? (
             <div className="grow stack-xs">
               <h1 className="chat-title">{chat.title}</h1>
-              <span className="muted small">{agent?.name} · data class {chat.data_class} · model {modelFor(ov, chat.agent_id)} · {chat.tokens.toLocaleString()} tokens · {fmtCost(chat.cost_usd)}</span>
+              <span className="muted small">{agent?.name} · data class {chat.data_class} · model {modelFor(ov, chat.agent_id)} · {chat.tokens.toLocaleString()} tokens · {fmtCost(chat.cost_usd)}{ov.budgets.enabled ? ` · budget ${fmtCost(ov.budgets.max_chat_cost_usd)} / ${ov.budgets.max_chat_tokens.toLocaleString()} tokens` : ""}</span>
             </div>
           ) : (
             <div className="grow stack-sm">
@@ -146,7 +146,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
         </header>
 
         <div className="chat-thread" aria-live="polite">
-          {chat?.messages.map((m, i) => <Message key={i} m={m} ov={ov} chatId={chat.id} index={i} />)}
+          {chat?.messages.map((m, i) => <Message key={i} m={m} ov={ov} chatId={chat.id} index={i} restricted={chat.data_class === "restricted"} />)}
           {pending && <div className="msg user"><div className="bubble"><p>{pending}</p></div></div>}
           {busy === "send" && <div className="msg assistant"><div className="bubble thinking"><span className="pill live">Working</span> {working}</div></div>}
           {!chat && !pending && (
@@ -197,8 +197,10 @@ async function copyText(text: string): Promise<void> {
   if (!ok) throw new Error("Copy is not available here; select the text and copy it instead.");
 }
 
-function AnswerActions({ m, chatId, index, body }: { m: ChatMsg; chatId: string; index: number; body: React.RefObject<HTMLDivElement> }) {
+function AnswerActions({ m, chatId, index, body, canSave }: { m: ChatMsg; chatId: string; index: number;
+  body: React.RefObject<HTMLDivElement>; canSave: boolean }) {
   const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   async function copy() {
     setError(null);
@@ -210,12 +212,19 @@ function AnswerActions({ m, chatId, index, body }: { m: ChatMsg; chatId: string;
     try { await copyText(text); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch (e) { setError(e); }
   }
   const get = (f: "md" | "html") => downloadAnswer(chatId, index, f).catch(setError);
+  async function save() {
+    setError(null);
+    try { setSaved((await api.saveAnswer(chatId, index, m.file?.format || "md")).path); } catch (e) { setError(e); }
+  }
   return (
     <>
       {m.file && (
         <div className="answer-file">
           <span className="answer-file-name">{m.file.name}</span>
-          <span className="muted small">{m.file.format === "html" ? "HTML page" : "Markdown file"} built from this answer</span>
+          <span className="muted small">
+            {m.file.format === "html" ? "HTML page" : "Markdown file"} built from {m.file.source != null ? "an earlier answer" : "this answer"}
+            {m.file.saved_to ? <> · saved to <code className="outputs-path">{m.file.saved_to}</code></> : " · not saved to the outputs folder"}
+          </span>
           <button className="primary" onClick={() => get(m.file!.format)}>Download</button>
         </div>
       )}
@@ -227,6 +236,9 @@ function AnswerActions({ m, chatId, index, body }: { m: ChatMsg; chatId: string;
         </button>
         <button className="ghost small-btn" onClick={() => get("md")} title="Download this answer as a Markdown file">.md</button>
         <button className="ghost small-btn" onClick={() => get("html")} title="Download this answer as an HTML page">.html</button>
+        {canSave && !m.file?.saved_to && <button className="ghost small-btn" onClick={save}
+          title="Save this answer as a new file in your Agentic-Suite-Outputs folder">{saved ? "Saved" : "Save to folder"}</button>}
+        {saved && <span className="small muted">Saved to <code className="outputs-path">{saved}</code></span>}
         <span className="sr-only" aria-live="polite">{copied ? "Answer copied" : ""}</span>
       </div>
       <ErrorNote error={error} />
@@ -234,7 +246,7 @@ function AnswerActions({ m, chatId, index, body }: { m: ChatMsg; chatId: string;
   );
 }
 
-function Message({ m, ov, chatId, index }: { m: ChatMsg; ov: Overview; chatId: string; index: number }) {
+function Message({ m, ov, chatId, index, restricted }: { m: ChatMsg; ov: Overview; chatId: string; index: number; restricted: boolean }) {
   const name = (id?: string) => ov.agents.find((a) => a.id === id)?.name || id;
   const body = useRef<HTMLDivElement>(null);
   if (m.role === "user") {
@@ -250,9 +262,9 @@ function Message({ m, ov, chatId, index }: { m: ChatMsg; ov: Overview; chatId: s
   return (
     <div className="msg assistant">
       <div className="bubble">
-        <div className="msg-meta small muted">{name(m.agent)} · {m.model}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
+        <div className="msg-meta small muted">{name(m.agent)}{m.model ? ` · ${m.model}` : ""}{m.tool_calls?.length ? ` · read ${m.tool_calls.length} file${m.tool_calls.length > 1 ? "s" : ""}` : ""}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
         <div ref={body}><Markdown text={m.content} /></div>
-        <AnswerActions m={m} chatId={chatId} index={index} body={body} />
+        <AnswerActions m={m} chatId={chatId} index={index} body={body} canSave={!!ov.outputs_dir && !restricted} />
         {m.delegations && m.delegations.length > 0 && (
           <details className="delegations">
             <summary>Asked {m.delegations.length} specialist{m.delegations.length > 1 ? "s" : ""}: {m.delegations.map((d) => name(d.agent)).join(", ")}</summary>

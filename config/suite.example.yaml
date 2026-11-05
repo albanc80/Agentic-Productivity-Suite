@@ -30,9 +30,15 @@ persona:
 output_policies: [plain-voice, action-first]
 
 budgets:
-  max_run_cost_usd: 2.00        # stops the run at a gate if exceeded (priced models only)
-  max_run_tokens: 400000        # hard ceiling for all models, including unpriced local ones
-  max_steps: 40
+  # Spending limits: off unless enabled. A run over its limit pauses before its next step for
+  # approve (doubles the limit) or reject (stops); a chat stops before a call that would cross it.
+  enabled: false
+  max_run_cost_usd: 2.00        # priced models only; unpriced and local models count as $0
+  max_run_tokens: 400000        # all models, including local ones
+  max_chat_cost_usd: 2.00       # per chat, all messages together
+  max_chat_tokens: 400000
+  # Guardrails: always on.
+  max_steps: 40                 # step executions per run, revisions included
   max_tool_calls_per_step: 8
   max_tool_result_chars: 12000
   max_context_fraction: 0.75    # prompt may use at most this share of a model's context window

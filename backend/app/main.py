@@ -125,7 +125,7 @@ class Suite:
         self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile,
                              outputs=self.outputs)
         self.chat = Chat(settings, self.registry, self.models, self.store, self.profile, self.playbooks, lambda: self.engine.killed,
-                         outputs=self.outputs)
+                         outputs=self.outputs, connectors=self.connectors)
         # File/env configuration is the base; choices made in the app are layered on top and persisted.
         self.base = {"providers": dict(settings.providers), "models": list(settings.models),
                      "tiers": {k: list(v) for k, v in settings.tiers.items()}, "offline": settings.offline,
@@ -740,8 +740,9 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         msgs = chat["messages"]
         if not 0 <= index < len(msgs) or msgs[index].get("role") != "assistant":
             raise HTTPException(404, "no agent answer at that position")
-        text = msgs[index]["content"]
-        name = file_name(text, chat["title"], format)
+        text = msgs[suite.chat.answer_source(chat, index)]["content"]  # a "saved the previous answer" note exports that answer
+        f = msgs[index].get("file") or {}
+        name = f["name"] if f.get("format") == format else file_name(text, chat["title"], format)
         store.audit("chat_exported", None, chat=cid, index=index, format=format)
         if format == "html":
             title = name.rsplit(".", 1)[0].replace("-", " ").capitalize()
@@ -749,6 +750,16 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
                             headers={"Content-Disposition": f'attachment; filename="{name}"'})
         return Response(text, media_type="text/markdown; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.post("/api/chats/{cid}/messages/{index}/save")
+    def chat_save(cid: str, index: int, format: Literal["md", "html"] = "md"):
+        """The Save button: writes one answer as a new file into the outputs folder (Files/). Never overwrites."""
+        try:
+            return suite.chat.save_answer(cid, index, format)
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'")) from e
+        except ChatError as e:
+            raise HTTPException(409, str(e)) from e
 
     @app.post("/api/chats/{cid}/messages")
     async def chat_send(cid: str, body: ChatMessage):

@@ -115,8 +115,19 @@ class ModelConfig(BaseModel):
 
 
 class Budgets(BaseModel):
+    """Spending limits (off unless switched on) and guardrails (always on).
+
+    ``enabled`` switches the spending limits: cost and tokens per run and per chat. Off, runs and chats
+    use what they need. The guardrails below them apply either way: they stop runaway loops and keep
+    every prompt inside the model's context window.
+    """
+
+    enabled: bool = False
     max_run_cost_usd: float = 2.0
     max_run_tokens: int = 400_000
+    max_chat_cost_usd: float = 2.0
+    max_chat_tokens: int = 400_000
+    # Guardrails, always on.
     max_steps: int = 40
     max_tool_calls_per_step: int = 8
     max_tool_result_chars: int = 12_000
