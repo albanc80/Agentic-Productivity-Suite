@@ -3,20 +3,35 @@
 
     wix build desktop\windows\productivity-suite.wxs -arch x64
       -d Version=0.1.0 -d SourceDir=<abs path to PyInstaller dist\ProductivitySuite>
-      -d IconFile=<abs path to desktop\assets\icon.ico> -o ProductivitySuite-0.1.0-x64.msi
+      -d IconFile=<abs path to desktop\assets\icon.ico> -ext WixToolset.Util.wixext
+      -o ProductivitySuite-0.1.0-x64.msi
 
   Per-machine install to Program Files with a Start menu shortcut. The UpgradeCode must
-  never change: it is how Windows recognises a newer version and upgrades in place.
-  User settings and data live in %USERPROFILE%\.productivity-suite and survive uninstall.
+  never change: it is how Windows recognises an installed copy and replaces it in place.
+  User settings and data live in %USERPROFILE%\.productivity-suite and survive uninstall
+  and upgrades.
+
+  Installing over an installed copy never needs an uninstall first:
+  - every build gets a new ProductCode (WiX default), and MajorUpgrade removes the installed
+    copy as part of the install;
+  - AllowSameVersionUpgrades: a build with the same version (for example a pull-request build
+    before the version is raised) also replaces the installed copy instead of being added as a
+    second entry in Apps. A lower version is still refused;
+  - CloseApplication: a running copy is asked to close (its window gets a close message, the
+    server stops with it) and is ended after 10 seconds, so files are never left in use.
+  The upgrade path is tested in CI (windows-msi job).
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="Agentic Productivity Suite"
            Manufacturer="Alberto Ancona"
            Version="$(var.Version)"
            UpgradeCode="53BE070A-4D7D-4B03-AA06-1DB55247D604"
            Scope="perMachine"
            Compressed="yes">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Agentic Productivity Suite is already installed." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Agentic Productivity Suite is already installed." />
+    <util:CloseApplication Id="CloseRunningSuite" Target="ProductivitySuite.exe" Description="Agentic Productivity Suite is running."
+                           CloseMessage="yes" ElevatedCloseMessage="yes" RebootPrompt="no" TerminateProcess="1" Timeout="10" />
     <MediaTemplate EmbedCab="yes" />
 
     <!-- The Icon Id keeps the .ico extension: Windows uses it to read the icon for the shortcut and Apps list. -->

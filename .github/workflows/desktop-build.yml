@@ -120,9 +120,25 @@ jobs:
         run: python desktop/smoke_test.py backend/dist/ProductivitySuite/ProductivitySuite
       - name: Package .deb
         run: desktop/linux/build_deb.sh backend/dist/ProductivitySuite "${{ steps.v.outputs.version }}" installers
-      - name: Install the .deb and smoke-test the installed app
+      - name: Upgrade over the last release and a same-version install, then smoke-test
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          sudo apt-get install -y ./installers/*.deb
+          version="${{ steps.v.outputs.version }}"
+          deb=$(ls installers/*.deb)
+          # 1. The last published release, when there is one and it is not newer than this build.
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern "*.deb" --dir previous 2>/dev/null; then
+            prev=$(ls previous/*.deb | head -1)
+            prev_v=$(dpkg-deb -f "$prev" Version)
+            if dpkg --compare-versions "$prev_v" le "$version"; then
+              echo "Installing the last release first: $prev_v"; sudo apt-get install -y "./$prev"
+            fi
+          fi
+          # 2. This build over it (a newer version upgrades in place), 3. again (same version: reinstall).
+          sudo apt-get install -y "./$deb"
+          sudo apt-get install -y --reinstall "./$deb"
+          test "$(dpkg-query -W -f='${Version}' productivity-suite)" = "$version"
+          cmp /opt/productivity-suite/ProductivitySuite backend/dist/ProductivitySuite/ProductivitySuite
           python desktop/smoke_test.py productivity-suite
           sudo apt-get remove -y productivity-suite
       - uses: actions/upload-artifact@v7
@@ -161,18 +177,46 @@ jobs:
         shell: pwsh
         run: |
           dotnet tool install --global wix --version $env:WIX_VERSION
+          wix extension add -g "WixToolset.Util.wixext/$env:WIX_VERSION"
           $src = Resolve-Path backend\dist\ProductivitySuite
           $icon = Resolve-Path desktop\assets\icon.ico
-          New-Item -ItemType Directory -Force installers | Out-Null
-          wix build desktop\windows\productivity-suite.wxs -arch x64 `
-            -d "Version=${{ steps.v.outputs.version }}" -d "SourceDir=$src" -d "IconFile=$icon" `
-            -o "installers\ProductivitySuite-${{ steps.v.outputs.version }}-x64.msi"
-      - name: Install the MSI and smoke-test the installed app
+          New-Item -ItemType Directory -Force installers, rebuild | Out-Null
+          foreach ($out in "installers", "rebuild") {
+            # Built twice: the second copy has the same version and a new product code, like a rebuild.
+            wix build desktop\windows\productivity-suite.wxs -arch x64 -ext WixToolset.Util.wixext `
+              -d "Version=${{ steps.v.outputs.version }}" -d "SourceDir=$src" -d "IconFile=$icon" `
+              -o "$out\ProductivitySuite-${{ steps.v.outputs.version }}-x64.msi"
+            if ($LASTEXITCODE -ne 0) { throw "wix build failed" }
+          }
+      - name: Upgrade over the last release and a same-version build, then smoke-test
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          $version = "${{ steps.v.outputs.version }}"
+          function Install($file, $log) {
+            $p = Start-Process msiexec.exe -ArgumentList "/i `"$file`" /qn /l*v $log" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content $log -Tail 60; throw "msiexec /i $file failed: $($p.ExitCode)" }
+          }
+          function Entries {
+            @(Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -eq "Agentic Productivity Suite" })
+          }
+          # 1. The last published release, when there is one and it is not newer than this build.
+          gh release download --repo $env:GITHUB_REPOSITORY --pattern "*.msi" --dir previous 2>$null
+          $prev = Get-ChildItem previous\*.msi -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($prev -and $prev.Name -match '-(\d+\.\d+\.\d+)-' -and [version]$Matches[1] -le [version]$version) {
+            Write-Host "Installing the last release first: $($prev.Name)"
+            Install $prev.FullName previous.log
+          } else { Write-Host "No earlier release to upgrade from." }
+          # 2. This build over it, then 3. a same-version rebuild over this build: each must replace, not add.
           $msi = (Resolve-Path installers\*.msi).Path
-          $p = Start-Process msiexec.exe -ArgumentList "/i `"$msi`" /qn /l*v install.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 60; throw "msiexec install failed: $($p.ExitCode)" }
+          Install $msi install.log
+          Install (Resolve-Path rebuild\*.msi).Path reinstall.log
+          $e = Entries
+          if ($e.Count -ne 1) { $e | Format-List DisplayName, DisplayVersion, PSChildName; throw "expected 1 installed copy, found $($e.Count)" }
+          if (-not $e[0].DisplayVersion.StartsWith($version)) { throw "installed version $($e[0].DisplayVersion), expected $version" }
+          Write-Host "One installed copy, version $($e[0].DisplayVersion)"
           $exe = Join-Path $env:ProgramFiles "Agentic Productivity Suite\ProductivitySuite.exe"
           if (-not (Test-Path $exe)) { throw "not installed at $exe" }
           $lnk = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\Agentic Productivity Suite.lnk"
@@ -187,9 +231,10 @@ jobs:
           if (-not $iconFile -or -not (Test-Path $iconFile)) { throw "shortcut icon missing: '$($sc.IconLocation)'" }
           python desktop/smoke_test.py $exe
           if ($LASTEXITCODE -ne 0) { throw "smoke test of installed app failed" }
-          $u = Start-Process msiexec.exe -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          $u = Start-Process msiexec.exe -ArgumentList "/x $($e[0].PSChildName) /qn" -Wait -PassThru
           if ($u.ExitCode -ne 0) { throw "uninstall failed: $($u.ExitCode)" }
           if (Test-Path $exe) { throw "uninstall left files behind" }
+          if ((Entries).Count -ne 0) { throw "uninstall left an entry in Apps" }
       - uses: actions/upload-artifact@v7
         with:
           name: productivity-suite-windows-msi

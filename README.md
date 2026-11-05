@@ -16,7 +16,7 @@ Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 20+. Dock
 ./scripts/dev.sh
 ```
 
-Then open http://127.0.0.1:8765. Windows (`.msi`) and Linux (`.deb`) installers are built by GitHub Actions on every pull request and published as a GitHub Release automatically when a merge to `main` raises the version; see [docs/DESKTOP.md](docs/DESKTOP.md) for downloads, releases, offline use and phones. The suite needs at least one model: until one is switched on, agent steps stop as BLOCKED with "No model configured" (deterministic calculators still run). Set one up in Settings (below).
+Then open http://127.0.0.1:8765. Windows (`.msi`) and Linux (`.deb`) installers are built by GitHub Actions on every pull request and published as a GitHub Release automatically when a merge to `main` raises the version; see [docs/DESKTOP.md](docs/DESKTOP.md) for downloads, releases, offline use and phones. To update, install the new file over the old one; you never need to uninstall first, and your settings and history are kept. The suite needs at least one model: until one is switched on, agent steps stop as BLOCKED with "No model configured" (deterministic calculators still run). Set one up in Settings (below).
 
 For UI development with hot reload:
 
