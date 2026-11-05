@@ -43,6 +43,8 @@ class GeneralSettings(BaseModel):
     tiers: dict[Literal["router", "specialist", "synthesis", "review"], TierPref] | None = None
     agent_models: dict[str, str] | None = None  # online: agent id -> model ref tried first
     offline_model: str | None = None  # offline: the local model every agent uses first
+    default_model: str | None = None  # online: first in every tier, for every agent without its own model
+    fallback_model: str | None = None  # online: tried next, when the default fails or is not ready
 
 
 class GeneralEdit(BaseModel):
@@ -57,6 +59,8 @@ class GeneralEdit(BaseModel):
     tiers: dict[Literal["router", "specialist", "synthesis", "review"], list[str]] | None = None  # desired order
     agent_models: dict[str, str | None] | None = None  # null or "" = back to automatic
     offline_model: str | None = None  # "" = automatic (first available local model)
+    default_model: str | None = None  # "" = none (the fallback order decides)
+    fallback_model: str | None = None  # "" = none
 
 
 def _clean_lines(v: list[str]) -> list[str]:

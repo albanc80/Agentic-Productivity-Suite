@@ -168,6 +168,12 @@ class Suite:
         apply_runtime(s, b, self.endpoints(), offline, self.provider_overrides())
         for t, pref in (g.tiers or {}).items():
             s.tiers[t] = order_chain(s.tiers.get(t, []), pref)
+        # Default and fallback model: tried first and second for every kind of work, local or cloud.
+        known = {m.ref for m in s.models}
+        lead = [r for r in (g.default_model, g.fallback_model) if r and r in known]
+        if lead:
+            for t in s.tiers:
+                s.tiers[t] = list(dict.fromkeys(lead + s.tiers[t]))
         s.agent_overrides = {k: list(v) for k, v in b["agent_overrides"].items()}
         self.offline_default = None
         if offline:
@@ -236,6 +242,15 @@ class Suite:
                 else:
                     am[aid] = ref
             g.agent_models = am or None
+        for f in ("default_model", "fallback_model"):
+            ref = getattr(edit, f)
+            if ref is None:
+                continue
+            if ref and ref not in known_refs:
+                raise ValueError(f"unknown model {ref}; add it to a provider first")
+            setattr(g, f, ref or None)
+        if g.default_model and g.default_model == g.fallback_model:
+            raise ValueError("the fallback model must differ from the default model")
         if edit.offline_model is not None:
             if edit.offline_model == "":
                 g.offline_model = None
@@ -504,6 +519,11 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             "model_refs": [m.ref for m in settings.models],
             "general_edited": sorted(suite.general().model_dump(exclude_none=True)),
             "agent_models": suite.general().agent_models or {},
+            "default_model": suite.general().default_model, "fallback_model": suite.general().fallback_model,
+            # What is used right now, for the default data class: per kind of work and per agent.
+            "in_use": {t: suite.models.pick(t, settings.default_data_class) for t in settings.tiers},
+            "agent_in_use": {a: suite.models.pick(ag.default_tier, settings.default_data_class, a)
+                             for a, ag in suite.registry.agents.items()},
             "offline_model": suite.general().offline_model,
             "offline_default": suite.offline_default,
             "agent_overrides": settings.agent_overrides,

@@ -259,3 +259,24 @@ def test_outputs_folder_is_chosen_in_the_app(factory, tmp_path, shared):
         c.put("/api/settings/outputs", json={"path": str(tmp_path / "Mine")})
     with factory() as c:
         assert c.get("/api/overview").json()["outputs"]["path"] == str(tmp_path / "Mine")
+
+
+def test_default_and_fallback_model_lead_every_tier_and_show_what_is_used(factory):
+    with factory() as c:
+        c.put("/api/providers/lmstudio", json={"enabled": True, "models": [{"model": "qwen3-4b", "context_tokens": 32768}]})
+        c.put("/api/providers/openai", json={"enabled": True, "api_key": "sk-test", "models": [{"model": "gpt-x", "context_tokens": 128000}]})
+        o = c.get("/api/overview").json()
+        assert o["default_model"] is None and set(o["in_use"]) == set(o["tiers"])
+        assert c.put("/api/settings/general", json={"default_model": "nope/x"}).status_code == 422
+        o = c.put("/api/settings/general", json={"default_model": "lmstudio/qwen3-4b", "fallback_model": "openai/gpt-x"}).json()
+        assert o["default_model"] == "lmstudio/qwen3-4b" and o["fallback_model"] == "openai/gpt-x"
+        for t, chain in o["tiers"].items():
+            assert chain[:2] == ["lmstudio/qwen3-4b", "openai/gpt-x"], t
+            assert o["in_use"][t] == "lmstudio/qwen3-4b"
+        assert all(v == "lmstudio/qwen3-4b" for v in o["agent_in_use"].values())
+        # An agent's own model still goes first for that agent; the default stays its fallback.
+        o = c.put("/api/settings/general", json={"agent_models": {"critical-mentor": "openai/gpt-x"}}).json()
+        assert o["agent_in_use"]["critical-mentor"] == "openai/gpt-x" and o["agent_in_use"]["counselor"] == "lmstudio/qwen3-4b"
+        assert c.put("/api/settings/general", json={"fallback_model": "lmstudio/qwen3-4b"}).status_code == 422
+        o = c.put("/api/settings/general", json={"default_model": "", "fallback_model": ""}).json()
+        assert o["default_model"] is None and o["fallback_model"] is None

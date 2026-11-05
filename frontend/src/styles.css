@@ -516,3 +516,11 @@ fieldset.plain.is-dim .ep-grid { opacity: .6; }
 .setup-steps code { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1px 5px; }
 .part-fields { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-fields legend { display: flex; gap: 8px; align-items: center; }
+.in-use-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 6px 16px; }
+.in-use-list li { display: flex; gap: 8px; justify-content: space-between; align-items: baseline; }
+.model-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.model-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: .78rem; }
+.agent-model-list { display: grid; gap: 10px; }
+.agent-model-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
+.agent-model-row:first-child { border-top: 0; padding-top: 0; }
+.agent-model-pick { width: min(100%, 340px); }

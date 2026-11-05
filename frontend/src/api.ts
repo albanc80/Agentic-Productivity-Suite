@@ -59,7 +59,7 @@ export interface Budgets {
 export interface GeneralEdit {
   budgets?: Budgets; persona_chat?: boolean; persona_exports?: boolean; store_prompts?: boolean;
   default_data_class?: string; cloud_allowed?: Record<string, boolean>; tiers?: Record<string, string[]>;
-  agent_models?: Record<string, string | null>; offline_model?: string;
+  agent_models?: Record<string, string | null>; offline_model?: string; default_model?: string; fallback_model?: string;
 }
 export interface ChatDelegation { agent: string; question: string; answer: string; model: string | null; error?: string | null }
 export interface ChatMsg {
@@ -84,6 +84,8 @@ export interface Overview {
   outputs_dir: string | null;
   outputs: { path: string | null; source: "app" | "file" | "default"; default: string; shared_with_local_files: string[] };  // readable copies of chats and deliverables; null when switched off
   agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;
+  default_model: string | null; fallback_model: string | null;
+  in_use: Record<string, string | null>; agent_in_use: Record<string, string | null>;  // used right now (default data class)
   agent_overrides: Record<string, string[]>;
   warnings: string[]; pending_approvals: number;
 }
