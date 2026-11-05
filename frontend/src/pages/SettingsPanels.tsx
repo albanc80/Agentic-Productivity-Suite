@@ -3,10 +3,11 @@ import { api, type Budgets, type ConnectorInfo, type Overview, type Profile } fr
 import { ErrorNote } from "../ui";
 
 /** On/off switch: a real button with role="switch". `paused` shows it locked off by offline mode. */
-export function Switch({ on, label, busy, paused, onToggle }: { on: boolean; label: string; busy?: boolean; paused?: boolean; onToggle: () => void }) {
+export function Switch({ on, label, busy, paused, locked, onToggle }: { on: boolean; label: string; busy?: boolean; paused?: boolean;
+  locked?: string; onToggle: () => void }) {
   return (
     <button type="button" role="switch" aria-checked={on} aria-label={label} className={`switch ${on ? "is-on" : ""} ${paused ? "is-paused" : ""}`}
-      disabled={busy || paused} onClick={onToggle} title={paused ? "Paused while offline" : undefined}>
+      disabled={busy || paused || !!locked} onClick={onToggle} title={paused ? "Paused while offline" : locked}>
       <span className="switch-track" aria-hidden="true"><span className="switch-knob" /></span>
       <span className="switch-text">{paused ? "Paused" : on ? "On" : "Off"}</span>
     </button>
@@ -116,7 +117,7 @@ export function ConnectorsPanel({ ov, onChange }: { ov: Overview; onChange: () =
     <section className="stack" aria-labelledby="conn-h">
       <div className="stack-sm">
         <h2 id="conn-h">Connectors (read-only)</h2>
-        <p className="muted small measure">Connectors let agents read your systems and files. Agents only ever get read-only tools: write tools are hidden and refused, whatever the connector offers. Switch one on and use <strong>Edit</strong> to enter what it needs. Values you type are saved on this computer; an environment variable with the same name takes precedence.</p>
+        <p className="muted small measure">Connectors let agents read your systems and files. Agents only ever get read-only tools: write tools are hidden and refused, whatever the connector offers. Every connector starts switched off: use <strong>Edit</strong> to enter what it needs, then switch it on. Values you type are saved on this computer; an environment variable with the same name takes precedence.</p>
       </div>
       <div className="stack-sm">
         {[...ov.connectors].sort((a, b) => Number(b.builtin) - Number(a.builtin)).map((c) => <ConnectorRow key={c.id} c={c} onChange={onChange} />)}
@@ -147,7 +148,8 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
     <article className={`card provider ${c.enabled && !c.offline_paused ? "" : "is-off"}`}>
       <div className="provider-head">
         <Switch on={c.enabled && !c.offline_paused} paused={c.offline_paused} label={`${c.name} ${c.offline_paused ? "paused while offline" : c.enabled ? "on" : "off"}`}
-          busy={busy === "toggle"} onToggle={toggle} />
+          busy={busy === "toggle"} onToggle={toggle}
+          locked={!c.enabled && c.missing.length > 0 ? "Set it up first: open Edit and fill in what it needs" : undefined} />
         <div className="grow stack-xs">
           <div className="row-tight">
             <strong className="provider-name">{c.name}</strong>
@@ -155,17 +157,17 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
           </div>
           <span className="muted small">{c.builtin ? (c.folders.length ? c.folders.join(" · ") : "No folder chosen") : c.description}</span>
         </div>
-        <span className={`pill ${tone}`} title={c.error}>{STATUS_TEXT[c.status] || c.status}</span>
+        <span className={`pill ${tone}`} title={c.error}>{c.status === "disabled" && c.missing.length ? "Off · needs setup" : STATUS_TEXT[c.status] || c.status}</span>
         <div className="row-tight">
           {ready && c.enabled && <button onClick={connect} disabled={busy === "connect"}>{busy === "connect" ? "Connecting…" : "Test"}</button>}
           <button className={editing ? "ghost" : ""} aria-expanded={editing} onClick={() => setEditing((v) => !v)}>{editing ? "Close" : "Edit"}</button>
         </div>
       </div>
-      {c.status === "unconfigured" && c.enabled && (
-        <p className="small provider-reason">Needs: {c.error.replace(/^needs:\s*/, "").split(", ").map((n) => {
+      {c.missing.length > 0 && !c.offline_paused && (
+        <p className="small provider-reason">Needs: {c.missing.map((n) => {
           const v = c.variables.find((x) => x.name === n);
           return v?.flag ? "the one-time sign-in confirmation" : /^[A-Z0-9_]+$/.test(n) ? varLabel(n).toLowerCase() : n;
-        }).join(", ")}. Open Edit to set it up.</p>
+        }).join(", ")}. Open Edit to set it up{c.enabled ? "" : ", then switch it on"}.</p>
       )}
       {c.status === "error" && <p className="small note bad">{c.error}</p>}
       {c.offline_paused && <p className="small muted">Paused while offline: it needs the internet. {c.enabled ? "It comes back when you go online." : ""}</p>}

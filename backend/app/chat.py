@@ -120,10 +120,13 @@ class Chat:
             raise ChatError("Type a message first.")
         chat = self.get(cid)
         files = []
-        for fid in file_ids or []:
+        for fid in dict.fromkeys(file_ids or []):
             f = self.store.file(fid)
             if not f:
                 raise ChatError(f"file {fid} not found")
+            # Every chat is independent: a file belongs to the chat it was first sent in.
+            if not self.store.bind_file_to_chat(fid, cid):
+                raise ChatError(f"{f['name']} is attached to another chat. Attach it again in this chat.")
             files.append(f)
         user_msg = {"role": "user", "content": content, "files": [{"id": f["id"], "name": f["name"]} for f in files], "at": now()}
         chat["messages"].append(user_msg)

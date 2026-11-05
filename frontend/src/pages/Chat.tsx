@@ -27,6 +27,8 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   const [pending, setPending] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+  const alive = useRef(true);  // false once the user has moved to another chat
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const loadList = () => api.chats().then(setList).catch(setError);
   useEffect(() => { loadList(); }, []);
@@ -55,12 +57,14 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
       let target = chat;
       if (!target) target = await api.startChat(agentId, dataClass);
       await api.sendChat(target.id, content, files.map((f) => f.id));
+      if (!alive.current) return;  // the user switched chats while this one was answering: leave them where they are
       setFiles([]);
       const fresh = await api.chat(target.id);
+      if (!alive.current) return;
       setChat(fresh);
       if (!chat) go(`/chat/${target.id}`);
       loadList();
-    } catch (err) { setError(err); setText(content); } finally { setBusy(""); setPending(null); }
+    } catch (err) { if (alive.current) { setError(err); setText(content); } } finally { if (alive.current) { setBusy(""); setPending(null); } }
   }
   async function attach(fl: FileList | null) {
     if (!fl) return;
@@ -68,6 +72,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     try {
       for (const f of Array.from(fl)) {
         const r = await api.upload(f);
+        if (!alive.current) return;
         setFiles((x) => [...x, { id: r.id, name: r.name }]);
       }
     } catch (e) { setError(e); } finally { setBusy(""); }

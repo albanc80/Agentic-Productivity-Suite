@@ -143,7 +143,7 @@ async def test_connected_accounts_are_named_in_the_task(make_engine):
         seen["user"] = messages[0]["content"]
         return "Done.\n" + contract()
 
-    conns = ConnectorManager([ConnectorConfig(id="microsoft365", name="Microsoft 365", transport="stdio",
+    conns = ConnectorManager([ConnectorConfig(id="microsoft365", name="Microsoft 365", transport="stdio", enabled=True,
                                               command="unused", accounts={"param": "account", "vars": ["MS365_ACCOUNTS"]})],
                              env={"MS365_ACCOUNTS": "work@corp.com,me@home.net"}, in_process={"microsoft365": _mail_server()})
     eng, *_ = make_engine(cloud_script=script, connectors=conns)

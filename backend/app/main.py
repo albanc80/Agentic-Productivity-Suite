@@ -299,6 +299,15 @@ class Suite:
                 changed.append(var)
             elif not is_secret(var) and values.pop(var, None) is not None:
                 changed.append(var)
+        if edit.enabled is True:
+            # A connector is switched on only once it is set up: every required value, or a folder for Local files.
+            if cfg.transport == "builtin":
+                missing = [] if (st.folders if st.folders is not None else cfg.folders) else ["a folder"]
+            else:
+                have = {**{k: v for k, v in values.items() if v}, **{k: v for k, v in self.connectors.base_env.items() if v}}
+                missing = sorted(v for v in cfg.required_env() if not have.get(v))
+            if missing:
+                raise ValueError(f"{cfg.name} needs {', '.join(missing)} before it can be switched on. Open Edit to set it up.")
         self.store.set_setting("connector_settings", {k: v.model_dump() for k, v in all_settings.items()})
         self.store.set_setting("connector_values", values)
         self.apply()

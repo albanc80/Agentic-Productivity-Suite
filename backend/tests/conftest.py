@@ -131,7 +131,7 @@ def make_engine(settings):
 @pytest.fixture
 def tracker_connector():
     from tests.fake_mcp_server import server
-    cfg = ConnectorConfig(id="github", name="Fake GitHub", transport="stdio", command="unused")
+    cfg = ConnectorConfig(id="github", name="Fake GitHub", transport="stdio", command="unused", enabled=True)
     return ConnectorManager([cfg], env={}, in_process={"github": server})
 
 

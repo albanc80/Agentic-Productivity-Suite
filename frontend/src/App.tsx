@@ -78,7 +78,8 @@ export default function App() {
   let page;
   if (!ov) page = null;
   else if (section === "") page = <Command ov={ov} />;
-  else if (section === "chat") page = <ChatPage ov={ov} chatId={arg} />;
+  // Keyed by chat: every chat gets its own page state (draft, attachments, pending send), so nothing carries over.
+  else if (section === "chat") page = <ChatPage key={arg || "new"} ov={ov} chatId={arg} />;
   else if (section === "playbooks") page = <Playbooks ov={ov} />;
   else if (section === "start") page = <RunForm ov={ov} playbookId={arg} />;
   else if (section === "runs") page = <RunView ov={ov} runId={arg} onChange={refresh} />;

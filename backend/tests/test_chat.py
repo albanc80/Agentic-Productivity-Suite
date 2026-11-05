@@ -111,6 +111,25 @@ def test_chat_with_any_agent_suggests_a_playbook_and_respects_data_class(make):
         assert c.get(f"/api/chats/{chat['id']}").status_code == 404
 
 
+def test_chats_are_independent_files_stay_in_their_chat(make):
+    seen: list = []
+    with make(seen, delegate=False) as c:
+        setup_models(c)
+        a = c.post("/api/chats", json={"agent_id": "program-manager"}).json()
+        b = c.post("/api/chats", json={"agent_id": "program-manager"}).json()
+        up = c.post("/api/files", files={"file": ("budget.md", b"Q4 budget: 120k", "text/markdown")}).json()
+        assert c.post(f"/api/chats/{a['id']}/messages", json={"content": "Summarise the budget", "files": [up["id"]]}).status_code == 200
+        assert 'source="file:budget.md"' in seen[-1]["user"]
+        # The same file cannot be attached to another chat, and the other chat never sees it.
+        r = c.post(f"/api/chats/{b['id']}/messages", json={"content": "What does the budget say?", "files": [up["id"]]})
+        assert r.status_code == 409 and "attached to another chat" in r.json()["detail"]
+        assert c.post(f"/api/chats/{b['id']}/messages", json={"content": "What does the budget say?"}).status_code == 200
+        assert "budget.md" not in seen[-1]["user"] and "120k" not in seen[-1]["user"]
+        assert len(c.get(f"/api/chats/{b['id']}").json()["messages"]) == 2  # the refused message was not kept
+        # Its own chat can use it again.
+        assert c.post(f"/api/chats/{a['id']}/messages", json={"content": "Again", "files": [up["id"]]}).status_code == 200
+
+
 def test_no_model_gives_a_clear_message(make):
     with make([]) as c:
         chat = c.post("/api/chats", json={"agent_id": "counselor"}).json()

@@ -135,8 +135,8 @@ def test_offline_mode_blocks_cloud_and_network_connectors(tmp_path, monkeypatch)
 
     env = {"GH": "x", "DIR": "/tmp"}
     mgr = ConnectorManager([
-        ConnectorConfig(id="gh", name="GH", transport="stdio", command="x", env={"T": "${GH}"}),
-        ConnectorConfig(id="files", name="Files", transport="stdio", command="x", args=["${DIR}"], network=False),
+        ConnectorConfig(id="gh", name="GH", transport="stdio", command="x", env={"T": "${GH}"}, enabled=True),
+        ConnectorConfig(id="files", name="Files", transport="stdio", command="x", args=["${DIR}"], network=False, enabled=True),
     ], env=env, offline=True)
     assert not mgr.configured("gh") and mgr.configured("files")
     assert {c["id"]: c["status"] for c in mgr.describe()} == {"gh": "offline", "files": "idle"}

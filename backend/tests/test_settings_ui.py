@@ -58,7 +58,8 @@ def test_folder_checks(shared, tmp_path):
 async def test_builtin_local_files_reads_only_inside_folders(shared, tmp_path):
     link = shared / "escape"
     link.symlink_to(tmp_path)  # a symlink out of the shared folder must not be followed
-    cfg = ConnectorConfig(id="local-files", name="Local files", transport="builtin", network=False, folders=[str(shared)])
+    cfg = ConnectorConfig(id="local-files", name="Local files", transport="builtin", network=False, folders=[str(shared)],
+                          enabled=True)
     mgr = ConnectorManager([cfg], env={}, offline=True)  # works offline: no network needed
     try:
         tools = await mgr.tools("local-files", allowed_only=False)
@@ -86,7 +87,10 @@ def test_legacy_npx_local_files_becomes_builtin():
 def test_local_files_set_up_from_the_app(factory, shared):
     with factory() as c:
         lf = cn(c.get("/api/overview").json(), "local-files")
-        assert lf["builtin"] and lf["status"] == "unconfigured" and "a folder" in lf["error"] and not lf["network"]
+        # Off until set up and switched on by the user.
+        assert lf["builtin"] and lf["status"] == "disabled" and not lf["enabled"] and lf["missing"] == ["a folder"] and not lf["network"]
+        r = c.put("/api/connectors/local-files", json={"enabled": True})
+        assert r.status_code == 422 and "needs a folder before it can be switched on" in r.json()["detail"]
         r = c.put("/api/connectors/local-files", json={"folders": ["relative"]})
         assert r.status_code == 422 and "full path" in r.json()["detail"]
         lf = c.put("/api/connectors/local-files", json={"enabled": True, "folders": [str(shared), str(shared)]}).json()
@@ -99,7 +103,7 @@ def test_local_files_set_up_from_the_app(factory, shared):
     with factory() as c:  # survives a restart
         assert cn(c.get("/api/overview").json(), "local-files")["folders"] == [str(shared.resolve())]
         lf = c.delete("/api/connectors/local-files/settings").json()
-        assert lf["folders"] == [] and lf["status"] == "unconfigured"
+        assert lf["folders"] == [] and lf["status"] == "disabled" and not lf["enabled"]  # reset means off again
 
 
 def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch):
@@ -107,11 +111,15 @@ def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch
         gen = cn(c.get("/api/overview").json(), "databricks-genie")
         names = {v["name"]: v for v in gen["variables"]}
         assert names["DATABRICKS_TOKEN"]["secret"] and not names["DATABRICKS_HOST"]["secret"]
-        assert gen["status"] == "unconfigured"
+        assert gen["status"] == "disabled" and not gen["enabled"] and "DATABRICKS_TOKEN" in gen["missing"]
+        r = c.put("/api/connectors/databricks-genie", json={"enabled": True})
+        assert r.status_code == 422 and "DATABRICKS_HOST" in r.json()["detail"]  # cannot switch on before setup
         r = c.put("/api/connectors/databricks-genie", json={"values": {
             "DATABRICKS_HOST": "https://adb-1.azuredatabricks.net", "DATABRICKS_TOKEN": "dapi-secret-1",
             "DATABRICKS_GENIE_SPACE_ID": "space1"}})
         gen = r.json()
+        assert gen["status"] == "disabled" and gen["missing"] == [], gen  # set up, but still off until switched on
+        gen = c.put("/api/connectors/databricks-genie", json={"enabled": True}).json()
         assert gen["status"] == "idle", gen
         vals = {v["name"]: v for v in gen["variables"]}
         assert vals["DATABRICKS_TOKEN"]["set"] and vals["DATABRICKS_TOKEN"]["value"] is None
@@ -131,9 +139,9 @@ def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch
         assert not {v["name"]: v for v in gen["variables"]}["DATABRICKS_TOKEN"]["set"]
         # Opt-in flags (Microsoft 365 needs a one-time sign-in first) are ticked in the app.
         m = cn(c.get("/api/overview").json(), "microsoft365")
-        assert m["status"] == "unconfigured" and any(v["flag"] for v in m["variables"])
-        m = c.put("/api/connectors/microsoft365", json={"values": {"MS365_MCP_ENABLED": "1"}}).json()
-        assert m["status"] == "idle"
+        assert m["status"] == "disabled" and any(v["flag"] for v in m["variables"])
+        m = c.put("/api/connectors/microsoft365", json={"values": {"MS365_MCP_ENABLED": "1"}, "enabled": True}).json()
+        assert m["status"] == "idle"  # values and the switch can be saved together
         # Switching off.
         assert c.put("/api/connectors/microsoft365", json={"enabled": False}).json()["status"] == "disabled"
     monkeypatch.setenv("DATABRICKS_HOST", "https://from-env")
@@ -145,7 +153,7 @@ def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch
 def test_offline_pauses_every_cloud_provider_and_internet_connector_at_once(factory):
     with factory() as c:
         c.put("/api/providers/openai", json={"api_key": "sk-test"})
-        c.put("/api/connectors/microsoft365", json={"values": {"MS365_MCP_ENABLED": "1"}})
+        c.put("/api/connectors/microsoft365", json={"values": {"MS365_MCP_ENABLED": "1"}, "enabled": True})
         o = c.get("/api/overview").json()
         assert next(p for p in o["providers"] if p["name"] == "openai")["available"]
         c.post("/api/admin/offline", json={"on": True})
@@ -154,7 +162,8 @@ def test_offline_pauses_every_cloud_provider_and_internet_connector_at_once(fact
         assert cloud and all(p["offline_paused"] and not p["available"] and p["reason"] == "offline mode" for p in cloud)
         assert all(not p["offline_paused"] for p in o["providers"] if p["locality"] == "local")
         net = [x for x in o["connectors"] if x["network"]]
-        assert all(x["offline_paused"] and x["status"] == "offline" for x in net)
+        assert all(x["offline_paused"] for x in net)
+        assert all(x["status"] == "offline" for x in net if x["enabled"]) and cn(o, "microsoft365")["status"] == "offline"
         # The person's choices are kept: going online restores them without touching each one.
         c.post("/api/admin/offline", json={"on": False})
         o = c.get("/api/overview").json()

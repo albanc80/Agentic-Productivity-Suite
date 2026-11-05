@@ -2,7 +2,7 @@
 
 All connectors are MCP servers. The suite starts one the first time a run needs it and keeps it running.
 
-**Set them up in the app:** Settings → Connectors. Each connector has an On/Off switch and an **Edit** panel with a field for every value it needs (secrets are write-only), and **Test** lists which tools are allowed or blocked. Values are saved in the suite's local database (unencrypted) and shared by connectors that use the same name, so the Databricks host and token are entered once. An environment variable with the same name takes precedence over a value typed in the app. **Reset to file defaults** removes the app's settings for that connector. In offline mode, connectors that need the internet are paused; Local files keeps working.
+**Set them up in the app:** Settings → Connectors. Every connector starts switched off, and its switch unlocks only once it has everything it needs (or a folder, for Local files); a request to switch on an incomplete connector is refused. Each connector has an On/Off switch and an **Edit** panel with a field for every value it needs (secrets are write-only), and **Test** lists which tools are allowed or blocked. Values are saved in the suite's local database (unencrypted) and shared by connectors that use the same name, so the Databricks host and token are entered once. An environment variable with the same name takes precedence over a value typed in the app. **Reset to file defaults** removes the app's settings for that connector. In offline mode, connectors that need the internet are paused; Local files keeps working.
 
 Launch commands come from each project's documentation and change between releases. Confirm the item in **Verify** before relying on a connector.
 

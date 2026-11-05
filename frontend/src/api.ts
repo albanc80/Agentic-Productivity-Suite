@@ -43,6 +43,7 @@ export interface ConnectorInfo {
   id: string; name: string; description: string; transport: string; status: string; error: string; setup: string;
   verify: string; required_env: string[]; tools: { name: string; allowed: boolean; reason: string }[];
   enabled: boolean; network: boolean; offline_paused: boolean; builtin: boolean; folders: string[]; variables: ConnectorVariable[];
+  missing: string[];  // what is still needed before it can be switched on
 }
 export interface Profile {
   name: string; role: string; organization_context: string; goals: string[]; working_preferences: string[]; domain_notes: string;
