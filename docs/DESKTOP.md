@@ -71,7 +71,7 @@ On first start the app creates **Agentic-Suite-Outputs** in your Documents folde
 - `Runs/`: every finished playbook deliverable, as `.md` and `.html`.
 - `Files/`: files you ask for in chat ("as an HTML file", "export to markdown", "save the previous answer as notes.md") or save with **Save to folder** under an answer.
 
-Chats and runs marked **Restricted** are not copied, because Documents may be synced to a cloud drive. The app's database, with your settings, keys and full history, stays in `~/.productivity-suite`. Settings → Policies & budgets shows the folder. To move it or switch it off, set `outputs_dir` (or `off`) in `suite.yaml`, or `SUITE_OUTPUTS_DIR`, then restart.
+Chats and runs marked **Restricted** are not copied, because Documents may be synced to a cloud drive. The app's database, with your settings, keys and full history, stays in `~/.productivity-suite`. Choose the folder in **Settings → Policies & budgets → Outputs folder**: paste a full path, go back to the default, or switch it off; it applies at once, without a restart. `outputs_dir` in `suite.yaml` or `SUITE_OUTPUTS_DIR` only set the starting default. Exports from runs and chat answers are written here, and the app shows each file's location.
 
 ## Private agent layer
 

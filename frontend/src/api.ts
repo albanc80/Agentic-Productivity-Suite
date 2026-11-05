@@ -162,6 +162,8 @@ export const api = {
   cancel: (id: string) => call<RunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
   resume: (id: string) => call<{ id: string }>(`/api/runs/${id}/resume`, { method: "POST" }),
   approvals: (status = "pending") => call<Approval[]>(`/api/approvals?status=${status}`),
+  answer: (id: string, body: { answers: string[]; skip: boolean; by: string }) =>
+    call<Approval>(`/api/approvals/${id}/answer`, { method: "POST", body: JSON.stringify(body) }),
   decide: (id: string, body: { decision: "approved" | "rejected"; decided_by: string; note: string; edited?: string | null }) =>
     call<Approval>(`/api/approvals/${id}`, { method: "POST", body: JSON.stringify(body) }),
   testProvider: (name: string) => call<{ ok: boolean; detail?: string; model?: string; latency_ms?: number; reply?: string }>(`/api/providers/${name}/test`, { method: "POST" }),

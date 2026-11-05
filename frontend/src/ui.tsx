@@ -20,7 +20,7 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const LABELS: Record<string, string> = {
-  COMPLETE_WITH_ACCEPTED_RISK: "Complete, accepted risk", NEEDS_INPUT: "Needs input", awaiting_approval: "Awaiting approval",
+  COMPLETE_WITH_ACCEPTED_RISK: "Complete, accepted risk", NEEDS_INPUT: "Needs input", awaiting_approval: "Waiting for you",
   PASS_WITH_CHANGES: "Pass with changes",
 };
 

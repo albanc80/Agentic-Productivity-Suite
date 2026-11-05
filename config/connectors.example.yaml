@@ -83,7 +83,7 @@ connectors:
       - "Personal account (outlook.com, hotmail.com): run   npx -y @softeria/ms-365-mcp-server --login"
       - "Work or school account: run   npx -y @softeria/ms-365-mcp-server --login --org-mode   and enter 1 in Work or school account below."
       - "The terminal shows a web address (https://microsoft.com/devicelogin) and a code. Open the address, enter the code, sign in with the account agents should read, and accept the permissions. Work tenants may need an administrator to approve them."
-      - "Several accounts: run the same command again and sign in with the next account. Then list the addresses in Accounts agents may use, default first. To see who is signed in: npx -y @softeria/ms-365-mcp-server --list-accounts"
+      - "Several accounts: run the same command again and sign in with the next account. Then list the addresses in Accounts agents may use, default first. To see who is signed in, run   npx -y @softeria/ms-365-mcp-server --list-accounts"
       - Tick "I have completed the one-time sign-in", save, switch the connector on and press Test.
     docs_url: https://github.com/Softeria/ms-365-mcp-server#readme
     verify: Package name, the --read-only, --preset, --login, --org-mode and --list-accounts flags, MS365_MCP_ORG_MODE and the multi-account `account` argument in the Softeria/ms-365-mcp-server README.

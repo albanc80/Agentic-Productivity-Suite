@@ -60,6 +60,12 @@ class RouteRequest(BaseModel):
     data_class: str | None = None
 
 
+class InputAnswers(BaseModel):
+    answers: list[str] = Field(default_factory=list, max_length=50)  # in the order of the questions asked
+    skip: bool = False  # continue without answering
+    by: str = Field(default="", max_length=120)
+
+
 class Decision(BaseModel):
     decision: Literal["approved", "rejected"]
     decided_by: str
@@ -679,6 +685,16 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
         except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.post("/api/approvals/{aid}/answer")
+    async def answer(aid: str, body: InputAnswers):
+        """Answers to a "your input is needed" pause; the steps that asked run again with them."""
+        try:
+            return await eng.answer(aid, body.answers, body.by, body.skip)
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'")) from e
+        except (ValueError, RunStopped) as e:
             raise HTTPException(409, str(e)) from e
 
     # ---------------------------------------------------------------- providers / connectors / admin

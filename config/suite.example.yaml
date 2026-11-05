@@ -11,7 +11,8 @@ connectors: config/connectors.yaml    # falls back to config/connectors.example.
 data_dir: ./data                      # SQLite database, uploads, exports
 store_prompts: false                  # true = keep full prompts in the audit log (contains your data)
 # Readable copies of chats and deliverables. Default: Agentic-Suite-Outputs in your Documents folder.
-# Set a path to move it, or "off" to switch it off. Also settable with SUITE_OUTPUTS_DIR.
+# Choose it in the app (Settings > Policies & budgets > Outputs folder); this only sets the starting
+# default. Set a path to move it, or "off" to switch it off. Also settable with SUITE_OUTPUTS_DIR.
 # outputs_dir: ~/Documents/Agentic-Suite-Outputs
 # Private agent layer: full instructions, personas and lineage, kept outside this repository.
 # Defaults: SUITE_PRIVATE_REGISTRY, then <data_dir>/private-registry, then ./private-registry.

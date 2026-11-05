@@ -524,3 +524,4 @@ fieldset.plain.is-dim .ep-grid { opacity: .6; }
 .agent-model-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
 .agent-model-row:first-child { border-top: 0; padding-top: 0; }
 .agent-model-pick { width: min(100%, 340px); }
+.ep-grid > .check.field { grid-column: 1 / -1; flex-direction: row; align-items: center; }

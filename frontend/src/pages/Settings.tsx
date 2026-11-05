@@ -81,7 +81,7 @@ function ConnectionMode({ ov, onChange, setError }: { ov: Overview; onChange: ()
           <p className="muted small measure">
             {ov.offline
               ? `Offline: ${cloudPaused} cloud provider${cloudPaused === 1 ? "" : "s"} and ${netPaused} internet connector${netPaused === 1 ? "" : "s"} are paused. Every agent uses the local model below. Going online restores your choices.`
-              : "Online: every switched-on provider and connector is available, subject to each run's data class. Each agent can use its own model (Agents page)."}
+              : "Online: every switched-on provider and connector is available, subject to each run's data class. Choose the default and fallback model, and a model per agent, below."}
             {ov.offline_override === null ? " Following the config file default." : ""}
           </p>
         </div>
