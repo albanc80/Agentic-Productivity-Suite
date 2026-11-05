@@ -59,6 +59,22 @@ class AccountsConfig(BaseModel):
 ACCOUNT_SPLIT = re.compile(r"[\s,;]+")
 
 
+class ConnectorPart(BaseModel):
+    """One service of a grouped connector (for example Genie inside Databricks).
+
+    A grouped connector has one switch and shared values (host, token); each part is its own MCP
+    endpoint and turns on once its own values are filled in.
+    """
+
+    id: str
+    name: str
+    description: str = ""
+    url: str
+    headers: dict[str, str] | None = None  # default: the connector's headers
+    allow_tools: list[str] = Field(default_factory=list)
+    timeout_s: float | None = None
+
+
 class ConnectorConfig(BaseModel):
     id: str
     name: str
@@ -80,18 +96,56 @@ class ConnectorConfig(BaseModel):
     verify: str = ""  # what to double-check against upstream docs
     folders: list[str] = Field(default_factory=list)  # builtin local-files: folders agents may read
     accounts: AccountsConfig | None = None  # several accounts behind one server
+    steps: list[str] = Field(default_factory=list)  # numbered setup steps shown in the app
+    docs_url: str = ""  # the server's own documentation
+    labels: dict[str, str] = Field(default_factory=dict)  # variable -> label shown in the app
+    hints: dict[str, str] = Field(default_factory=dict)  # variable -> help line shown under the field
+    context: dict[str, str] = Field(default_factory=dict)  # variable -> line told to agents ({value})
+    parts: list[ConnectorPart] = Field(default_factory=list)  # grouped connector: one endpoint per part
+    replaces: list[str] = Field(default_factory=list)  # older connector ids this one supersedes
+
+    def _sources(self) -> list:
+        return [self.args, self.env, self.url or "", self.headers, self.command or ""]
+
+    def part_vars(self, part: ConnectorPart) -> set[str]:
+        """Values only this part needs (the shared ones, such as host and token, are excluded)."""
+        return set(env_vars([part.url, part.headers or {}])) - self.shared_vars()
+
+    def shared_vars(self) -> set[str]:
+        if not self.parts:
+            return set()
+        common = set.intersection(*(set(env_vars([p.url, p.headers or self.headers])) for p in self.parts))
+        return common | set(env_vars([self.headers]))
 
     def required_env(self) -> set[str]:
-        return env_refs([self.args, self.env, self.url or "", self.headers, self.command or ""]) | set(self.requires)
+        if self.parts:
+            return self.shared_vars() | set(self.requires)
+        return env_refs(self._sources()) | set(self.requires)
 
     def variables(self) -> dict[str, str | None]:
         """Settings this connector reads: variable name -> default (None = required)."""
-        out = env_vars([self.args, self.env, self.url or "", self.headers, self.command or ""])
+        # A grouped connector names the workspace (in every part's address) before the token (in the headers).
+        out = env_vars([[p.url for p in self.parts], *self._sources()]) if self.parts else env_vars(self._sources())
+        for part in self.parts:
+            for name, default in env_vars([part.url, part.headers or {}]).items():
+                out.setdefault(name, default)
+            for name in self.part_vars(part):  # a part's own values are optional: the part stays off without them
+                out[name] = out[name] or ""
         for r in self.requires:
             out.setdefault(r, None)
         for v in self.accounts.vars if self.accounts else []:
             out.setdefault(v, "")
+        for v in self.context:
+            out.setdefault(v, "")
         return out
+
+    def part_config(self, part: ConnectorPart) -> ConnectorConfig:
+        """A plain HTTP connector for one part; its tools are reported under the group's id."""
+        return self.model_copy(update={
+            "id": f"{self.id}.{part.id}", "name": f"{self.name}: {part.name}", "transport": "http", "url": part.url,
+            "headers": part.headers if part.headers is not None else self.headers,
+            "allow_tools": part.allow_tools or self.allow_tools, "timeout_s": part.timeout_s or self.timeout_s,
+            "parts": []})
 
 
 SECRET_NAME = re.compile(r"(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|_KEY$|_PAT$)", re.I)
@@ -260,7 +314,8 @@ class ConnectorManager:
     @classmethod
     def from_file(cls, path: Path | None, offline: bool = False, presets: Path | None = None) -> ConnectorManager:
         """Load connectors.yaml. Presets (the shipped example) fill in connectors the file does not list,
-        so connectors added in newer versions appear for people whose file was copied earlier."""
+        so connectors added in newer versions appear for people whose file was copied earlier. A connector
+        that ``replaces`` older ids (Databricks, which used to be three) removes them, even from an older file."""
         configs: dict[str, ConnectorConfig] = {}
         for src in (presets, path):
             if src and src.exists():
@@ -268,7 +323,14 @@ class ConnectorManager:
                 for c in raw.get("connectors", []):
                     cfg = ConnectorConfig.model_validate(c)
                     configs[cfg.id] = cfg
+        for cfg in list(configs.values()):
+            for old in cfg.replaces:
+                configs.pop(old, None)
         return cls(list(configs.values()), offline=offline)
+
+    def replaced_by(self) -> dict[str, str]:
+        """Old connector id -> the connector that now covers it."""
+        return {old: cid for cid, cfg in self.file_configs.items() for old in cfg.replaces}
 
     def apply_settings(self, settings: dict[str, ConnectorSetting], values: dict[str, str]) -> None:
         """Layer the app's choices over the file. Environment variables still win over values typed in the app."""
@@ -277,6 +339,9 @@ class ConnectorManager:
         self.configs = {}
         for cid, cfg in self.file_configs.items():
             st = settings.get(cid)
+            if st is None and cfg.replaces:  # carry the switch over from the connectors this one replaced
+                old = [settings[o] for o in cfg.replaces if o in settings and settings[o].enabled is not None]
+                st = ConnectorSetting(enabled=any(o.enabled for o in old)) if old else None
             upd: dict[str, Any] = {}
             if st and st.enabled is not None:
                 upd["enabled"] = st.enabled
@@ -287,9 +352,10 @@ class ConnectorManager:
     async def restart(self, cids: list[str] | None = None) -> None:
         """Stop workers so the next use starts them with the current settings."""
         for cid in list(cids or self.workers):
-            w = self.workers.pop(cid, None)
-            if w:
-                await w.stop()
+            for key in [k for k in self.workers if k == cid or k.startswith(cid + ".")]:
+                w = self.workers.pop(key, None)
+                if w:
+                    await w.stop()
 
     # ------------------------------------------------------------ status
 
@@ -303,7 +369,28 @@ class ConnectorManager:
         cfg = self.configs[cid]
         if cfg.transport == "builtin":
             return [] if cfg.folders else ["a folder"]
-        return self.missing_env(cid)
+        out = self.missing_env(cid)
+        if cfg.parts and not self.ready_parts(cid):
+            out.append("at least one of: " + "; ".join(p.name for p in cfg.parts))
+        return out
+
+    def ready_parts(self, cid: str) -> list[ConnectorPart]:
+        """Parts of a grouped connector whose own values are all filled in."""
+        cfg = self.configs[cid]
+        return [p for p in cfg.parts if all(self.env.get(v) for v in cfg.part_vars(p))]
+
+    def context_lines(self, cid: str) -> list[str]:
+        """Lines told to agents from values the person entered (for example the repositories they work in)."""
+        cfg = self.configs.get(cid)
+        if not cfg:
+            return []
+        out = []
+        for var, line in cfg.context.items():
+            value = (self.env.get(var) or "").strip()
+            if value:
+                items = [re.sub(r"^https?://[^/]+/|\.git$|/$", "", x) for x in ACCOUNT_SPLIT.split(value) if x]
+                out.append(line.format(value=", ".join(items)))
+        return out
 
     def accounts(self, cid: str) -> list[str]:
         """Accounts the user allows on this connector, default first (empty: the server decides)."""
@@ -343,22 +430,39 @@ class ConnectorManager:
         return cid in self._in_process or not self.missing(cid)
 
     def variables(self, cid: str) -> list[dict]:
+        """The fields shown in the app: required ones first (in the order the connector names them), then the
+        optional ones, account lists right after the account they extend, and each part's fields last."""
+        cfg = self.configs[cid]
+        found = cfg.variables()
+        part_of = {v: p.id for p in cfg.parts for v in cfg.part_vars(p)}
+        accounts = cfg.accounts.vars if cfg.accounts else []
+
+        def rank(item: tuple[int, str]) -> tuple:
+            i, name = item
+            if name in part_of:
+                return (3, [p.id for p in cfg.parts].index(part_of[name]), i)
+            if found[name] is None or name in cfg.requires:
+                return (0, 0, i)
+            return (1 if name in accounts else 2, 0, i)
+
         out = []
-        for name, default in sorted(self.configs[cid].variables().items()):
+        for _i, name in sorted(enumerate(found), key=rank):
+            default = found[name]
             env = self.base_env.get(name)
             app = self.values.get(name)
             secret = is_secret(name)
-            flag = name in self.configs[cid].requires
+            flag = name in cfg.requires
             out.append({"name": name, "secret": secret, "flag": flag, "optional": default is not None,
                         "default": default or "", "set": bool(env or app),
                         "source": "env" if env else ("app" if app else None),
-                        "value": None if secret or env else (app or "")})
+                        "value": None if secret or env else (app or ""),
+                        "label": cfg.labels.get(name, ""), "hint": cfg.hints.get(name, ""), "part": part_of.get(name)})
         return out
 
     def describe(self) -> list[dict]:
         out = []
         for cid, cfg in self.configs.items():
-            w = self.workers.get(cid)
+            w = self._worker_view(cid)
             if not cfg.enabled:
                 status, err = "disabled", ""
             elif self.offline and cfg.network:
@@ -373,7 +477,9 @@ class ConnectorManager:
                         "enabled": cfg.enabled, "network": cfg.network, "offline_paused": bool(self.offline and cfg.network),
                         "builtin": cfg.transport == "builtin", "folders": list(cfg.folders),
                         "required_env": sorted(cfg.required_env()) if cfg.transport != "builtin" else [],
-                        "missing": self.missing(cid),
+                        "missing": self.missing(cid), "steps": list(cfg.steps), "docs_url": cfg.docs_url,
+                        "parts": [{"id": p.id, "name": p.name, "description": p.description,
+                                   "ready": p in self.ready_parts(cid)} for p in cfg.parts],
                         "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools})
         return out
 
@@ -407,16 +513,52 @@ class ConnectorManager:
             raise ConnectorError(f"unknown connector '{cid}'")
         if not self.configured(cid):
             raise ConnectorError(f"connector '{cid}' is not configured (needs: {', '.join(self.missing(cid)) or 'to be switched on'})")
-        w = self.workers.get(cid)
+        if self.configs[cid].parts:
+            return await self._ensure_group(cid)
+        return await self._start(cid, self.configs[cid])
+
+    async def _start(self, key: str, cfg: ConnectorConfig) -> ConnectorWorker:
+        w = self.workers.get(key)
         if w is None:
-            w = ConnectorWorker(self.configs[cid], self._target(self.configs[cid]))
-            self.workers[cid] = w
+            w = ConnectorWorker(cfg, self._target(cfg))
+            self.workers[key] = w
         if w.task is None or w.task.done():
             w.start()
-        await asyncio.wait_for(w.ready.wait(), timeout=self.configs[cid].timeout_s + 30)
+        await asyncio.wait_for(w.ready.wait(), timeout=cfg.timeout_s + 30)
         if w.state.status != "ready":
-            raise ConnectorError(f"connector '{cid}' failed to start: {w.state.error}")
+            raise ConnectorError(f"connector '{cfg.id}' failed to start: {w.state.error}")
         return w
+
+    async def _ensure_group(self, cid: str) -> ConnectorWorker:
+        """Start every ready part. Their tools are listed under the group, named ``<part>.<tool>``.
+        A part that fails is reported and the others stay usable."""
+        cfg = self.configs[cid]
+        tools: list[ToolInfo] = []
+        errors: list[str] = []
+        for part in self.ready_parts(cid):
+            try:
+                w = await self._start(f"{cid}.{part.id}", cfg.part_config(part))
+            except (ConnectorError, TimeoutError) as e:
+                errors.append(f"{part.name}: {e}")
+                continue
+            tools += [ToolInfo(cid, f"{part.id}.{t.name}", t.description, t.input_schema, t.allowed, t.reason)
+                      for t in w.state.tools]
+        view = _GroupView(cfg, tools, errors)
+        if not tools and errors:
+            raise ConnectorError(f"connector '{cid}' failed to start: " + "; ".join(errors))
+        return view
+
+    def _worker_view(self, cid: str):
+        cfg = self.configs[cid]
+        if not cfg.parts:
+            return self.workers.get(cid)
+        parts = [(p, self.workers.get(f"{cid}.{p.id}")) for p in cfg.parts]
+        if not any(w for _p, w in parts):
+            return None
+        tools = [ToolInfo(cid, f"{p.id}.{t.name}", t.description, t.input_schema, t.allowed, t.reason)
+                 for p, w in parts if w for t in w.state.tools]
+        errors = [f"{p.name}: {w.state.error}" for p, w in parts if w and w.state.status == "error"]
+        return _GroupView(cfg, tools, errors)
 
     async def shutdown(self) -> None:
         await asyncio.gather(*(w.stop() for w in self.workers.values()), return_exceptions=True)
@@ -436,7 +578,11 @@ class ConnectorManager:
         if not info.allowed:
             raise ConnectorError(f"tool '{cid}.{tool}' is blocked by the read-only policy ({info.reason})")
         arguments = self._with_account(cid, info, arguments)
-        res = await w.request("call", {"name": tool, "arguments": arguments})
+        name = tool
+        if self.configs[cid].parts:  # "<part>.<tool>" goes to that part's own server
+            part, name = tool.split(".", 1)
+            w = self.workers[f"{cid}.{part}"]
+        res = await w.request("call", {"name": name, "arguments": arguments})
         parts: list[str] = []
         for block in res.content or []:
             if getattr(block, "type", "") == "text":
@@ -446,6 +592,20 @@ class ConnectorManager:
         if not parts and res.structured_content is not None:
             parts.append(json.dumps(res.structured_content, default=str)[:20000])
         return "\n".join(parts), bool(res.is_error)
+
+
+@dataclass
+class _GroupView:
+    """What a grouped connector looks like to callers: one status and one tool list across its parts."""
+
+    cfg: ConnectorConfig
+    tools: list[ToolInfo]
+    errors: list[str]
+
+    @property
+    def state(self) -> ConnectorState:
+        status = "ready" if self.tools else ("error" if self.errors else "idle")
+        return ConnectorState(status=status, error="; ".join(self.errors), tools=self.tools)
 
 
 def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:

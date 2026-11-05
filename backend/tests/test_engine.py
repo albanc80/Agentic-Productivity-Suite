@@ -152,7 +152,7 @@ async def test_connected_accounts_are_named_in_the_task(make_engine):
         await run_to_rest(eng, rid)
     finally:
         await conns.shutdown()
-    assert "Connected accounts:" in seen["user"]
+    assert "Connected accounts and scope:" in seen["user"]
     assert "Microsoft 365: work@corp.com (default), me@home.net" in seen["user"] and "`account` argument" in seen["user"]
 
 
@@ -283,3 +283,67 @@ def test_reviewer_cannot_review_own_work(make_engine):
         "deliverable": "a"})
     with pytest.raises(PlaybookError, match="review its own work"):
         validate(pb, eng.registry)
+
+
+DECISION = {"decision": "Build or buy the scheduler", "options": "Buy Vendor X, or build in-house", "lenses": ["business"]}
+
+
+def asks_once(system, messages, tools):
+    user = messages[0]["content"]
+    if agent_of(system) == "Chief of Staff" and "The person answered" not in user and "Frame the decision" in user:
+        return "I need the budget.\n" + contract(status="NEEDS_INPUT", open_questions=["What is the budget ceiling?",
+                                                                                     "Who owns the decision?"])
+    return f"{agent_of(system)} work.\n" + contract()
+
+
+async def test_a_step_that_needs_input_pauses_asks_and_runs_again_with_the_answers(make_engine):
+    eng, _l, cloud = make_engine(cloud_script=asks_once)
+    rid = await eng.start("decision-brief", DECISION)
+    run = await run_to_rest(eng, rid)
+    [apr] = eng.store.approvals(status="pending", run_id=rid)
+    assert run["status"] == "awaiting_approval" and apr["title"] == "Your input is needed" and apr["step_id"] == "input:frame:1"
+    need = json.loads(apr["payload"])
+    assert need[0]["step"] == "frame" and need[0]["questions"] == ["What is the budget ceiling?", "Who owns the decision?"]
+    assert not any(s["step_id"] == "view_business" for s in eng.store.steps(rid)), "nothing more is spent before the answer"
+    await eng.answer(apr["id"], ["$250k", "The COO"], "Jordan")
+    run = await run_to_rest(eng, rid)
+    assert run["status"] == "completed", run["notes"]
+    frames = [s for s in eng.store.steps(rid) if s["step_id"] == "frame"]
+    assert [s["status"] for s in frames] == ["superseded", "COMPLETE"] and frames[-1]["attempt"] == 2
+    later = next(c for c in cloud.calls if agent_of(c["system"]) == "Business Analyst")
+    assert "A: $250k" in later["messages"][0]["content"] and "A: The COO" in later["messages"][0]["content"]
+    assert run["options"]["answers"][0] == {"step": "frame", "question": "What is the budget ceiling?", "answer": "$250k"}
+    events = [e["event"] for e in eng.store.audit_log(rid)]
+    assert "input_requested" in events and "input_given" in events
+
+
+async def test_continue_without_answering_and_a_limit_on_rounds(make_engine):
+    eng, *_ = make_engine(cloud_script=asks_once)
+    rid = await eng.start("decision-brief", DECISION)
+    await run_to_rest(eng, rid)
+    [apr] = eng.store.approvals(status="pending", run_id=rid)
+    await eng.answer(apr["id"], [], "Jordan", skip=True)
+    run = await run_to_rest(eng, rid)
+    assert run["status"] == "completed" and any("without answering" in n for n in run["notes"])
+    with pytest.raises(ValueError, match="already approved"):
+        await eng.answer(apr["id"], ["x"], "Jordan")
+    # An agent that keeps asking is asked at most twice; then the run goes on with what it has.
+    always = lambda system, messages, tools: "Need more.\n" + contract(status="NEEDS_INPUT", open_questions=["More?"])  # noqa: E731
+    eng, *_ = make_engine(cloud_script=always)
+    rid = await eng.start("quick-ask", {"request": "x"})
+    for _ in range(2):
+        await run_to_rest(eng, rid)
+        [apr] = eng.store.approvals(status="pending", run_id=rid)
+        await eng.answer(apr["id"], ["answer"], "Jordan")
+    run = await run_to_rest(eng, rid)
+    assert run["status"] == "completed" and any("still needs input" in n for n in run["notes"])
+
+
+async def test_every_input_reaches_the_agents(make_engine):
+    eng, _l, cloud = make_engine()
+    rid = await eng.start("decision-brief", {**DECISION, "criteria": "cost and time", "deadline": "Friday"})
+    await run_to_rest(eng, rid)
+    first = cloud.calls[0]["messages"][0]["content"]
+    # "Options" used to be dropped: it is neither named in a task nor treated as data.
+    assert "Options you are considering (optional): Buy Vendor X, or build in-house" in first
+    assert "Specialist views: business" in first and "Inputs from the person:" in first

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type ModelEdit, type ModelEndpoint, type Overview, type ProviderInfo } from "../api";
 import { ErrorNote } from "../ui";
 import { ChainsEditor, ConnectorsPanel, PoliciesPanel, ProfilePanel, Switch } from "./SettingsPanels";
+import { AgentModels, ModelsInUse, modelRole } from "./ModelPanels";
 
 const TABS = [
   { id: "models", label: "Models" },
@@ -45,16 +46,18 @@ export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange:
       <div id={`panel-${tab}`} role="tabpanel" aria-labelledby={`tab-${tab}`} className="stack-lg">
         {tab === "models" && <>
           <ConnectionMode ov={ov} onChange={onChange} setError={setError} />
+          <ModelsInUse ov={ov} onChange={onChange} />
           <section className="stack" aria-labelledby="prov-h">
             <div className="stack-sm">
               <h2 id="prov-h">Model providers</h2>
               <p className="muted small measure">Switch a provider on, then use <strong>Edit</strong> to set its address, API key and models. A local server such as LM Studio or Ollama must be running with a model loaded. A provider switched on here is also used as a fallback by every tier.</p>
             </div>
             <div className="stack-sm">
-              {ov.providers.filter((p) => !p.endpoint).map((p) => <ProviderRow key={p.name} p={p} onChange={onChange} />)}
+              {ov.providers.filter((p) => !p.endpoint).map((p) => <ProviderRow key={p.name} p={p} ov={ov} onChange={onChange} />)}
             </div>
           </section>
           <EndpointsPanel ov={ov} onChange={onChange} />
+          <AgentModels ov={ov} onChange={onChange} />
           <ChainsEditor ov={ov} onChange={onChange} />
         </>}
         {tab === "connectors" && <ConnectorsPanel ov={ov} onChange={onChange} />}
@@ -78,7 +81,7 @@ function ConnectionMode({ ov, onChange, setError }: { ov: Overview; onChange: ()
           <p className="muted small measure">
             {ov.offline
               ? `Offline: ${cloudPaused} cloud provider${cloudPaused === 1 ? "" : "s"} and ${netPaused} internet connector${netPaused === 1 ? "" : "s"} are paused. Every agent uses the local model below. Going online restores your choices.`
-              : "Online: every switched-on provider and connector is available, subject to each run's data class. Each agent can use its own model (Agents page)."}
+              : "Online: every switched-on provider and connector is available, subject to each run's data class. Choose the default and fallback model, and a model per agent, below."}
             {ov.offline_override === null ? " Following the config file default." : ""}
           </p>
         </div>
@@ -293,7 +296,7 @@ const KEY_SOURCE: Record<string, string> = {
   env: "from an environment variable", app: "saved in the app", config: "set in suite.yaml",
 };
 
-function ProviderRow({ p, onChange }: { p: ProviderInfo; onChange: () => void }) {
+function ProviderRow({ p, ov, onChange }: { p: ProviderInfo; ov: Overview; onChange: () => void }) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -324,7 +327,13 @@ function ProviderRow({ p, onChange }: { p: ProviderInfo; onChange: () => void })
             <span className={`tag ${p.locality === "local" ? "" : "outline"}`}>{p.locality}</span>
             {p.edited_in_app && <span className="tag">edited</span>}
           </div>
-          <span className="muted small">{p.base_url || p.type}{p.models.length ? ` · ${p.models.map((m) => m.ref.split("/").slice(1).join("/")).join(", ")}` : " · no models"}</span>
+          <span className="muted small">{p.base_url || p.type}{p.models.length ? "" : " · no models"}</span>
+          {p.models.length > 0 && (
+            <span className="model-chips">{p.models.map((m) => {
+              const role = p.enabled ? modelRole(ov, m.ref) : { text: "Provider off", tone: "neutral" };
+              return <span key={m.ref} className="model-chip"><code>{m.ref.split("/").slice(1).join("/")}</code><span className={`pill ${role.tone}`}>{role.text}</span></span>;
+            })}</span>
+          )}
         </div>
         <span className={`pill ${tone}`} title={p.reason}>{state}</span>
         <div className="row-tight">

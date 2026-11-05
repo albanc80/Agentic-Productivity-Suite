@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api, downloadAnswer, type ChatDetail, type ChatMsg, type ChatSummary, type Overview } from "../api";
-import { ErrorNote, Markdown, fmtCost, fmtTime, go } from "../ui";
+import { api, downloadAnswer, exportAnswer, type ChatDetail, type ExportResult, type ChatMsg, type ChatSummary, type Overview } from "../api";
+import { ErrorNote, ExportNote, Markdown, fmtCost, fmtTime, go } from "../ui";
 
 const COORDINATOR = "chief-of-staff";
 
@@ -200,7 +200,8 @@ async function copyText(text: string): Promise<void> {
 function AnswerActions({ m, chatId, index, body, canSave }: { m: ChatMsg; chatId: string; index: number;
   body: React.RefObject<HTMLDivElement>; canSave: boolean }) {
   const [copied, setCopied] = useState(false);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [exported, setExported] = useState<ExportResult | null>(null);
+  const [exportError, setExportError] = useState<unknown>(null);
   const [error, setError] = useState<unknown>(null);
   async function copy() {
     setError(null);
@@ -212,9 +213,11 @@ function AnswerActions({ m, chatId, index, body, canSave }: { m: ChatMsg; chatId
     try { await copyText(text); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch (e) { setError(e); }
   }
   const get = (f: "md" | "html") => downloadAnswer(chatId, index, f).catch(setError);
-  async function save() {
-    setError(null);
-    try { setSaved((await api.saveAnswer(chatId, index, m.file?.format || "md")).path); } catch (e) { setError(e); }
+  // .md / .html: saved into the outputs folder with a notice saying where (downloaded when that is not possible).
+  async function exportAs(f: "md" | "html") {
+    setExported(null); setExportError(null);
+    if (!canSave) { try { setExported({ saved: false, name: await downloadAnswer(chatId, index, f), why: "" }); } catch (e) { setExportError(e); } return; }
+    try { setExported(await exportAnswer(chatId, index, f)); } catch (e) { setExportError(e); }
   }
   return (
     <>
@@ -234,13 +237,11 @@ function AnswerActions({ m, chatId, index, body, canSave }: { m: ChatMsg; chatId
             strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
           <span>{copied ? "Copied" : "Copy"}</span>
         </button>
-        <button className="ghost small-btn" onClick={() => get("md")} title="Download this answer as a Markdown file">.md</button>
-        <button className="ghost small-btn" onClick={() => get("html")} title="Download this answer as an HTML page">.html</button>
-        {canSave && !m.file?.saved_to && <button className="ghost small-btn" onClick={save}
-          title="Save this answer as a new file in your Agentic-Suite-Outputs folder">{saved ? "Saved" : "Save to folder"}</button>}
-        {saved && <span className="small muted">Saved to <code className="outputs-path">{saved}</code></span>}
+        <button className="ghost small-btn" onClick={() => exportAs("md")} title={canSave ? "Export this answer as a Markdown file into your outputs folder" : "Download this answer as a Markdown file"}>.md</button>
+        <button className="ghost small-btn" onClick={() => exportAs("html")} title={canSave ? "Export this answer as an HTML page into your outputs folder" : "Download this answer as an HTML page"}>.html</button>
         <span className="sr-only" aria-live="polite">{copied ? "Answer copied" : ""}</span>
       </div>
+      <ExportNote result={exported} error={exportError} />
       <ErrorNote error={error} />
     </>
   );

@@ -20,7 +20,7 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const LABELS: Record<string, string> = {
-  COMPLETE_WITH_ACCEPTED_RISK: "Complete, accepted risk", NEEDS_INPUT: "Needs input", awaiting_approval: "Awaiting approval",
+  COMPLETE_WITH_ACCEPTED_RISK: "Complete, accepted risk", NEEDS_INPUT: "Needs input", awaiting_approval: "Waiting for you",
   PASS_WITH_CHANGES: "Pass with changes",
 };
 
@@ -44,6 +44,18 @@ export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
   const msg = error instanceof Error ? error.message : String(error);
   return <div className="note bad" role="alert">{msg}</div>;
+}
+
+/** The outcome of an export: where the file was saved, that it was downloaded instead (and why), or that it failed. */
+export function ExportNote({ result, error }: { result: import("./api").ExportResult | null; error: unknown }) {
+  if (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return <div className="note bad" role="alert">Export failed: {msg}</div>;
+  }
+  if (!result) return null;
+  return result.saved
+    ? <div className="note ok" role="status">Exported <strong>{result.name}</strong> to <code className="outputs-path">{result.path}</code></div>
+    : <div className="note" role="status">Downloaded <strong>{result.name}</strong> to your Downloads folder. {result.why}</div>;
 }
 
 export function fmtCost(v: number) {

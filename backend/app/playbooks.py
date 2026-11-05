@@ -207,11 +207,16 @@ def validate(pb: Playbook, registry: Registry, connector_ids: set[str] | None = 
     return warnings
 
 
-def load_playbooks(directory: Path, registry: Registry, connector_ids: set[str] | None = None) -> tuple[dict[str, Playbook], list[str]]:
+def load_playbooks(directory: Path, registry: Registry, connector_ids: set[str] | None = None,
+                   aliases: dict[str, str] | None = None) -> tuple[dict[str, Playbook], list[str]]:
+    """``aliases`` maps connector ids that were merged (databricks-genie) to the connector that replaced them."""
     books: dict[str, Playbook] = {}
     warnings: list[str] = []
     for p in sorted(directory.glob("*.yaml")):
         pb = Playbook.model_validate(yaml.safe_load(p.read_text(encoding="utf-8")))
+        for s in pb.flat_steps():
+            if aliases and s.connectors:
+                s.connectors = list(dict.fromkeys(aliases.get(c, c) for c in s.connectors))
         if pb.id in books:
             raise PlaybookError(f"duplicate playbook id '{pb.id}' in {p.name}")
         warnings += validate(pb, registry, connector_ids)

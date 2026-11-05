@@ -108,35 +108,42 @@ def test_local_files_set_up_from_the_app(factory, shared):
 
 def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch):
     with factory() as c:
-        gen = cn(c.get("/api/overview").json(), "databricks-genie")
-        names = {v["name"]: v for v in gen["variables"]}
+        db = cn(c.get("/api/overview").json(), "databricks")
+        names = {v["name"]: v for v in db["variables"]}
         assert names["DATABRICKS_TOKEN"]["secret"] and not names["DATABRICKS_HOST"]["secret"]
-        assert gen["status"] == "disabled" and not gen["enabled"] and "DATABRICKS_TOKEN" in gen["missing"]
-        r = c.put("/api/connectors/databricks-genie", json={"enabled": True})
+        assert db["status"] == "disabled" and not db["enabled"] and "DATABRICKS_TOKEN" in db["missing"]
+        assert any(m.startswith("at least one of: Genie space") for m in db["missing"])
+        # one connector: shared fields first and required, each service's fields after them and optional
+        order = [v["name"] for v in db["variables"]]
+        assert order[:2] == ["DATABRICKS_HOST", "DATABRICKS_TOKEN"] and not names["DATABRICKS_HOST"]["optional"]
+        assert names["DATABRICKS_GENIE_SPACE_ID"]["optional"] and names["DATABRICKS_GENIE_SPACE_ID"]["part"] == "genie"
+        assert names["DATABRICKS_UC_SCHEMA"]["part"] == "functions" and names["DATABRICKS_HOST"]["part"] is None
+        r = c.put("/api/connectors/databricks", json={"enabled": True})
         assert r.status_code == 422 and "DATABRICKS_HOST" in r.json()["detail"]  # cannot switch on before setup
-        r = c.put("/api/connectors/databricks-genie", json={"values": {
+        r = c.put("/api/connectors/databricks", json={"values": {
             "DATABRICKS_HOST": "https://adb-1.azuredatabricks.net", "DATABRICKS_TOKEN": "dapi-secret-1",
             "DATABRICKS_GENIE_SPACE_ID": "space1"}})
-        gen = r.json()
-        assert gen["status"] == "disabled" and gen["missing"] == [], gen  # set up, but still off until switched on
-        gen = c.put("/api/connectors/databricks-genie", json={"enabled": True}).json()
-        assert gen["status"] == "idle", gen
-        vals = {v["name"]: v for v in gen["variables"]}
+        db = r.json()
+        assert db["status"] == "disabled" and db["missing"] == [], db  # set up, but still off until switched on
+        assert {p["id"]: p["ready"] for p in db["parts"]} == {"genie": True, "functions": False, "search": False}
+        db = c.put("/api/connectors/databricks", json={"enabled": True}).json()
+        assert db["status"] == "idle", db
+        vals = {v["name"]: v for v in db["variables"]}
         assert vals["DATABRICKS_TOKEN"]["set"] and vals["DATABRICKS_TOKEN"]["value"] is None
         assert vals["DATABRICKS_HOST"]["value"] == "https://adb-1.azuredatabricks.net"
         o = c.get("/api/overview")
         assert "dapi-secret-1" not in o.text and "dapi-secret-1" not in c.get("/api/audit").text
-        # The host and token entered once also serve the other Databricks connectors.
-        uc = cn(o.json(), "databricks-uc-functions")
-        assert {v["name"] for v in uc["variables"] if v["set"]} >= {"DATABRICKS_HOST", "DATABRICKS_TOKEN"}
+        # A second service needs only its own fields: the host and token are entered once.
+        db = c.put("/api/connectors/databricks", json={"values": {"DATABRICKS_UC_CATALOG": "main", "DATABRICKS_UC_SCHEMA": "ops"}}).json()
+        assert {p["id"]: p["ready"] for p in db["parts"]}["functions"] is True
         # Saving with an empty secret keeps it; an empty plain value clears it.
-        gen = c.put("/api/connectors/databricks-genie", json={"values": {"DATABRICKS_TOKEN": "", "DATABRICKS_GENIE_SPACE_ID": ""}}).json()
-        vals = {v["name"]: v for v in gen["variables"]}
+        db = c.put("/api/connectors/databricks", json={"values": {"DATABRICKS_TOKEN": "", "DATABRICKS_GENIE_SPACE_ID": ""}}).json()
+        vals = {v["name"]: v for v in db["variables"]}
         assert vals["DATABRICKS_TOKEN"]["set"] and not vals["DATABRICKS_GENIE_SPACE_ID"]["set"]
-        assert c.put("/api/connectors/databricks-genie", json={"values": {"NOT_USED": "x"}}).status_code == 422
-        assert c.put("/api/connectors/databricks-genie", json={"values": {"DATABRICKS_HOST": "a\nb"}}).status_code == 422
-        gen = c.put("/api/connectors/databricks-genie", json={"clear": ["DATABRICKS_TOKEN"]}).json()
-        assert not {v["name"]: v for v in gen["variables"]}["DATABRICKS_TOKEN"]["set"]
+        assert c.put("/api/connectors/databricks", json={"values": {"NOT_USED": "x"}}).status_code == 422
+        assert c.put("/api/connectors/databricks", json={"values": {"DATABRICKS_HOST": "a\nb"}}).status_code == 422
+        db = c.put("/api/connectors/databricks", json={"clear": ["DATABRICKS_TOKEN"]}).json()
+        assert not {v["name"]: v for v in db["variables"]}["DATABRICKS_TOKEN"]["set"]
         # Opt-in flags (Microsoft 365 needs a one-time sign-in first) are ticked in the app.
         m = cn(c.get("/api/overview").json(), "microsoft365")
         assert m["status"] == "disabled" and any(v["flag"] for v in m["variables"])
@@ -146,7 +153,7 @@ def test_connector_values_are_shared_and_secrets_write_only(factory, monkeypatch
         assert c.put("/api/connectors/microsoft365", json={"enabled": False}).json()["status"] == "disabled"
     monkeypatch.setenv("DATABRICKS_HOST", "https://from-env")
     with factory() as c:  # the environment wins over a value typed in the app
-        v = {x["name"]: x for x in cn(c.get("/api/overview").json(), "databricks-genie")["variables"]}
+        v = {x["name"]: x for x in cn(c.get("/api/overview").json(), "databricks")["variables"]}
         assert v["DATABRICKS_HOST"]["source"] == "env" and v["DATABRICKS_HOST"]["value"] is None
 
 
@@ -229,3 +236,47 @@ def test_restart_stops_workers():
     mgr = ConnectorManager([], env={})
     asyncio.run(mgr.restart())
     assert mgr.workers == {}
+
+
+def test_outputs_folder_is_chosen_in_the_app(factory, tmp_path, shared):
+    from tests.conftest import OUTPUTS_FIXTURE
+    with factory() as c:
+        o = c.get("/api/overview").json()["outputs"]
+        assert o["path"] == str(OUTPUTS_FIXTURE) and o["source"] == "file"
+        assert c.put("/api/settings/outputs", json={"path": "relative/folder"}).status_code == 422
+        target = shared / "Agent outputs"  # inside a folder shared with agents through Local files
+        c.put("/api/connectors/local-files", json={"enabled": True, "folders": [str(shared)]})
+        o = c.put("/api/settings/outputs", json={"path": str(target)}).json()["outputs"]
+        assert o["path"] == str(target) and o["source"] == "app" and o["shared_with_local_files"]
+        assert (target / "Chats").is_dir() and (target / "README.md").exists()
+        chat = c.post("/api/chats", json={}).json()  # new copies go to the new folder at once
+        assert c.get("/api/overview").json()["outputs_dir"] == str(target) and chat["id"]
+        o = c.put("/api/settings/outputs", json={"off": True}).json()
+        assert o["outputs_dir"] is None and o["outputs"]["path"] is None
+        o = c.put("/api/settings/outputs", json={}).json()["outputs"]  # back to the default
+        assert o["path"] == str(OUTPUTS_FIXTURE) and o["source"] == "file"
+    with factory() as c:  # the choice survives a restart
+        c.put("/api/settings/outputs", json={"path": str(tmp_path / "Mine")})
+    with factory() as c:
+        assert c.get("/api/overview").json()["outputs"]["path"] == str(tmp_path / "Mine")
+
+
+def test_default_and_fallback_model_lead_every_tier_and_show_what_is_used(factory):
+    with factory() as c:
+        c.put("/api/providers/lmstudio", json={"enabled": True, "models": [{"model": "qwen3-4b", "context_tokens": 32768}]})
+        c.put("/api/providers/openai", json={"enabled": True, "api_key": "sk-test", "models": [{"model": "gpt-x", "context_tokens": 128000}]})
+        o = c.get("/api/overview").json()
+        assert o["default_model"] is None and set(o["in_use"]) == set(o["tiers"])
+        assert c.put("/api/settings/general", json={"default_model": "nope/x"}).status_code == 422
+        o = c.put("/api/settings/general", json={"default_model": "lmstudio/qwen3-4b", "fallback_model": "openai/gpt-x"}).json()
+        assert o["default_model"] == "lmstudio/qwen3-4b" and o["fallback_model"] == "openai/gpt-x"
+        for t, chain in o["tiers"].items():
+            assert chain[:2] == ["lmstudio/qwen3-4b", "openai/gpt-x"], t
+            assert o["in_use"][t] == "lmstudio/qwen3-4b"
+        assert all(v == "lmstudio/qwen3-4b" for v in o["agent_in_use"].values())
+        # An agent's own model still goes first for that agent; the default stays its fallback.
+        o = c.put("/api/settings/general", json={"agent_models": {"critical-mentor": "openai/gpt-x"}}).json()
+        assert o["agent_in_use"]["critical-mentor"] == "openai/gpt-x" and o["agent_in_use"]["counselor"] == "lmstudio/qwen3-4b"
+        assert c.put("/api/settings/general", json={"fallback_model": "lmstudio/qwen3-4b"}).status_code == 422
+        o = c.put("/api/settings/general", json={"default_model": "", "fallback_model": ""}).json()
+        assert o["default_model"] is None and o["fallback_model"] is None

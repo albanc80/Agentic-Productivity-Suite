@@ -41,7 +41,11 @@ cd frontend && npm install && npm run dev
 | OpenAI, DeepSeek, OpenRouter | cloud | Edit → API key, or export `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` or `OPENROUTER_API_KEY`. Add the models you use. |
 | Anthropic | cloud | Edit → API key, or export `ANTHROPIC_API_KEY`. |
 
-Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fallback chain. The first model that is available *and* allowed for the run's data class is used. If it errors or declines, the next one is tried. Change the order in Settings → Models → Fallback order. **Online**, each agent can use its own model (Agents → pick an agent → Model for this agent); its tier chain stays as the fallback. **Offline**, one local model goes first for every agent (Settings → Models → Model for every agent when offline, or automatic). Per-step choices (`models:` in a playbook) stay in the playbook files.
+**Which model is used.** Settings → Models → **Models in use** sets a **default model** and a **fallback model**, chosen from every provider that is switched on, local or cloud. Every kind of work tries the default first and the fallback next. The card shows the model each kind of work uses right now, and each model in the provider list is labelled Default, Fallback, In use or Not used.
+
+**A model per agent, to save tokens and cost.** Settings → Models → **Model per agent** lists every agent by desk with what it does, whether its work is reasoning-heavy (combining results, reviewing others' work, safety-critical) or everyday, and the model it uses now. Give each agent its own model, or use **Quick assign** to put a stronger model on the reasoning-heavy agents and a smaller or local one on the everyday agents. An agent's own model goes first; the default and fallback stay behind it.
+
+Behind these, each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fallback chain. The first model that is available *and* allowed for the run's data class is used. If it errors or declines, the next one is tried. Change the order in Settings → Models → Fallback order. **Offline**, one local model goes first for every agent (Settings → Models → Model for every agent when offline, or automatic). Per-step choices (`models:` in a playbook) stay in the playbook files.
 
 **Offline mode** pauses every cloud provider and every connector that needs the internet in one step, without changing your per-provider choices; going online restores them. Toggle it from the top bar or Settings; the choice persists. The default can also come from `offline: true` or `SUITE_OFFLINE=1`.
 
@@ -75,7 +79,9 @@ On start the app creates `Agentic-Suite-Outputs` in your Documents folder (found
 | `Runs/` | Each finished playbook deliverable, as `.md` and `.html` | When the run completes |
 | `Files/` | Files you asked for in chat, or saved with **Save to folder** | When the answer arrives or you press Save; a different file with the same name is never overwritten |
 
-Chats and runs marked **Restricted** are not copied, because Documents is often synced to a cloud drive. The database with your settings, keys and full history stays in the app's own folder. A write that fails is logged and never breaks a chat or a run. To move the folder or switch it off, set `outputs_dir` (or `off`) in `suite.yaml`, or `SUITE_OUTPUTS_DIR`, and restart. Settings → Policies & budgets shows where it is.
+Chats and runs marked **Restricted** are not copied, because Documents is often synced to a cloud drive. The database with your settings, keys and full history stays in the app's own folder. A write that fails is logged and never breaks a chat or a run. **Choose the folder in the app:** Settings → Policies & budgets → Outputs folder. Paste a full path (it is created if needed and applies at once), go back to the default, or switch it off. It can be the same folder you share with agents through Local files; the page then reminds you that agents can read your saved chats and files there. `outputs_dir` in `suite.yaml` or `SUITE_OUTPUTS_DIR` only set the starting default.
+
+**Exports say where the file went.** Export Markdown and Export HTML on a run, and the `.md` and `.html` buttons under a chat answer, write the file into the outputs folder and show its full path. If that is not possible (the folder is off, or the work is Restricted), the file is downloaded instead and the notice says why; a failure is shown as such.
 
 ## Connectors (MCP, read-only)
 
@@ -86,6 +92,8 @@ Set them up in Settings → Connectors. **Every connector starts switched off**,
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
 ## Playbooks
+
+**When an agent needs your input, the run asks you.** Every input you fill in on the run form reaches every agent step. If a step cannot be done well without information only you can give, the agent asks up to five specific questions and the run pauses: the run page and **Approvals** (with a count in the top bar) show "Your input is needed" with a box per question. Send your answers and the step runs again with them, and every later step sees them too; or continue without answering. A step asks at most twice; after that the run goes on with what it has and says so. Nothing more is spent while the run waits.
 
 | Code | Playbook | Pattern |
 |---|---|---|

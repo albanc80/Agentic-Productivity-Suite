@@ -25,12 +25,13 @@ from .appconfig import (
     ConnectorEdit,
     GeneralEdit,
     GeneralSettings,
+    OutputsEdit,
     ProfileEdit,
     TierPref,
     order_chain,
 )
 from .chat import Chat, ChatError
-from .connectors import ConnectorError, ConnectorManager, ConnectorSetting, is_secret
+from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorSetting, is_secret
 from .endpoints import Endpoint, ModelEdit, ProviderOverride, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
@@ -57,6 +58,12 @@ class RunRequest(BaseModel):
 class RouteRequest(BaseModel):
     text: str
     data_class: str | None = None
+
+
+class InputAnswers(BaseModel):
+    answers: list[str] = Field(default_factory=list, max_length=50)  # in the order of the questions asked
+    skip: bool = False  # continue without answering
+    by: str = Field(default="", max_length=120)
 
 
 class Decision(BaseModel):
@@ -112,13 +119,16 @@ class Suite:
         self.registry = Registry(settings.registry_dir, settings.policies_dir, settings.private_registry_dir)
         self.connectors = connectors or ConnectorManager.from_file(
             settings.connectors_path, offline=settings.offline, presets=settings.home / "config" / "connectors.example.yaml")
-        self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs))
+        self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs),
+                                                      self.connectors.replaced_by())
         self.warnings = self.registry.warnings + self.warnings
         self.store = Store(settings.data_dir / "suite.db")
         self.models = ModelRouter(settings, http_client=http_client)
         self.file_profile = load_profile(settings)
         self.profile: dict = {}  # same dict object the engine reads; refreshed in place by apply()
-        self.outputs = Outputs(settings.outputs_dir, settings.theme_dir)
+        # The outputs folder: the one chosen in Settings, else suite.yaml / SUITE_OUTPUTS_DIR, else Documents.
+        self.file_outputs = settings.outputs_dir
+        self.outputs = Outputs(self._outputs_choice(), settings.theme_dir)
         problem = self.outputs.ensure()
         if problem:
             self.warnings.append(problem)
@@ -164,6 +174,12 @@ class Suite:
         apply_runtime(s, b, self.endpoints(), offline, self.provider_overrides())
         for t, pref in (g.tiers or {}).items():
             s.tiers[t] = order_chain(s.tiers.get(t, []), pref)
+        # Default and fallback model: tried first and second for every kind of work, local or cloud.
+        known = {m.ref for m in s.models}
+        lead = [r for r in (g.default_model, g.fallback_model) if r and r in known]
+        if lead:
+            for t in s.tiers:
+                s.tiers[t] = list(dict.fromkeys(lead + s.tiers[t]))
         s.agent_overrides = {k: list(v) for k, v in b["agent_overrides"].items()}
         self.offline_default = None
         if offline:
@@ -232,6 +248,15 @@ class Suite:
                 else:
                     am[aid] = ref
             g.agent_models = am or None
+        for f in ("default_model", "fallback_model"):
+            ref = getattr(edit, f)
+            if ref is None:
+                continue
+            if ref and ref not in known_refs:
+                raise ValueError(f"unknown model {ref}; add it to a provider first")
+            setattr(g, f, ref or None)
+        if g.default_model and g.default_model == g.fallback_model:
+            raise ValueError("the fallback model must differ from the default model")
         if edit.offline_model is not None:
             if edit.offline_model == "":
                 g.offline_model = None
@@ -255,6 +280,50 @@ class Suite:
         self.store.set_setting("general", g.model_dump(exclude_none=True))
         self.apply()
         self.store.audit("settings_changed", None, fields=sorted(edit.model_dump(exclude_none=True)), by=by)
+
+    # ------------------------------------------------------------ outputs folder
+
+    def outputs_setting(self) -> dict:
+        return self.store.get_setting("outputs_folder", {}) or {}
+
+    def _outputs_choice(self) -> Path | None:
+        st = self.outputs_setting()
+        if st.get("off"):
+            return None
+        return Path(st["path"]) if st.get("path") else self.file_outputs
+
+    def set_outputs(self, path: str | None, off: bool, by: str) -> None:
+        """Choose the outputs folder in the app: a folder, off, or back to the default (path None, off False)."""
+        if off:
+            self.store.set_setting("outputs_folder", {"off": True})
+        elif path:
+            p = Path(path.strip().strip('"')).expanduser()
+            if not p.is_absolute():
+                raise ValueError("Enter the full path of the folder, for example C:\\Users\\you\\Documents\\Outputs.")
+            problem = Outputs(p, self.settings.theme_dir).ensure()
+            if problem:
+                raise ValueError(problem)
+            self.store.set_setting("outputs_folder", {"path": str(p)})
+        else:
+            self.store.set_setting("outputs_folder", {})
+        self.outputs.root = self._outputs_choice()
+        problem = self.outputs.ensure()
+        self.store.audit("outputs_folder_changed", None, path=str(self.outputs.root) if self.outputs.root else None, by=by)
+        if problem:
+            raise ValueError(problem)
+
+    def outputs_info(self) -> dict:
+        from .outputs import default_outputs_dir
+        st = self.outputs_setting()
+        root = self.outputs.root
+        shared = []
+        if root:
+            for folder in self.connectors.configs.get("local-files", ConnectorConfig(id="x", name="x", transport="builtin")).folders:
+                f = Path(folder)
+                if root == f or f in root.parents or root in f.parents:
+                    shared.append(folder)
+        return {"path": str(root) if root else None, "source": "app" if st else ("file" if self.file_outputs != default_outputs_dir() else "default"),
+                "default": str(self.file_outputs or default_outputs_dir()), "shared_with_local_files": shared}
 
     def reset_general(self, part: str, by: str) -> None:
         g = self.general()
@@ -451,10 +520,16 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
                         for k in ProfileEdit.model_fields},
             "profile_saved_in_app": suite.saved_profile() is not None,
             "store_prompts": settings.store_prompts,
-            "outputs_dir": str(settings.outputs_dir) if settings.outputs_dir else None,
+            "outputs_dir": str(suite.outputs.root) if suite.outputs.root else None,
+            "outputs": suite.outputs_info(),
             "model_refs": [m.ref for m in settings.models],
             "general_edited": sorted(suite.general().model_dump(exclude_none=True)),
             "agent_models": suite.general().agent_models or {},
+            "default_model": suite.general().default_model, "fallback_model": suite.general().fallback_model,
+            # What is used right now, for the default data class: per kind of work and per agent.
+            "in_use": {t: suite.models.pick(t, settings.default_data_class) for t in settings.tiers},
+            "agent_in_use": {a: suite.models.pick(ag.default_tier, settings.default_data_class, a)
+                             for a, ag in suite.registry.agents.items()},
             "offline_model": suite.general().offline_model,
             "offline_default": suite.offline_default,
             "agent_overrides": settings.agent_overrides,
@@ -561,6 +636,24 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             raise HTTPException(409, str(e)) from e
         return {"id": rid}
 
+    @app.post("/api/runs/{rid}/export/save")
+    def export_save(rid: str, format: Literal["md", "html"] = "md"):
+        """Export a deliverable into the outputs folder (Runs/) and say where it went."""
+        r = store.run(rid)
+        if not r or not r.get("deliverable"):
+            raise HTTPException(404, "no deliverable yet")
+        if not suite.outputs.root:
+            raise HTTPException(409, "The outputs folder is switched off; choose one in Settings > Policies & budgets.")
+        if r.get("data_class") == "restricted":
+            raise HTTPException(409, "Restricted deliverables are not saved to the outputs folder, which may be synced "
+                                     "to a cloud drive.")
+        suite.outputs.save_run(r)
+        path = suite.outputs.last_run_files.get(format)
+        if not path:
+            raise HTTPException(500, f"The file could not be written to {suite.outputs.root}; see the app log.")
+        store.audit("exported", rid, format=format, saved=True)
+        return {"name": path.name, "path": str(path), "folder": str(path.parent)}
+
     @app.get("/api/runs/{rid}/export")
     def export(rid: str, format: Literal["md", "html"] = "md"):
         r = store.run(rid)
@@ -592,6 +685,16 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except KeyError as e:
             raise HTTPException(404, str(e)) from e
         except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.post("/api/approvals/{aid}/answer")
+    async def answer(aid: str, body: InputAnswers):
+        """Answers to a "your input is needed" pause; the steps that asked run again with them."""
+        try:
+            return await eng.answer(aid, body.answers, body.by, body.skip)
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'")) from e
+        except (ValueError, RunStopped) as e:
             raise HTTPException(409, str(e)) from e
 
     # ---------------------------------------------------------------- providers / connectors / admin
@@ -798,6 +901,14 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             raise HTTPException(404, "connector not found")
         await suite.reset_connector(cid, "ui")
         return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.put("/api/settings/outputs")
+    def edit_outputs(body: OutputsEdit):
+        try:
+            suite.set_outputs(body.path, body.off, "ui")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return overview()
 
     @app.put("/api/settings/general")
     def edit_general(body: GeneralEdit):

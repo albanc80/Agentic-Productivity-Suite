@@ -112,6 +112,16 @@ class ModelRouter:
             return list(self.settings.agent_overrides[agent_id])
         return list(self.settings.tiers.get(tier) or self.settings.tiers.get("specialist") or [])
 
+    def pick(self, tier: str, data_class: str, agent_id: str | None = None) -> str | None:
+        """The model that would be used right now (first ready and allowed in the chain), without starting it."""
+        allowed = set(self.settings.data_classes.get(data_class, ["local"]))
+        for ref in self.chain(tier, agent_id, None):
+            pname = ref.split("/", 1)[0]
+            cfg = self.settings.providers.get(pname)
+            if cfg and self.availability(pname)[0] and cfg.locality in allowed:
+                return ref
+        return None
+
     def candidates(self, tier: str, data_class: str, *, agent_id: str | None = None,
                    override: list[str] | None = None) -> tuple[list[Resolved], list[str]]:
         allowed = set(self.settings.data_classes.get(data_class, ["local"]))

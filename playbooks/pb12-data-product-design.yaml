@@ -21,7 +21,7 @@ steps:
     task: |
       Design "{{inputs.product}}": consumers and their decisions, metric definitions with formulas and units, grain,
       freshness and latency targets, serving pattern, and the minimum viable version.
-    connectors: [databricks-genie, databricks-uc-functions]
+    connectors: [databricks]
   - id: foundations
     kind: parallel
     title: Contracts and semantics

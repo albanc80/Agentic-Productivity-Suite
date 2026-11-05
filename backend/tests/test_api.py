@@ -48,7 +48,8 @@ def wait(client, rid, until=("completed", "awaiting_approval", "failed", "cancel
 def test_overview_and_catalog(client):
     o = client.get("/api/overview").json()
     assert len(o["agents"]) == 34 and len(o["playbooks"]) == 19 and len(o["desks"]) == 8
-    assert {c["id"] for c in o["connectors"]} >= {"github", "microsoft365", "google-workspace", "databricks-genie", "azure-devops"}
+    assert {c["id"] for c in o["connectors"]} >= {"github", "microsoft365", "google-workspace", "databricks", "azure-devops"}
+    assert not {"databricks-genie", "databricks-uc-functions", "databricks-search"} & {c["id"] for c in o["connectors"]}
     assert {p["type"] for p in o["providers"]} <= {"openai_compatible", "anthropic"}
     assert not any("demo" in r for chain in o["tiers"].values() for r in chain)
     a = client.get("/api/agents/chief-of-staff").json()
@@ -99,6 +100,16 @@ def test_run_gate_export_and_audit(client):
     assert md.status_code == 200 and "attachment" in md.headers["content-disposition"]
     html = client.get(f"/api/runs/{rid}/export?format=html").text
     assert html.startswith("<!doctype html>") and "<script" not in html
+    # Export into the outputs folder: the answer says where the file went.
+    from pathlib import Path
+    saved = client.post(f"/api/runs/{rid}/export/save?format=html").json()
+    assert Path(saved["path"]).is_file() and saved["name"].endswith(".html") and "Runs" in saved["folder"]
+    assert Path(client.post(f"/api/runs/{rid}/export/save?format=md").json()["path"]).read_text(encoding="utf-8") == run["deliverable"]
+    assert client.post("/api/runs/nope/export/save").status_code == 404
+    client.put("/api/settings/outputs", json={"off": True})
+    off = client.post(f"/api/runs/{rid}/export/save?format=md")
+    assert off.status_code == 409 and "switched off" in off.json()["detail"]
+    client.put("/api/settings/outputs", json={})
     events = {e["event"] for e in client.get(f"/api/audit?run_id={rid}").json()}
     assert {"run_started", "model_call", "approval_requested", "approval_decided", "run_completed"} <= events
     # Delete: the run and its steps go, the audit trail stays.

@@ -38,12 +38,15 @@ export interface ProviderInfo {
 export interface ConnectorVariable {
   name: string; secret: boolean; flag: boolean; optional: boolean; default: string; set: boolean;
   source: "env" | "app" | null; value: string | null;
+  label: string; hint: string; part: string | null;  // label and help from the connector; part of a grouped connector
 }
 export interface ConnectorInfo {
   id: string; name: string; description: string; transport: string; status: string; error: string; setup: string;
   verify: string; required_env: string[]; tools: { name: string; allowed: boolean; reason: string }[];
   enabled: boolean; network: boolean; offline_paused: boolean; builtin: boolean; folders: string[]; variables: ConnectorVariable[];
   missing: string[];  // what is still needed before it can be switched on
+  steps: string[]; docs_url: string;  // numbered setup steps and the server's own documentation
+  parts: { id: string; name: string; description: string; ready: boolean }[];  // grouped connector (Databricks)
 }
 export interface Profile {
   name: string; role: string; organization_context: string; goals: string[]; working_preferences: string[]; domain_notes: string;
@@ -56,7 +59,7 @@ export interface Budgets {
 export interface GeneralEdit {
   budgets?: Budgets; persona_chat?: boolean; persona_exports?: boolean; store_prompts?: boolean;
   default_data_class?: string; cloud_allowed?: Record<string, boolean>; tiers?: Record<string, string[]>;
-  agent_models?: Record<string, string | null>; offline_model?: string;
+  agent_models?: Record<string, string | null>; offline_model?: string; default_model?: string; fallback_model?: string;
 }
 export interface ChatDelegation { agent: string; question: string; answer: string; model: string | null; error?: string | null }
 export interface ChatMsg {
@@ -78,8 +81,11 @@ export interface Overview {
   offline_override: boolean | null; endpoints: ModelEndpoint[];
   budgets: Budgets; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
   profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; model_refs: string[]; general_edited: string[];
-  outputs_dir: string | null;  // readable copies of chats and deliverables; null when switched off
+  outputs_dir: string | null;
+  outputs: { path: string | null; source: "app" | "file" | "default"; default: string; shared_with_local_files: string[] };  // readable copies of chats and deliverables; null when switched off
   agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;
+  default_model: string | null; fallback_model: string | null;
+  in_use: Record<string, string | null>; agent_in_use: Record<string, string | null>;  // used right now (default data class)
   agent_overrides: Record<string, string[]>;
   warnings: string[]; pending_approvals: number;
 }
@@ -156,6 +162,8 @@ export const api = {
   cancel: (id: string) => call<RunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
   resume: (id: string) => call<{ id: string }>(`/api/runs/${id}/resume`, { method: "POST" }),
   approvals: (status = "pending") => call<Approval[]>(`/api/approvals?status=${status}`),
+  answer: (id: string, body: { answers: string[]; skip: boolean; by: string }) =>
+    call<Approval>(`/api/approvals/${id}/answer`, { method: "POST", body: JSON.stringify(body) }),
   decide: (id: string, body: { decision: "approved" | "rejected"; decided_by: string; note: string; edited?: string | null }) =>
     call<Approval>(`/api/approvals/${id}`, { method: "POST", body: JSON.stringify(body) }),
   testProvider: (name: string) => call<{ ok: boolean; detail?: string; model?: string; latency_ms?: number; reply?: string }>(`/api/providers/${name}/test`, { method: "POST" }),
@@ -176,6 +184,8 @@ export const api = {
   saveGeneral: (edit: GeneralEdit) => call<Overview>("/api/settings/general", { method: "PUT", body: JSON.stringify(edit) }),
   saveAnswer: (chatId: string, index: number, format: "md" | "html") =>
     call<{ name: string; path: string }>(`/api/chats/${chatId}/messages/${index}/save?format=${format}`, { method: "POST" }),
+  saveOutputs: (edit: { path?: string; off?: boolean }) =>
+    call<Overview>("/api/settings/outputs", { method: "PUT", body: JSON.stringify(edit) }),
   resetGeneral: (part: "tiers" | "budgets" | "all") => call<Overview>(`/api/settings/general/${part}`, { method: "DELETE" }),
   saveProfile: (p: Profile) => call<Profile>("/api/settings/profile", { method: "PUT", body: JSON.stringify(p) }),
   resetProfile: () => call<Profile>("/api/settings/profile", { method: "DELETE" }),
@@ -189,6 +199,28 @@ export const api = {
   exportUrl: (id: string, format: "md" | "html") => `/api/runs/${id}/export?format=${format}`,
 };
 
+export type ExportResult = { saved: true; name: string; path: string } | { saved: false; name: string; why: string };
+
+/** Export into the outputs folder and say where; when that is not possible (folder off, Restricted), download instead. */
+async function exportOr(save: () => Promise<{ name: string; path: string }>, fallback: () => Promise<string>): Promise<ExportResult> {
+  try {
+    const r = await save();
+    return { saved: true, name: r.name, path: r.path };
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 409) throw e;
+    return { saved: false, name: await fallback(), why: e.message };
+  }
+}
+
+export function exportRun(id: string, format: "md" | "html") {
+  return exportOr(() => call<{ name: string; path: string }>(`/api/runs/${id}/export/save?format=${format}`, { method: "POST" }),
+    () => download(id, format));
+}
+
+export function exportAnswer(chatId: string, index: number, format: "md" | "html") {
+  return exportOr(() => api.saveAnswer(chatId, index, format), () => downloadAnswer(chatId, index, format));
+}
+
 export async function download(id: string, format: "md" | "html") {
   return downloadFrom(api.exportUrl(id, format), format);
 }
@@ -198,7 +230,7 @@ export async function downloadAnswer(chatId: string, index: number, format: "md"
   return downloadFrom(`/api/chats/${chatId}/messages/${index}/export?format=${format}`, format);
 }
 
-async function downloadFrom(url: string, format: "md" | "html") {
+async function downloadFrom(url: string, format: "md" | "html"): Promise<string> {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -211,4 +243,5 @@ async function downloadFrom(url: string, format: "md" | "html") {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return name;
 }

@@ -20,13 +20,34 @@ connectors:
     description: Repositories, issues, pull requests and code search.
     transport: stdio
     command: docker
-    args: [run, -i, --rm, -e, GITHUB_PERSONAL_ACCESS_TOKEN, -e, GITHUB_READ_ONLY, -e, GITHUB_TOOLSETS, ghcr.io/github/github-mcp-server]
+    args: [run, -i, --rm, -e, GITHUB_PERSONAL_ACCESS_TOKEN, -e, GITHUB_HOST, -e, GITHUB_READ_ONLY, -e, GITHUB_TOOLSETS, ghcr.io/github/github-mcp-server]
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
+      GITHUB_HOST: ${GITHUB_HOST:-}
       GITHUB_READ_ONLY: "1"
       GITHUB_TOOLSETS: ${GITHUB_TOOLSETS:-repos,issues,pull_requests}
-    setup: Create a fine-grained personal access token with read-only repository permissions and export GITHUB_PERSONAL_ACCESS_TOKEN. Requires Docker.
-    verify: Image name, GITHUB_READ_ONLY and GITHUB_TOOLSETS variables in github/github-mcp-server README.
+    context:
+      GITHUB_REPOS: "Repositories the person works in: {value}. Use these unless asked about others."
+    labels:
+      GITHUB_PERSONAL_ACCESS_TOKEN: Personal access token
+      GITHUB_HOST: GitHub Enterprise address
+      GITHUB_REPOS: Repositories you work in
+      GITHUB_TOOLSETS: Toolsets
+    hints:
+      GITHUB_HOST: Leave blank for github.com. Only for GitHub Enterprise Server (https://github.yourcompany.com) or https://yourname.ghe.com.
+      GITHUB_REPOS: "Optional, comma-separated: owner/repo or the repository URL. Agents look here first; what they can reach is decided by the token."
+      GITHUB_TOOLSETS: "Default: repos,issues,pull_requests. Add actions or code_security to read CI runs or security alerts."
+    setup: >-
+      Reads repositories, issues, pull requests and code through GitHub's official MCP server, in read-only mode.
+      For github.com the token is all it needs; no site or repository URL is required.
+    steps:
+      - Install Docker Desktop (Windows, macOS) or Docker Engine (Linux) and start it. The connector runs GitHub's server in a container.
+      - "On GitHub open Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token (https://github.com/settings/personal-access-tokens/new)."
+      - "Under Repository access choose the repositories agents may read (or all). Under Permissions set Contents, Issues, Pull requests and Metadata to Read-only. Generate the token and copy it."
+      - Paste the token below. Leave GitHub Enterprise address blank unless your company runs its own GitHub.
+      - Optionally list the repositories you work in, save, switch the connector on and press Test.
+    docs_url: https://github.com/github/github-mcp-server
+    verify: Image name and the GITHUB_HOST, GITHUB_READ_ONLY and GITHUB_TOOLSETS variables in the github/github-mcp-server README.
 
   - id: microsoft365
     name: Microsoft 365 (Outlook, OneDrive, Teams)
@@ -41,15 +62,31 @@ connectors:
     requires: [MS365_MCP_ENABLED]
     accounts: {param: account, vars: [MS365_ACCOUNTS]}
     timeout_s: 90
+    labels:
+      MS365_ACCOUNTS: Accounts agents may use
+      MS365_MCP_ORG_MODE: Work or school account
+      MS365_MCP_PRESET: Preset
+      MS365_MCP_CLIENT_ID: Custom app (client) ID
+      MS365_MCP_TENANT_ID: Tenant ID
+    hints:
+      MS365_ACCOUNTS: "Optional, comma-separated email addresses, default first. Needed only when you signed in with more than one account."
+      MS365_MCP_ORG_MODE: "Enter 1 for a work or school account (needed for Teams, SharePoint and shared mailboxes). Leave blank for a personal account."
+      MS365_MCP_PRESET: "personal (default): mail, calendar, OneDrive, contacts, To Do, OneNote. work: adds Teams and SharePoint (needs Work or school account = 1). all: everything read-only."
+      MS365_MCP_CLIENT_ID: Leave blank unless your IT department gave you an app registration to use.
+      MS365_MCP_TENANT_ID: Leave blank unless your IT department told you to set it.
     setup: >-
-      Community server (Softeria). Sign in once by running `npx -y @softeria/ms-365-mcp-server --login`
-      and following the code shown, then set MS365_MCP_ENABLED=1. The default preset `personal` covers
-      mail, calendar, OneDrive files, contacts, tasks, OneNote and search. Work or school account: set
-      MS365_MCP_ORG_MODE=1; for Teams, SharePoint and shared mailboxes also set MS365_MCP_PRESET=work
-      (or `all`). Work tenants may need admin consent for the requested Graph permissions. Requires Node.js.
-      Several accounts: run --login once per account, then list them in MS365_ACCOUNTS (comma-separated,
-      default first). Agents may then use only those accounts.
-    verify: Package name, the --read-only and --preset flags, the preset names, MS365_MCP_ORG_MODE and the multi-account `account` argument in the softeria/ms-365-mcp-server README and PRESETS.md.
+      Reads Outlook mail and calendar, OneDrive, contacts, To Do and OneNote through Microsoft Graph, using the
+      community server by Softeria in read-only mode. You sign in once in a terminal; the app then reuses that sign-in.
+    steps:
+      - "Install Node.js 20 or newer from https://nodejs.org (the LTS installer), then close and reopen any terminal."
+      - "Open a terminal: on Windows, PowerShell (Start menu > PowerShell); on Linux or macOS, Terminal."
+      - "Personal account (outlook.com, hotmail.com): run   npx -y @softeria/ms-365-mcp-server --login"
+      - "Work or school account: run   npx -y @softeria/ms-365-mcp-server --login --org-mode   and enter 1 in Work or school account below."
+      - "The terminal shows a web address (https://microsoft.com/devicelogin) and a code. Open the address, enter the code, sign in with the account agents should read, and accept the permissions. Work tenants may need an administrator to approve them."
+      - "Several accounts: run the same command again and sign in with the next account. Then list the addresses in Accounts agents may use, default first. To see who is signed in, run   npx -y @softeria/ms-365-mcp-server --list-accounts"
+      - Tick "I have completed the one-time sign-in", save, switch the connector on and press Test.
+    docs_url: https://github.com/Softeria/ms-365-mcp-server#readme
+    verify: Package name, the --read-only, --preset, --login, --org-mode and --list-accounts flags, MS365_MCP_ORG_MODE and the multi-account `account` argument in the Softeria/ms-365-mcp-server README.
 
   - id: google-workspace
     name: Google Workspace (Gmail, Calendar, Drive)
@@ -65,50 +102,76 @@ connectors:
       WORKSPACE_MCP_PORT: ${WORKSPACE_MCP_PORT:-8000}
     accounts: {param: user_google_email, vars: [USER_GOOGLE_EMAIL, GOOGLE_OTHER_ACCOUNTS]}
     timeout_s: 120
+    labels:
+      GOOGLE_OAUTH_CLIENT_ID: OAuth client ID
+      GOOGLE_OAUTH_CLIENT_SECRET: OAuth client secret
+      USER_GOOGLE_EMAIL: Google email (default account)
+      GOOGLE_OTHER_ACCOUNTS: Other Google accounts
+      GOOGLE_WORKSPACE_TOOL_TIER: Tool tier
+      WORKSPACE_MCP_PORT: Sign-in port
+    hints:
+      GOOGLE_OTHER_ACCOUNTS: Optional, comma-separated addresses. Each one signs in through the browser the first time it is used.
+      GOOGLE_WORKSPACE_TOOL_TIER: "core (default) or extended (more read tools, for example labels and threads)."
+      WORKSPACE_MCP_PORT: "Default 8000. Change it only if another program uses that port, and update the redirect URI to match."
     setup: >-
-      Community server (taylorwilsdon/google_workspace_mcp, MIT). In Google Cloud Console create a project,
-      enable the Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides, Google Tasks
-      and People APIs, and create an OAuth client. If you choose the Web application type, add
-      http://localhost:8000/oauth2callback as an authorised redirect URI (change the port with
-      WORKSPACE_MCP_PORT). Enter the client ID, the client secret and your Google address (USER_GOOGLE_EMAIL).
-      The first time an agent reads your data the server opens your browser for Google sign-in; approve it
-      and run the step again. Tokens are kept in ~/.google_workspace_mcp/credentials. Requires uv (uvx).
-      GOOGLE_WORKSPACE_TOOL_TIER=extended adds more read tools (for example labels and threads).
-      Several accounts: put the extra addresses in GOOGLE_OTHER_ACCOUNTS (comma-separated); each one
-      signs in through the browser the first time it is used. USER_GOOGLE_EMAIL stays the default.
+      Reads Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks and Contacts with the community server
+      workspace-mcp (taylorwilsdon/google_workspace_mcp) in read-only mode, using an OAuth client you create
+      in your own Google Cloud project.
+    steps:
+      - "Install uv from https://docs.astral.sh/uv/getting-started/installation/ (it provides the uvx command)."
+      - "In Google Cloud Console (https://console.cloud.google.com) create a project, or pick one."
+      - "APIs & Services > Library: enable Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides, Google Tasks and People APIs."
+      - "APIs & Services > OAuth consent screen: set it up (External is fine for a personal account) and add your address as a test user."
+      - "APIs & Services > Credentials > Create credentials > OAuth client ID. Choose Desktop app, or Web application with http://localhost:8000/oauth2callback as an authorised redirect URI. Copy the client ID and secret."
+      - Enter the client ID, the secret and your Google address below, save, switch the connector on and press Test.
+      - The first time an agent reads your data, your browser opens for Google sign-in. Approve it, then run the step again.
+    docs_url: https://github.com/taylorwilsdon/google_workspace_mcp#readme
     verify: Package name (workspace-mcp on PyPI), the --read-only, --tool-tier and --tools flags, the variable names, the per-call user_google_email argument and the OAuth redirect in the google_workspace_mcp README and docs.
 
-  - id: databricks-genie
-    name: Databricks Genie
-    description: Natural-language questions over a curated Genie space (read-only).
+  - id: databricks
+    name: Databricks
+    description: Genie spaces, Unity Catalog functions and Vector Search in one workspace (read-only). Fill in the services you use.
     transport: http
-    url: ${DATABRICKS_HOST}/api/2.0/mcp/genie/${DATABRICKS_GENIE_SPACE_ID}
     headers:
       Authorization: Bearer ${DATABRICKS_TOKEN}
     timeout_s: 180
-    setup: Set DATABRICKS_HOST (https://<workspace-host>), DATABRICKS_TOKEN (personal access token or OAuth token) and DATABRICKS_GENIE_SPACE_ID. Managed MCP servers must be enabled in the workspace.
-    verify: URL pattern in the Databricks "managed MCP servers" docs; the feature is in preview and paths have been renamed before.
-
-  - id: databricks-uc-functions
-    name: Databricks Unity Catalog functions
-    description: Predefined SQL functions in one catalog schema, exposed as tools.
-    transport: http
-    url: ${DATABRICKS_HOST}/api/2.0/mcp/functions/${DATABRICKS_UC_CATALOG}/${DATABRICKS_UC_SCHEMA}
-    headers:
-      Authorization: Bearer ${DATABRICKS_TOKEN}
-    allow_tools: ["*"]   # UC functions are read queries you defined; narrow this list if any write
-    setup: Set DATABRICKS_UC_CATALOG and DATABRICKS_UC_SCHEMA in addition to the Genie variables.
-    verify: Whether your workspace uses the schema-level or function-level URL form.
-
-  - id: databricks-search
-    name: Databricks AI / Vector Search
-    description: Retrieval over vector search indexes in one catalog schema.
-    transport: http
-    url: ${DATABRICKS_HOST}/api/2.0/mcp/vector-search/${DATABRICKS_VS_CATALOG}/${DATABRICKS_VS_SCHEMA}
-    headers:
-      Authorization: Bearer ${DATABRICKS_TOKEN}
-    setup: Set DATABRICKS_VS_CATALOG and DATABRICKS_VS_SCHEMA.
-    verify: Databricks renamed Vector Search to AI Search (/api/2.0/mcp/ai-search/...); the older prefix is documented as still working.
+    replaces: [databricks-genie, databricks-uc-functions, databricks-search]
+    parts:
+      - id: genie
+        name: Genie space
+        description: Natural-language questions over a curated Genie space.
+        url: ${DATABRICKS_HOST}/api/2.0/mcp/genie/${DATABRICKS_GENIE_SPACE_ID}
+      - id: functions
+        name: Unity Catalog functions
+        description: The SQL functions in one catalog schema, as tools.
+        url: ${DATABRICKS_HOST}/api/2.0/mcp/functions/${DATABRICKS_UC_CATALOG}/${DATABRICKS_UC_SCHEMA}
+        allow_tools: ["*"]   # UC functions are read queries you defined; narrow this list if any write
+      - id: search
+        name: Vector Search
+        description: Retrieval over the vector search indexes in one catalog schema.
+        url: ${DATABRICKS_HOST}/api/2.0/mcp/vector-search/${DATABRICKS_VS_CATALOG}/${DATABRICKS_VS_SCHEMA}
+    labels:
+      DATABRICKS_HOST: Workspace URL
+      DATABRICKS_TOKEN: Access token
+      DATABRICKS_GENIE_SPACE_ID: Genie space ID
+      DATABRICKS_UC_CATALOG: Catalog
+      DATABRICKS_UC_SCHEMA: Schema
+      DATABRICKS_VS_CATALOG: Catalog
+      DATABRICKS_VS_SCHEMA: Schema
+    hints:
+      DATABRICKS_HOST: "https://<your-workspace>.cloud.databricks.com or https://adb-<id>.<n>.azuredatabricks.net, without a trailing slash."
+      DATABRICKS_GENIE_SPACE_ID: "Open the Genie space; the ID is the part of the address after /genie/rooms/."
+    setup: >-
+      Connects to the managed MCP servers of one Databricks workspace. Enter the workspace and a token once, then
+      fill in the services you use: each one turns on when its fields are filled in. Managed MCP servers must be
+      enabled in the workspace.
+    steps:
+      - "Copy your workspace URL from the browser address bar (for example https://adb-1234567890123456.7.azuredatabricks.net)."
+      - "Create a token: your user menu > Settings > Developer > Access tokens > Generate new token. Copy it."
+      - "Fill in the services you use: a Genie space ID; the catalog and schema of your Unity Catalog functions; the catalog and schema of your vector search indexes."
+      - Save, switch the connector on and press Test. Each service you filled in is listed with its read-only tools.
+    docs_url: https://docs.databricks.com/aws/en/generative-ai/mcp/managed-mcp
+    verify: URL patterns in the Databricks managed MCP servers docs (preview; paths have been renamed before, and Vector Search is now also called AI Search).
 
   - id: azure-devops
     name: Azure DevOps
@@ -116,7 +179,16 @@ connectors:
     transport: stdio
     command: npx
     args: [-y, "@azure-devops/mcp", "${AZURE_DEVOPS_ORG}", -d, core, work, work-items, repositories, wiki]
-    setup: Set AZURE_DEVOPS_ORG (organisation name only). Sign in when the server opens the browser. The suite blocks write tools; this server has no read-only flag.
+    labels:
+      AZURE_DEVOPS_ORG: Organisation
+    hints:
+      AZURE_DEVOPS_ORG: "The name only: for https://dev.azure.com/contoso enter contoso."
+    setup: Reads projects, work items, repositories and wiki with Microsoft's Azure DevOps MCP server. The suite blocks write tools; this server has no read-only flag.
+    steps:
+      - "Install Node.js 20 or newer from https://nodejs.org."
+      - Enter your organisation name below, save, switch the connector on and press Test.
+      - Your browser opens for Microsoft sign-in the first time; sign in with the account that has access to the organisation.
+    docs_url: https://github.com/microsoft/azure-devops-mcp#readme
     verify: Package name and the -d domain flag in microsoft/azure-devops-mcp. Maintainers recommend their remote server going forward.
 
   - id: atlassian
@@ -133,7 +205,23 @@ connectors:
       CONFLUENCE_USERNAME: ${CONFLUENCE_USERNAME:-}
       CONFLUENCE_API_TOKEN: ${CONFLUENCE_API_TOKEN:-}
       READ_ONLY_MODE: "true"
-    setup: Community server (sooperset/mcp-atlassian). Create an Atlassian API token. Confluence variables are optional.
+    labels:
+      JIRA_URL: Jira address
+      JIRA_USERNAME: Jira email
+      JIRA_API_TOKEN: Jira API token
+      CONFLUENCE_URL: Confluence address
+      CONFLUENCE_USERNAME: Confluence email
+      CONFLUENCE_API_TOKEN: Confluence API token
+    hints:
+      JIRA_URL: "For example https://yourcompany.atlassian.net"
+      CONFLUENCE_URL: "Optional. For example https://yourcompany.atlassian.net/wiki"
+    setup: Reads Jira issues and projects, and optionally Confluence pages, with the community server sooperset/mcp-atlassian in read-only mode.
+    steps:
+      - Install Docker Desktop (Windows, macOS) or Docker Engine (Linux) and start it.
+      - "Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens and copy it."
+      - Enter the Jira address, your Atlassian email and the token. For Confluence, fill in its fields too (the same token works on Atlassian Cloud).
+      - Save, switch the connector on and press Test.
+    docs_url: https://github.com/sooperset/mcp-atlassian#readme
     verify: Image tag and variable names in the sooperset/mcp-atlassian README; whether CONFLUENCE_URL needs the /wiki suffix.
 
   - id: local-files

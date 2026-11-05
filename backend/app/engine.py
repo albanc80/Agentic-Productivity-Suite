@@ -38,6 +38,9 @@ REPAIR_PROMPT = ("Return only the JSON handoff block for your answer above, in a
 
 
 EDITED_ATTEMPT = 99  # step row recording an approver's edit; not an execution
+INPUT_ROUNDS = 2  # times one step may stop to ask the person before the run goes on without
+INPUT_PREFIX = "input:"  # approval step ids for "your input is needed"
+SUPERSEDED = "superseded"  # a step result replaced by a rerun with the person's answers
 BUDGET_NOTE = "The spending limit for this run is reached. Do not call tools. Finish now with what you have."
 
 
@@ -223,7 +226,7 @@ class Engine:
         ctx = RunCtx(run=run, pb=pb, inputs=run["inputs"])
         for s in pb.flat_steps():
             row = self.store.latest_step(run_id, s.id)
-            if row and row["status"] not in ("running", "error"):
+            if row and row["status"] not in ("running", "error", SUPERSEDED):
                 ctx.outputs[s.id] = {"agent": row["agent"], "status": row["status"], "deliverable": row["deliverable"] or "",
                                      "handoff": (row["output"] or {}).get("handoff"),
                                      "data": (row["output"] or {}).get("data"), "warnings": row["warnings"]}
@@ -272,14 +275,95 @@ class Engine:
                 if c not in children:
                     self._record_skip(ctx, c, "condition not met", parent=step.id)
             pending = [c for c in children if c.id not in ctx.outputs]
+            if not pending:
+                return False
             await asyncio.gather(*(self._run_step(ctx, c, parent=step.id) for c in pending))
-            return False
+            return self._input_gate(ctx, step, pending)
         if step.id in ctx.outputs:
             return False
         await self._run_step(ctx, step)
         if step.kind == "review":
             await self._maybe_revise(ctx, step)
-        return False
+        return self._input_gate(ctx, step, [step])
+
+    # ================================================================ the person's input
+
+    def _input_gate(self, ctx: RunCtx, top: Step, ran: list[Step]) -> bool:
+        """Pause when a step says it needs the person's input. The run page asks the questions; the answers
+        rerun those steps and are given to every later step. Continuing without answering is always possible."""
+        need = []
+        for s in ran:
+            o = ctx.outputs.get(s.id) or {}
+            if o.get("status") != Status.NEEDS_INPUT.value:
+                continue
+            qs = [str(q).strip() for q in (o.get("handoff") or {}).get("open_questions") or [] if str(q).strip()]
+            need.append({"step": s.id, "title": s.title or s.id, "agent": s.agent,
+                         "questions": qs[:5] or ["What information is missing for this step? (the agent named none)"]})
+        if not need:
+            return False
+        rounds = [a for a in self.store.approvals(run_id=ctx.id) if a["step_id"].startswith(f"{INPUT_PREFIX}{top.id}:")]
+        if len(rounds) >= INPUT_ROUNDS:
+            self.store.add_note(ctx.id, f"'{top.title or top.id}' still needs input after {INPUT_ROUNDS} rounds of "
+                                        "questions; the run continued with what it has.")
+            return False
+        names = ", ".join(self.registry.agents[n["agent"]].name for n in need if n.get("agent") in self.registry.agents)
+        self.store.create_approval(
+            ctx.id, f"{INPUT_PREFIX}{top.id}:{len(rounds) + 1}", "Your input is needed",
+            f"{names or 'An agent'} needs more information to do this step well. Answer what you can and continue; "
+            "the step runs again with your answers, and later steps see them too. You can also continue without answering.",
+            None, json.dumps(need))
+        self.store.update_run(ctx.id, status="awaiting_approval")
+        self.store.audit("input_requested", ctx.id, step=top.id, questions=sum(len(n["questions"]) for n in need))
+        return True
+
+    async def answer(self, approval_id: str, answers: list[str], by: str, skip: bool = False) -> dict:
+        """The person answered the questions of an input pause (or chose to continue without answering)."""
+        a = self.store.approval(approval_id)
+        if not a or not a["step_id"].startswith(INPUT_PREFIX):
+            raise KeyError("input request not found")
+        if a["status"] != "pending":
+            raise ValueError(f"input request already {a['status']}")
+        if self.killed:
+            raise RunStopped("The kill switch is on.")
+        need = json.loads(a["payload"] or "[]")
+        questions = [(n, q) for n in need for q in n["questions"]]
+        given = [(n, q, (answers[i] if i < len(answers) else "").strip()) for i, (n, q) in enumerate(questions)]
+        answered = [g for g in given if g[2]]
+        run = self.store.run(a["run_id"])
+        if skip or not answered:
+            self.store.decide_approval(approval_id, "approved", by or "you", "continued without answering", None)
+            self.store.add_note(run["id"], "Continued without answering the questions.")
+        else:
+            prior = list(run["options"].get("answers") or [])
+            prior += [{"step": n["step"], "question": q[:500], "answer": ans[:4000]} for n, q, ans in answered]
+            self.store.update_run(run["id"], options={**run["options"], "answers": prior})
+            for n in {n["step"] for n, _q, _a in answered}:  # rerun the steps that asked, now with the answers
+                row = self.store.latest_step(run["id"], n)
+                if row:
+                    self.store.finish_step(row["id"], status=SUPERSEDED)
+            self.store.decide_approval(approval_id, "approved", by or "you", f"{len(answered)} answer(s) given", None)
+        self.store.audit("input_given", run["id"], approval=approval_id, answers=len(answered), skipped=bool(skip or not answered))
+        if self.store.run(run["id"])["status"] == "awaiting_approval":
+            self.store.update_run(run["id"], status="running")
+            self._spawn(run["id"])
+        return self.store.approval(approval_id)
+
+    def _given_inputs(self, ctx: RunCtx) -> str:
+        """Every input the person filled in, and every answer they gave, for the agent's task.
+        Long text and files go in as untrusted data blocks instead (see _priors)."""
+        lines = []
+        for inp in ctx.pb.inputs:
+            v = ctx.inputs.get(inp.id)
+            if inp.is_data or v in (None, "", []):
+                continue
+            v = ", ".join(map(str, v)) if isinstance(v, list) else str(v)
+            lines.append(f"- {inp.label}: {v[:600]}")
+        out = "Inputs from the person:\n" + "\n".join(lines) if lines else ""
+        answers = ctx.run["options"].get("answers") or []
+        if answers:
+            out += ("\n\n" if out else "") + "The person answered these questions during the run (use them; they override assumptions):\n" + \
+                "\n".join(f"- Q: {x['question']}\n  A: {x['answer']}" for x in answers)
+        return out
 
     def _record_skip(self, ctx: RunCtx, step: Step, reason: str, parent: str | None = None) -> None:
         if step.id in ctx.outputs:
@@ -292,6 +376,9 @@ class Engine:
 
     async def _run_step(self, ctx: RunCtx, step: Step, *, parent: str | None = None, attempt: int = 1,
                         feedback: list[str] | None = None) -> None:
+        prev = self.store.latest_step(ctx.id, step.id)
+        if attempt == 1 and prev and prev["status"] == SUPERSEDED:
+            attempt = prev["attempt"] + 1  # rerun with the person's answers
         # Guardrail, always on: revisions and resumed steps count, so a run cannot loop without end.
         limit = self.s.budgets.max_steps
         done = sum(1 for r in self.store.steps(ctx.id)
@@ -521,6 +608,8 @@ class Engine:
             for t in infos:
                 specs.append(ToolSpec(t.qualified, f"[{cid}, read-only] {t.description}", t.input_schema or {"type": "object"}))
                 routes[t.qualified] = ("mcp", (cid, t.name))
+            if infos:
+                account_lines += [f"- {self.connectors.configs[cid].name}: {line}" for line in self.connectors.context_lines(cid)]
             accounts = self.connectors.accounts(cid)
             if accounts and infos:
                 cfg = self.connectors.configs[cid]
@@ -577,6 +666,12 @@ class Engine:
 
         priors, data_blocks, inj_flags = self._priors(ctx, step)
         task = render(step.task or "Review the target step's output against its task and the inputs.", ctx.template_ctx())
+        given = self._given_inputs(ctx)
+        if given:
+            task = task.rstrip() + "\n\n" + given
+        task += ("\n\nIf you cannot do this step well without an answer only the person can give, set status NEEDS_INPUT "
+                 "and put up to five short, specific questions in open_questions; the run pauses, asks them, and runs this "
+                 "step again with the answers. Otherwise do the step and list remaining questions as usual.")
         handoff = self._handoff(ctx)
         warnings: list[str] = [f"possible prompt injection in {f}" for f in inj_flags]
         errors: list[str] = []
@@ -610,7 +705,7 @@ class Engine:
                               profile=self.profile, persona=persona, extra_skills=step.skills,
                               has_skill_tool=SKILL_TOOL in routes, review=review)
         if account_lines:
-            task = task.rstrip() + "\n\nConnected accounts:\n" + "\n".join(account_lines)
+            task = task.rstrip() + "\n\nConnected accounts and scope:\n" + "\n".join(account_lines)
         user = build_user(handoff=handoff, task=task, priors=priors, data_blocks=data_blocks,
                           review_target=step.target if review else None, feedback=feedback)
         tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3
