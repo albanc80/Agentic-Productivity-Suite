@@ -11,7 +11,7 @@ HERE = Path(__file__).parent
 
 def cfg(**kw) -> ConnectorConfig:
     base = {"id": "tracker", "name": "Tracker", "transport": "stdio", "command": sys.executable,
-            "args": [str(HERE / "fake_mcp_server.py")]}
+            "args": [str(HERE / "fake_mcp_server.py")], "enabled": True}
     base.update(kw)
     return ConnectorConfig.model_validate(base)
 
@@ -137,3 +137,10 @@ def test_shipped_mail_presets_declare_read_only_and_accounts():
     assert "--read-only" in ms.args and "--read-only" in gw.args
     assert ms.accounts.param == "account" and gw.accounts.param == "user_google_email"
     assert {"MS365_ACCOUNTS"} <= set(ms.variables()) and {"USER_GOOGLE_EMAIL", "GOOGLE_OTHER_ACCOUNTS"} <= set(gw.variables())
+
+
+def test_every_shipped_connector_starts_switched_off():
+    from tests.conftest import ROOT
+    mgr = ConnectorManager.from_file(None, presets=ROOT / "config" / "connectors.example.yaml")
+    assert mgr.configs and not [cid for cid, c in mgr.configs.items() if c.enabled]
+    assert not [d["id"] for d in mgr.describe() if d["status"] != "disabled"]

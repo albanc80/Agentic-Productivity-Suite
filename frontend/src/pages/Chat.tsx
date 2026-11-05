@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type ChatDetail, type ChatMsg, type ChatSummary, type Overview } from "../api";
+import { api, downloadAnswer, type ChatDetail, type ChatMsg, type ChatSummary, type Overview } from "../api";
 import { ErrorNote, Markdown, fmtCost, fmtTime, go } from "../ui";
 
 const COORDINATOR = "chief-of-staff";
@@ -27,6 +27,8 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   const [pending, setPending] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const end = useRef<HTMLDivElement>(null);
+  const alive = useRef(true);  // false once the user has moved to another chat
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const loadList = () => api.chats().then(setList).catch(setError);
   useEffect(() => { loadList(); }, []);
@@ -55,12 +57,14 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
       let target = chat;
       if (!target) target = await api.startChat(agentId, dataClass);
       await api.sendChat(target.id, content, files.map((f) => f.id));
+      if (!alive.current) return;  // the user switched chats while this one was answering: leave them where they are
       setFiles([]);
       const fresh = await api.chat(target.id);
+      if (!alive.current) return;
       setChat(fresh);
       if (!chat) go(`/chat/${target.id}`);
       loadList();
-    } catch (err) { setError(err); setText(content); } finally { setBusy(""); setPending(null); }
+    } catch (err) { if (alive.current) { setError(err); setText(content); } } finally { if (alive.current) { setBusy(""); setPending(null); } }
   }
   async function attach(fl: FileList | null) {
     if (!fl) return;
@@ -68,6 +72,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     try {
       for (const f of Array.from(fl)) {
         const r = await api.upload(f);
+        if (!alive.current) return;
         setFiles((x) => [...x, { id: r.id, name: r.name }]);
       }
     } catch (e) { setError(e); } finally { setBusy(""); }
@@ -104,7 +109,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
           {chat ? (
             <div className="grow stack-xs">
               <h1 className="chat-title">{chat.title}</h1>
-              <span className="muted small">{agent?.name} · data class {chat.data_class} · model {modelFor(ov, chat.agent_id)} · {chat.tokens.toLocaleString()} tokens · {fmtCost(chat.cost_usd)}</span>
+              <span className="muted small">{agent?.name} · data class {chat.data_class} · model {modelFor(ov, chat.agent_id)} · {chat.tokens.toLocaleString()} tokens · {fmtCost(chat.cost_usd)}{ov.budgets.enabled ? ` · budget ${fmtCost(ov.budgets.max_chat_cost_usd)} / ${ov.budgets.max_chat_tokens.toLocaleString()} tokens` : ""}</span>
             </div>
           ) : (
             <div className="grow stack-sm">
@@ -141,7 +146,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
         </header>
 
         <div className="chat-thread" aria-live="polite">
-          {chat?.messages.map((m, i) => <Message key={i} m={m} ov={ov} />)}
+          {chat?.messages.map((m, i) => <Message key={i} m={m} ov={ov} chatId={chat.id} index={i} restricted={chat.data_class === "restricted"} />)}
           {pending && <div className="msg user"><div className="bubble"><p>{pending}</p></div></div>}
           {busy === "send" && <div className="msg assistant"><div className="bubble thinking"><span className="pill live">Working</span> {working}</div></div>}
           {!chat && !pending && (
@@ -179,8 +184,71 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   );
 }
 
-function Message({ m, ov }: { m: ChatMsg; ov: Overview }) {
+/** Copy plain text, with a fallback for browsers or app windows without the async clipboard API. */
+async function copyText(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
+  } catch { /* fall back below */ }
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  const ok = document.execCommand("copy");
+  document.body.removeChild(ta);
+  if (!ok) throw new Error("Copy is not available here; select the text and copy it instead.");
+}
+
+function AnswerActions({ m, chatId, index, body, canSave }: { m: ChatMsg; chatId: string; index: number;
+  body: React.RefObject<HTMLDivElement>; canSave: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  async function copy() {
+    setError(null);
+    // The rendered answer as plain text: what a person sees, without Markdown symbols.
+    // Styling such as upper-case table headers must not change the copied words.
+    body.current?.classList.add("copying");
+    const text = (body.current?.innerText || m.content).trim();
+    body.current?.classList.remove("copying");
+    try { await copyText(text); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch (e) { setError(e); }
+  }
+  const get = (f: "md" | "html") => downloadAnswer(chatId, index, f).catch(setError);
+  async function save() {
+    setError(null);
+    try { setSaved((await api.saveAnswer(chatId, index, m.file?.format || "md")).path); } catch (e) { setError(e); }
+  }
+  return (
+    <>
+      {m.file && (
+        <div className="answer-file">
+          <span className="answer-file-name">{m.file.name}</span>
+          <span className="muted small">
+            {m.file.format === "html" ? "HTML page" : "Markdown file"} built from {m.file.source != null ? "an earlier answer" : "this answer"}
+            {m.file.saved_to ? <> · saved to <code className="outputs-path">{m.file.saved_to}</code></> : " · not saved to the outputs folder"}
+          </span>
+          <button className="primary" onClick={() => get(m.file!.format)}>Download</button>
+        </div>
+      )}
+      <div className="answer-actions">
+        <button className="icon-btn" onClick={copy} aria-label="Copy answer as text" title="Copy answer as text">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></svg>
+          <span>{copied ? "Copied" : "Copy"}</span>
+        </button>
+        <button className="ghost small-btn" onClick={() => get("md")} title="Download this answer as a Markdown file">.md</button>
+        <button className="ghost small-btn" onClick={() => get("html")} title="Download this answer as an HTML page">.html</button>
+        {canSave && !m.file?.saved_to && <button className="ghost small-btn" onClick={save}
+          title="Save this answer as a new file in your Agentic-Suite-Outputs folder">{saved ? "Saved" : "Save to folder"}</button>}
+        {saved && <span className="small muted">Saved to <code className="outputs-path">{saved}</code></span>}
+        <span className="sr-only" aria-live="polite">{copied ? "Answer copied" : ""}</span>
+      </div>
+      <ErrorNote error={error} />
+    </>
+  );
+}
+
+function Message({ m, ov, chatId, index, restricted }: { m: ChatMsg; ov: Overview; chatId: string; index: number; restricted: boolean }) {
   const name = (id?: string) => ov.agents.find((a) => a.id === id)?.name || id;
+  const body = useRef<HTMLDivElement>(null);
   if (m.role === "user") {
     return (
       <div className="msg user">
@@ -194,8 +262,9 @@ function Message({ m, ov }: { m: ChatMsg; ov: Overview }) {
   return (
     <div className="msg assistant">
       <div className="bubble">
-        <div className="msg-meta small muted">{name(m.agent)} · {m.model}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
-        <Markdown text={m.content} />
+        <div className="msg-meta small muted">{name(m.agent)}{m.model ? ` · ${m.model}` : ""}{m.tool_calls?.length ? ` · read ${m.tool_calls.length} file${m.tool_calls.length > 1 ? "s" : ""}` : ""}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
+        <div ref={body}><Markdown text={m.content} /></div>
+        <AnswerActions m={m} chatId={chatId} index={index} body={body} canSave={!!ov.outputs_dir && !restricted} />
         {m.delegations && m.delegations.length > 0 && (
           <details className="delegations">
             <summary>Asked {m.delegations.length} specialist{m.delegations.length > 1 ? "s" : ""}: {m.delegations.map((d) => name(d.agent)).join(", ")}</summary>

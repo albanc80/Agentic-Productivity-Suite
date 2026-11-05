@@ -115,8 +115,19 @@ class ModelConfig(BaseModel):
 
 
 class Budgets(BaseModel):
+    """Spending limits (off unless switched on) and guardrails (always on).
+
+    ``enabled`` switches the spending limits: cost and tokens per run and per chat. Off, runs and chats
+    use what they need. The guardrails below them apply either way: they stop runaway loops and keep
+    every prompt inside the model's context window.
+    """
+
+    enabled: bool = False
     max_run_cost_usd: float = 2.0
     max_run_tokens: int = 400_000
+    max_chat_cost_usd: float = 2.0
+    max_chat_tokens: int = 400_000
+    # Guardrails, always on.
     max_steps: int = 40
     max_tool_calls_per_step: int = 8
     max_tool_result_chars: int = 12_000
@@ -155,6 +166,9 @@ class Settings(BaseModel):
     # Private agent layer (instructions, personas, lineage). Kept outside the repository and the
     # installers; see Registry. None = not found, agents run on their public capability summary.
     private_registry_dir: Path | None = None
+    # Readable copies of chats and deliverables (see outputs.py). None = off. load_settings defaults it to
+    # <Documents>/Agentic-Suite-Outputs; SUITE_OUTPUTS_DIR or outputs_dir in suite.yaml move it ("off" disables).
+    outputs_dir: Path | None = None
 
     @property
     def registry_dir(self) -> Path:
@@ -223,14 +237,23 @@ def load_settings(home: Path | None = None, config_path: Path | None = None) -> 
                                                home / "config" / "connectors.yaml",
                                                home / "config" / "connectors.example.yaml") if x))
     theme = rel(os.environ.get("SUITE_THEME_DIR") or raw.get("theme_dir"))
+    out_raw = str(os.environ.get("SUITE_OUTPUTS_DIR") or raw.get("outputs_dir") or "").strip()
+    if out_raw.lower() in ("off", "none", "false", "0"):
+        outputs = None
+    elif out_raw:
+        outputs = Path(expand_env(out_raw)).expanduser()
+        outputs = outputs if outputs.is_absolute() else home / outputs
+    else:
+        from .outputs import default_outputs_dir
+        outputs = default_outputs_dir()
     explicit = rel(os.environ.get("SUITE_PRIVATE_REGISTRY") or raw.get("private_registry"))
     private = explicit if explicit else _first_existing(data_dir / "private-registry", home / "private-registry")
     raw = drop_legacy_demo(raw)
-    fields = {k: v for k, v in raw.items() if k in Settings.model_fields and k not in {"home", "data_dir", "profile_path", "connectors_path", "theme_dir", "private_registry_dir"}}
+    fields = {k: v for k, v in raw.items() if k in Settings.model_fields and k not in {"home", "data_dir", "profile_path", "connectors_path", "theme_dir", "private_registry_dir", "outputs_dir"}}
     if os.environ.get("SUITE_OFFLINE", "").strip().lower() in ("1", "true", "yes", "on"):
         fields["offline"] = True
     s = Settings(home=home, data_dir=data_dir, profile_path=profile, connectors_path=connectors, theme_dir=theme,
-                 private_registry_dir=private, **fields)
+                 private_registry_dir=private, outputs_dir=outputs, **fields)
     s.data_dir.mkdir(parents=True, exist_ok=True)
     return s
 

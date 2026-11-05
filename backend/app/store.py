@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS approvals (
   created_at TEXT NOT NULL, decided_at TEXT
 );
 CREATE TABLE IF NOT EXISTS files (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, media_type TEXT, chars INTEGER, text TEXT NOT NULL, created_at TEXT NOT NULL
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, media_type TEXT, chars INTEGER, text TEXT NOT NULL, created_at TEXT NOT NULL,
+  chat_id TEXT
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS chats (
@@ -68,6 +69,10 @@ class Store:
         self.lock = threading.Lock()
         with self.lock:
             self.db.executescript(SCHEMA)
+            # Databases created before files were bound to one chat lack the column.
+            cols = {r[1] for r in self.db.execute("PRAGMA table_info(files)")}
+            if "chat_id" not in cols:
+                self.db.execute("ALTER TABLE files ADD COLUMN chat_id TEXT")
 
     def _exec(self, sql: str, args: tuple = ()) -> sqlite3.Cursor:
         with self.lock:
@@ -252,3 +257,9 @@ class Store:
 
     def file(self, fid: str) -> dict | None:
         return self._row("SELECT * FROM files WHERE id=?", (fid,))
+
+    def bind_file_to_chat(self, fid: str, cid: str) -> bool:
+        """Tie a file to the first chat it is sent in. False if it already belongs to another chat."""
+        self._exec("UPDATE files SET chat_id=? WHERE id=? AND chat_id IS NULL", (cid, fid))
+        row = self._row("SELECT chat_id FROM files WHERE id=?", (fid,))
+        return bool(row) and row["chat_id"] == cid

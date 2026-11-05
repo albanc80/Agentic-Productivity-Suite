@@ -2,9 +2,11 @@
 
 A platform-agnostic application that turns a library of specialist agents into governed, repeatable workflows for professionals: daily planning, decisions, management, product development, engineering and investment cases.
 
-Two front doors. **Chat** with the Chief of Staff, who answers or brings in up to three specialists, or with any single agent, for anything. Or route a request to a **playbook**: a fixed sequence of steps in which specialist agents work in order or in parallel. A different agent reviews the work, and anything that would leave the app waits for a named person. Agents can run on local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, mixed in one run. They read live context through read-only MCP connectors (GitHub, Microsoft 365, Databricks, Azure DevOps, Jira/Confluence, local files).
+Two front doors. **Chat** with the Chief of Staff, who answers or brings in up to three specialists, or with any single agent, for anything. Or route a request to a **playbook**: a fixed sequence of steps in which specialist agents work in order or in parallel. A different agent reviews the work, and anything that would leave the app waits for a named person. Agents can run on local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, mixed in one run. They read live context through read-only MCP connectors (GitHub, Microsoft 365, Google Workspace, Databricks, Azure DevOps, Jira/Confluence, local files).
 
 > Status: MVP. 19 playbooks (PB-00 to PB-18) and direct chat, with 34 agents in 8 desks. Everything day to day is set up in the app's Settings. Runs in the browser, as a desktop app, and fully offline with local models. See [docs/SAFETY.md](docs/SAFETY.md) for the risk controls and [docs/adr/](docs/adr/) for the design decisions.
+
+**Safe defaults on a fresh install:** every connector is off until you set it up and switch it on; spending limits are off until you switch them on (the guardrails against runaway loops are always on); restricted data only reaches local models; and readable copies of your work are saved to `Documents/Agentic-Suite-Outputs`.
 
 ## Quick start
 
@@ -14,7 +16,7 @@ Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 20+. Dock
 ./scripts/dev.sh
 ```
 
-Then open http://127.0.0.1:8765. Windows (`.msi`) and Linux (`.deb`) installers are built by GitHub Actions; see [docs/DESKTOP.md](docs/DESKTOP.md) for downloads, offline use and phones. The suite needs at least one model: until one is switched on, agent steps stop as BLOCKED with "No model configured" (deterministic calculators still run). Set one up in Settings (below).
+Then open http://127.0.0.1:8765. Windows (`.msi`) and Linux (`.deb`) installers are built by GitHub Actions on every pull request and published as a GitHub Release automatically when a merge to `main` raises the version; see [docs/DESKTOP.md](docs/DESKTOP.md) for downloads, releases, offline use and phones. To update, install the new file over the old one; you never need to uninstall first, and your settings and history are kept. The suite needs at least one model: until one is switched on, agent steps stop as BLOCKED with "No model configured" (deterministic calculators still run). Set one up in Settings (below).
 
 For UI development with hot reload:
 
@@ -49,9 +51,37 @@ Each **tier** (`router`, `specialist`, `synthesis`, `review`) is an ordered fall
 
 Settings → Model providers shows each provider's state and has a **Test** button once it is ready. When **Find models** fails, the message says why: a 401 means the server wants an API key, a 404 usually means the address should end in `/v1`, and "could not reach" means nothing is listening there.
 
+**Model prices.** Enter each cloud model's price per million tokens in its Edit panel. The suite uses them to show the cost of every run and chat, and for the cost limit (below). A model with no price counts as costing nothing; check prices with the provider, they change.
+
+## Chat
+
+Open **Chat** and pick an agent, or keep the Chief of Staff, who answers itself or brings in up to three specialists and merges their answers. When a request matches a playbook, the answer suggests it.
+
+- **Every chat is independent.** A file you attach belongs to the chat you send it in; other chats never see it, and sending it from another chat is refused (attach it again there). A draft or an attachment never follows you into another chat.
+- **Copy an answer** with the copy icon under it: you get plain text, as written, without Markdown symbols.
+- **Download an answer** as `.md` or as a standalone `.html` page from the buttons under it, or press **Save to folder** to write it into `Agentic-Suite-Outputs/Files`; the path is shown.
+- **Ask for a file.** Say "as an HTML file", "export to markdown", "save as notes.md" or "make it a web page", and the app saves the answer as that file in `Agentic-Suite-Outputs/Files` and shows a file card with the path and a Download button. "Save the previous answer as review.md" saves the earlier answer exactly as it is, with no model call. If you type a full path, only the file name is used: the app writes into the outputs folder only, and never overwrites a different file (it adds `-2`). The HTML is always built by the app from Markdown; HTML written by a model is never rendered.
+- **Read your files.** Switch on **Local files** in Settings → Connectors and choose folders; chat agents can then list, search and read files there (text, CSV, JSON, YAML, PDF, Word, Excel), read-only, on models with tool calling. Each answer says how many files it read, and every read is in the audit log. You can also attach a file to one chat.
+- Agents are told what the app can do (copy, download, save, read shared folders), so they write the document instead of telling you to print or copy by hand.
+- The chat header shows the tokens and cost used so far, and the chat budget when spending limits are on.
+
+## Outputs folder
+
+On start the app creates `Agentic-Suite-Outputs` in your Documents folder (found where Windows or Linux says it is, so a redirected or OneDrive Documents folder works) and keeps readable copies there:
+
+| Folder | What | When |
+|---|---|---|
+| `Chats/` | One Markdown transcript per chat | Rewritten after every message; deleting a chat deletes its copy |
+| `Runs/` | Each finished playbook deliverable, as `.md` and `.html` | When the run completes |
+| `Files/` | Files you asked for in chat, or saved with **Save to folder** | When the answer arrives or you press Save; a different file with the same name is never overwritten |
+
+Chats and runs marked **Restricted** are not copied, because Documents is often synced to a cloud drive. The database with your settings, keys and full history stays in the app's own folder. A write that fails is logged and never breaks a chat or a run. To move the folder or switch it off, set `outputs_dir` (or `off`) in `suite.yaml`, or `SUITE_OUTPUTS_DIR`, and restart. Settings → Policies & budgets shows where it is.
+
 ## Connectors (MCP, read-only)
 
-Set them up in Settings → Connectors: switch one on, open **Edit**, fill in what it needs (tokens are write-only), and **Test**. **Local files** is built in: choose one or more folders and agents can list, search and read files there (including PDF, Word and Excel), offline too, with nothing else to install. Setup notes and what to verify are in [docs/CONNECTORS.md](docs/CONNECTORS.md).
+Set them up in Settings → Connectors. **Every connector starts switched off**, and its switch stays locked ("Off · needs setup") until **Edit** has every value it needs (tokens are write-only); then switch it on and **Test**. A playbook step that needs a connector that is off is skipped with a note, or stops the run if the step is required. **Local files** is built in: choose one or more folders and agents can list, search and read files there (including PDF, Word and Excel), offline too, with nothing else to install. Setup notes and what to verify are in [docs/CONNECTORS.md](docs/CONNECTORS.md).
+
+**Several accounts.** Microsoft 365 (Outlook, OneDrive, calendar, contacts, To Do, OneNote; Teams and SharePoint with the work preset) and Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks, Contacts) each serve every account you sign in with, for example work and personal. You list the accounts agents may use; agents are told which accounts are connected and say which account each fact came from, a call without an account goes to the default one, and a call to an unlisted account is refused.
 
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
@@ -98,8 +128,49 @@ flowchart LR
 
 - **Agents.** `registry/catalog.yaml` is the public agent catalog: name, desk, summary, capabilities, skills, tools and modes. Each agent's full instructions, persona and lineage are a **private layer** that is not in this repository or in the installers. The app loads it at runtime from the first folder found: `SUITE_PRIVATE_REGISTRY`, `private_registry` in `config/suite.yaml`, `<data_dir>/private-registry`, then `./private-registry` (git-ignored). The desktop app looks in `~/.productivity-suite/private-registry`. Without it, the app still runs and each agent works from its public capability summary; Settings shows a warning. The Agents page shows only the capability summary; instructions, persona and lineage are never sent to the UI. See ADR 0005.
 - **Contract.** Every agent returns Markdown plus a JSON handoff: status, claims labelled FACT / ASSUMPTION / INFERENCE with traces, risks, open questions and next action. A FACT without a trace is downgraded to ASSUMPTION.
-- **Guardrails.** Pasted text, files and tool results are wrapped as untrusted data and screened for injection attempts. The suite has no send/write/publish capability. Deliverables are screened for language that evaluates people. Runs have cost and token budgets, a per-step tool-call limit and a global kill switch. The audit log redacts secrets.
+- **Guardrails.** Pasted text, files and tool results are wrapped as untrusted data and screened for injection attempts. The suite cannot send, publish or change anything outside itself. Its only writes are the readable copies in the outputs folder and files you ask for there; a model never chooses to write a file. Deliverables are screened for language that evaluates people. Runs have a step limit, a per-step tool-call limit, optional spending limits and a global kill switch. The audit log redacts secrets.
 - **Deterministic tools.** The well-planning calculators (casing, hydraulics, torque and drag, risk matrix) run as tested Python functions, so a model never produces those numbers. In Well Plan Review they run first from the JSON you enter, and the engineering agent must cite their results. Output is marked planning-grade and needs a qualified engineer's sign-off.
+
+## Spending limits and guardrails
+
+Settings → Policies & budgets has two groups. **Spending limits are off by default**: runs and chats use what they need, and the only cap on spend is whatever you set with your model provider. **Guardrails are always on**: they cost nothing and keep the app working.
+
+### Spending limits (switch on to use)
+
+| Limit | Default | Applies to |
+|---|---|---|
+| Max cost per run | US$2.00 | Each playbook run |
+| Max tokens per run | 400,000 | Each playbook run |
+| Max cost per chat | US$2.00 | Each chat, all its messages together |
+| Max tokens per chat | 400,000 | Each chat, all its messages together |
+
+Cost is computed from the prices entered on each model, so a model with no price (any local model, or a cloud model you did not price) counts as US$0 and only the token limit applies to it. Tokens are counted for every model.
+
+**How a run is limited.**
+1. Before every step, the run compares what it has used with its limits. Over a limit, it pauses before that step with "Budget limit reached" in **Approvals**, naming what it is over.
+2. **Approve** doubles the limit for that run and it continues; if it is still over at the doubled limit, it asks again. **Reject** stops the run at once, before another step runs; the steps already finished are kept.
+3. Inside a step, the limit is checked again before every further model call. Once a step crosses the limit, the agent is told to finish with what it has: its remaining tool calls are not run, and the step carries a warning. A run therefore goes past its limit by at most the call in flight, the agent's closing answer and, if that answer is malformed, one short repair call (in a parallel step, that much per agent).
+
+**How a chat is limited.**
+1. Before every model call, the chat adds what it has used to that call's worst case: the whole prompt plus the longest answer the model may write. A call that would cross a limit is not made.
+2. If the first call of a message would cross the limit, the message is refused with "This message would take the chat past its budget", and nothing is spent. A chat that is already over refuses new messages.
+3. With the Chief of Staff, specialists that would cross the limit are skipped and show why; if the final merge would cross it, you get the specialists' answers without a summary. While an agent reads files, a chat that reaches its limit stops the reads and the agent finishes with what it has. What was spent is always recorded on the chat.
+4. The limit is per chat: start a new chat to start again, or raise the limit.
+
+**What this means for you.** With limits on, expect occasional pauses on long playbooks and chats that end earlier than the number suggests, because the chat budgets for the longest possible answer. Lower **Max output tokens** on a model to make that worst case smaller. A step that ran out of budget may be thinner than usual; its warning says so. Limits change nothing about which model is used: a run never switches to a cheaper model to stay inside its budget.
+
+### Guardrails (always on)
+
+| Guardrail | Default | What happens at the limit |
+|---|---|---|
+| Max steps per run | 40 | A playbook with more steps is refused at the start. Steps repeated by a revision or a resume count, and a run that reaches the limit stops with a note. The longest shipped playbook has 10 steps. |
+| Tool calls per step | 8 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
+| Max characters per tool result | 12,000 | Longer tool results, attachments and earlier steps' outputs are cut to this before an agent sees them. |
+| Share of the context window for the prompt | 0.75 | Prompts are shrunk (persona, skills, older context first) to fit, so a small local model is not overrun. Cuts are listed on the step. |
+
+The kill switch (Settings) stops every run and chat at once, whatever the limits.
+
+From files, the same values live under `budgets:` in `suite.yaml`; set `enabled: true` there to start with spending limits on. Values changed in the app take precedence; **Reset to file defaults** returns to the file.
 
 ## Tests and evals
 
@@ -111,7 +182,7 @@ cd backend && uv run pytest
 cd backend && uv run python ../scripts/run_evals.py
 ```
 
-The first runs 91 tests: engine, every playbook end to end, chat and delegation, settings made in the app, providers (mocked HTTP), MCP (including the built-in Local files), API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
+The first runs the backend test suite, with no network or model needed: engine, every playbook end to end, spending limits and guardrails, chat, delegation and chat independence, answer export, the outputs folder, settings made in the app, providers (mocked HTTP), MCP and connectors (including the built-in Local files and several accounts), API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
 
 ## Project layout
 
@@ -125,13 +196,15 @@ playbooks/          workflow definitions
 config/             example config, output policies, profile
 evals/              benchmark cases
 scripts/            ingest, evals, dev server
-docs/               plan, connector setup, ADRs
+docs/               connector setup, desktop, safety, ADRs
 ```
 
 ## Security notes
 
 - The server binds to `127.0.0.1`. If you expose it, set `SUITE_API_TOKEN`; every API call then needs `Authorization: Bearer <token>`.
 - Prompts are not stored by default (`store_prompts: false` keeps only a hash and size).
+- Agent instructions, personas and lineage are a private layer outside this repository and the installers (see How it works).
+- The outputs folder never receives Restricted chats or runs, keys or the database.
 - Company branding is not in the repository. To theme exports privately, set `theme_dir` to a folder containing `theme.css`.
 
 ## License

@@ -11,10 +11,20 @@ Every build is checked before upload. The packaged app is started headless and o
 
 | OS | File | Install | Remove |
 |---|---|---|---|
-| Windows 10/11 (x64) | `ProductivitySuite-<version>-x64.msi` | Double-click, or `msiexec /i ProductivitySuite-<version>-x64.msi`. Installs to *Program Files\Agentic Productivity Suite* with a Start menu shortcut. Installing a newer version upgrades in place. | Settings → Apps, or `msiexec /x <file>.msi` |
-| Ubuntu 22.04+ / Debian 12+ (amd64) | `productivity-suite_<version>_amd64.deb` | `sudo apt install ./productivity-suite_<version>_amd64.deb`, then run `productivity-suite` or use the app menu | `sudo apt remove productivity-suite` |
+| Windows 10/11 (x64) | `ProductivitySuite-<version>-x64.msi` | Double-click, or `msiexec /i ProductivitySuite-<version>-x64.msi`. Installs to *Program Files\Agentic Productivity Suite* with a Start menu shortcut. Installing over an installed copy replaces it (see Upgrading). | Settings → Apps |
+| Ubuntu 22.04+ / Debian 12+ (amd64) | `productivity-suite_<version>_amd64.deb` | `sudo apt install ./productivity-suite_<version>_amd64.deb`, then run `productivity-suite` or use the app menu. A newer version upgrades in place (see Upgrading). | `sudo apt remove productivity-suite` |
 
-Settings and data stay in your home folder (`.productivity-suite`) and survive uninstalling.
+Settings and data stay in your home folder (`.productivity-suite`) and survive uninstalling and upgrading.
+
+### Upgrading
+
+Never uninstall first: install the new file over the old one.
+
+- **Windows:** double-click the new `.msi`. It replaces the installed copy, including a build with the same version number (for example a build from a pull request before the version is raised), so Apps always shows one entry. If the app is open, the installer asks it to close and ends it after 10 seconds; start it again from the Start menu. Installing an older version over a newer one is refused.
+- **Linux:** `sudo apt install ./productivity-suite_<version>_amd64.deb` upgrades a lower version in place. For a rebuild with the same version, add `--reinstall` (apt otherwise reports it as already installed). If the app is running, restart it after the upgrade.
+- Your settings, keys, chats, runs and the outputs folder are kept.
+
+Every build checks this: CI installs the last published release, installs the new build over it, and then a second build of the same version over that. It passes only if exactly one installed copy of the new version remains, the installed app passes its smoke test, and uninstalling leaves nothing behind.
 
 - **Windows:** the installer is not code-signed yet, so SmartScreen may warn ("More info" → "Run anyway"). See [CODE_SIGNING.md](CODE_SIGNING.md). The native window uses the Edge WebView2 runtime, which ships with current Windows 10 and 11.
 - **Linux:** the `.deb` opens the suite in your default browser; a native window is not bundled for Linux.
@@ -52,6 +62,16 @@ The result is `backend/dist/ProductivitySuite/`. To package it, use `desktop/lin
 - **Windows** needs the Microsoft Edge WebView2 runtime for the native window. It ships with current Windows 10 and 11; without it the launcher opens the browser.
 - **Linux** needs GTK or Qt WebKit libraries for the native window; otherwise it opens the browser.
 - The app is not code-signed. macOS Gatekeeper and Windows SmartScreen will warn until you sign it.
+
+## Outputs folder
+
+On first start the app creates **Agentic-Suite-Outputs** in your Documents folder (on Windows, wherever Windows says Documents is, including a folder redirected to OneDrive). It keeps readable copies of your work there:
+
+- `Chats/`: one Markdown transcript per chat, updated after every message. Deleting a chat in the app deletes its copy.
+- `Runs/`: every finished playbook deliverable, as `.md` and `.html`.
+- `Files/`: files you ask for in chat ("as an HTML file", "export to markdown", "save the previous answer as notes.md") or save with **Save to folder** under an answer.
+
+Chats and runs marked **Restricted** are not copied, because Documents may be synced to a cloud drive. The app's database, with your settings, keys and full history, stays in `~/.productivity-suite`. Settings → Policies & budgets shows the folder. To move it or switch it off, set `outputs_dir` (or `off`) in `suite.yaml`, or `SUITE_OUTPUTS_DIR`, then restart.
 
 ## Private agent layer
 

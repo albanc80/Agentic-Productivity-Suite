@@ -17,8 +17,11 @@ OPEN_CLASSES = ("public", "internal", "confidential")  # "restricted" is always 
 
 
 class BudgetsEdit(BaseModel):
+    enabled: bool = False  # spending limits; settings saved before the switch existed load as off
     max_run_cost_usd: float = Field(ge=0, le=10_000)
     max_run_tokens: int = Field(ge=1_000, le=100_000_000)
+    max_chat_cost_usd: float = Field(default=2.0, ge=0, le=10_000)
+    max_chat_tokens: int = Field(default=400_000, ge=1_000, le=100_000_000)
     max_steps: int = Field(ge=1, le=500)
     max_tool_calls_per_step: int = Field(ge=0, le=100)
     max_tool_result_chars: int = Field(ge=1_000, le=1_000_000)

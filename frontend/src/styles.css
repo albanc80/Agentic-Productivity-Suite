@@ -493,3 +493,19 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* Agent capability summary */
 .caps { margin: 0; padding-left: 2.25rem; }
 .caps li + li { margin-top: 0.35rem; }
+
+/* Chat answer actions: copy as text, download as a file */
+.answer-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.answer-actions .icon-btn { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; }
+.answer-actions .small-btn { align-self: center; }
+.answer-file { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--sunken); }
+.answer-file-name { font-family: var(--f-mono, ui-monospace, monospace); font-weight: 600; overflow-wrap: anywhere; }
+.answer-file .primary { margin-left: auto; }
+.copying, .copying * { text-transform: none !important; }
+.outputs-path { display: block; padding: 8px 10px; border-radius: 8px; background: var(--sunken); overflow-wrap: anywhere; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 10px; }
+fieldset.plain > legend { padding: 0; margin-bottom: 4px; }
+fieldset.plain.is-dim .ep-grid { opacity: .6; }
+/* Two fields side by side that share the full width (profile), stacking on narrow screens. */
+.pair-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px 16px; align-items: start; }
+.pair-grid textarea { min-height: 7.5em; }

@@ -69,7 +69,7 @@ class ConnectorConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     url: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
-    enabled: bool = True
+    enabled: bool = False  # off until the user sets the connector up and switches it on
     allow_tools: list[str] = Field(default_factory=list)
     deny_tools: list[str] = Field(default_factory=list)
     infer_read_only: bool = True
@@ -373,6 +373,7 @@ class ConnectorManager:
                         "enabled": cfg.enabled, "network": cfg.network, "offline_paused": bool(self.offline and cfg.network),
                         "builtin": cfg.transport == "builtin", "folders": list(cfg.folders),
                         "required_env": sorted(cfg.required_env()) if cfg.transport != "builtin" else [],
+                        "missing": self.missing(cid),
                         "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools})
         return out
 

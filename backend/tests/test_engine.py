@@ -143,7 +143,7 @@ async def test_connected_accounts_are_named_in_the_task(make_engine):
         seen["user"] = messages[0]["content"]
         return "Done.\n" + contract()
 
-    conns = ConnectorManager([ConnectorConfig(id="microsoft365", name="Microsoft 365", transport="stdio",
+    conns = ConnectorManager([ConnectorConfig(id="microsoft365", name="Microsoft 365", transport="stdio", enabled=True,
                                               command="unused", accounts={"param": "account", "vars": ["MS365_ACCOUNTS"]})],
                              env={"MS365_ACCOUNTS": "work@corp.com,me@home.net"}, in_process={"microsoft365": _mail_server()})
     eng, *_ = make_engine(cloud_script=script, connectors=conns)
@@ -175,14 +175,85 @@ async def test_kill_switch_blocks_new_runs(make_engine):
 
 
 async def test_budget_gate(make_engine, settings):
-    eng, *_ = make_engine(budgets=settings.budgets.model_copy(update={"max_run_tokens": 100}))
+    eng, *_ = make_engine(budgets=settings.budgets.model_copy(update={"enabled": True, "max_run_tokens": 100}))
     rid = await eng.start("prd", {"opportunity": "Self-serve export"})
     run = await run_to_rest(eng, rid)
     apr = eng.store.approvals(status="pending", run_id=rid)
     assert run["status"] == "awaiting_approval" and apr[0]["title"] == "Budget limit reached"
+    executed = len(eng.store.steps(rid))
     await eng.decide(apr[0]["id"], "rejected", "Jordan")
     run = await run_to_rest(eng, rid)
     assert run["status"] == "cancelled"
+    assert len(eng.store.steps(rid)) == executed, "a rejected budget stops the run before another step runs"
+
+
+async def test_budget_approval_doubles_the_limit_and_asks_again(make_engine, settings):
+    eng, *_ = make_engine(budgets=settings.budgets.model_copy(update={"enabled": True, "max_run_tokens": 100}))
+    rid = await eng.start("prd", {"opportunity": "Self-serve export"})
+    await run_to_rest(eng, rid)
+    first = eng.store.approvals(status="pending", run_id=rid)[0]
+    await eng.decide(first["id"], "approved", "Jordan")
+    run = await run_to_rest(eng, rid)
+    # one step uses 150 tokens: still over at 200, so the run asks again instead of running on
+    pending = eng.store.approvals(status="pending", run_id=rid)
+    assert run["status"] == "awaiting_approval" and pending[0]["step_id"] != first["step_id"]
+    assert eng.store.run(rid)["options"]["budget_multiplier"] >= 2
+
+
+async def test_spending_limits_are_off_by_default(make_engine, settings):
+    assert settings.budgets.enabled is False
+    eng, *_ = make_engine(budgets=settings.budgets.model_copy(update={"max_run_tokens": 100, "max_run_cost_usd": 0}))
+    rid = await eng.start("prd", {"opportunity": "Self-serve export"})
+    run = await run_to_rest(eng, rid)
+    assert run["status"] == "completed" and not eng.store.approvals(run_id=rid)
+
+
+async def test_spending_limit_stops_tool_calls_inside_a_step(make_engine, settings, tracker_connector):
+    seen = []
+
+    def script(system, messages, tools):
+        if tools:
+            return [ToolCall(id=f"c{len(seen)}", name="github__get_issue", arguments={"key": "DEMO-1"})]
+        seen.append([m for m in messages if m.get("role") == "tool"])
+        return "Answer.\n" + contract()
+
+    eng, *_ = make_engine(cloud_script=script, connectors=tracker_connector,
+                          budgets=settings.budgets.model_copy(update={"enabled": True, "max_run_tokens": 250}))
+    try:
+        rid = await eng.start("quick-ask", {"request": "What is DEMO-1?"})
+        await run_to_rest(eng, rid)
+    finally:
+        await tracker_connector.shutdown()
+    step = eng.store.steps(rid)[0]
+    # 110 tokens per tool round: the third round crosses 250, so its call is not run and the model finishes
+    assert len(step["tool_calls"]) == 2
+    assert any("spending limit reached during this step" in w for w in step["warnings"])
+    assert "spending limit for this run is reached" in seen[0][-1]["content"]
+
+
+async def test_step_limit_is_enforced(make_engine, settings):
+    eng, *_ = make_engine(budgets=settings.budgets.model_copy(update={"max_steps": 2}))
+    with pytest.raises(ValueError, match="more than the step limit of 2"):
+        await eng.start("prd", {"opportunity": "Self-serve export"})
+
+
+async def test_step_limit_counts_revisions(make_engine, settings):
+    reviews = {"n": 0}
+
+    def script(system, messages, tools):
+        if agent_of(system) == "Critical Mentor":
+            reviews["n"] += 1
+            return "Review.\n" + contract(verdict="FAIL", findings=["Baseline missing"])
+        return "Work.\n" + contract()
+
+    eng, *_ = make_engine(cloud_script=script)
+    pb = eng.playbooks["scope-change"]
+    n = sum(1 for s in pb.flat_steps() if s.kind != "gate")
+    eng.s.budgets = settings.budgets.model_copy(update={"max_steps": n})  # fits, but not with the revision
+    rid = await eng.start("scope-change", SCOPE_INPUTS)
+    run = await run_to_rest(eng, rid)
+    assert run["status"] == "cancelled"
+    assert any("step limit reached" in note for note in run["notes"])
 
 
 async def test_input_validation(make_engine):

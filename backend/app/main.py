@@ -36,6 +36,7 @@ from .engine import Engine, RunStopped
 from .export import to_html
 from .files import UnsupportedFile, extract_text
 from .local_files import FolderError, check_folder
+from .outputs import Outputs
 from .playbooks import load_playbooks
 from .providers import ModelRouter, ProviderError
 from .registry import Registry
@@ -117,8 +118,14 @@ class Suite:
         self.models = ModelRouter(settings, http_client=http_client)
         self.file_profile = load_profile(settings)
         self.profile: dict = {}  # same dict object the engine reads; refreshed in place by apply()
-        self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile)
-        self.chat = Chat(settings, self.registry, self.models, self.store, self.profile, self.playbooks, lambda: self.engine.killed)
+        self.outputs = Outputs(settings.outputs_dir, settings.theme_dir)
+        problem = self.outputs.ensure()
+        if problem:
+            self.warnings.append(problem)
+        self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile,
+                             outputs=self.outputs)
+        self.chat = Chat(settings, self.registry, self.models, self.store, self.profile, self.playbooks, lambda: self.engine.killed,
+                         outputs=self.outputs, connectors=self.connectors)
         # File/env configuration is the base; choices made in the app are layered on top and persisted.
         self.base = {"providers": dict(settings.providers), "models": list(settings.models),
                      "tiers": {k: list(v) for k, v in settings.tiers.items()}, "offline": settings.offline,
@@ -299,6 +306,15 @@ class Suite:
                 changed.append(var)
             elif not is_secret(var) and values.pop(var, None) is not None:
                 changed.append(var)
+        if edit.enabled is True:
+            # A connector is switched on only once it is set up: every required value, or a folder for Local files.
+            if cfg.transport == "builtin":
+                missing = [] if (st.folders if st.folders is not None else cfg.folders) else ["a folder"]
+            else:
+                have = {**{k: v for k, v in values.items() if v}, **{k: v for k, v in self.connectors.base_env.items() if v}}
+                missing = sorted(v for v in cfg.required_env() if not have.get(v))
+            if missing:
+                raise ValueError(f"{cfg.name} needs {', '.join(missing)} before it can be switched on. Open Edit to set it up.")
         self.store.set_setting("connector_settings", {k: v.model_dump() for k, v in all_settings.items()})
         self.store.set_setting("connector_values", values)
         self.apply()
@@ -435,6 +451,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
                         for k in ProfileEdit.model_fields},
             "profile_saved_in_app": suite.saved_profile() is not None,
             "store_prompts": settings.store_prompts,
+            "outputs_dir": str(settings.outputs_dir) if settings.outputs_dir else None,
             "model_refs": [m.ref for m in settings.models],
             "general_edited": sorted(suite.general().model_dump(exclude_none=True)),
             "agent_models": suite.general().agent_models or {},
@@ -711,6 +728,38 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             return suite.chat.get(cid)
         except KeyError as e:
             raise HTTPException(404, "chat not found") from e
+
+    @app.get("/api/chats/{cid}/messages/{index}/export")
+    def chat_export(cid: str, index: int, format: Literal["md", "html"] = "md"):
+        """One agent answer as a Markdown or standalone HTML file (HTML is built from the Markdown)."""
+        from .chat import file_name
+        try:
+            chat = suite.chat.get(cid)
+        except KeyError as e:
+            raise HTTPException(404, "chat not found") from e
+        msgs = chat["messages"]
+        if not 0 <= index < len(msgs) or msgs[index].get("role") != "assistant":
+            raise HTTPException(404, "no agent answer at that position")
+        text = msgs[suite.chat.answer_source(chat, index)]["content"]  # a "saved the previous answer" note exports that answer
+        f = msgs[index].get("file") or {}
+        name = f["name"] if f.get("format") == format else file_name(text, chat["title"], format)
+        store.audit("chat_exported", None, chat=cid, index=index, format=format)
+        if format == "html":
+            title = name.rsplit(".", 1)[0].replace("-", " ").capitalize()
+            return Response(to_html(text, title, settings.theme_dir), media_type="text/html; charset=utf-8",
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        return Response(text, media_type="text/markdown; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.post("/api/chats/{cid}/messages/{index}/save")
+    def chat_save(cid: str, index: int, format: Literal["md", "html"] = "md"):
+        """The Save button: writes one answer as a new file into the outputs folder (Files/). Never overwrites."""
+        try:
+            return suite.chat.save_answer(cid, index, format)
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'")) from e
+        except ChatError as e:
+            raise HTTPException(409, str(e)) from e
 
     @app.post("/api/chats/{cid}/messages")
     async def chat_send(cid: str, body: ChatMessage):

@@ -43,12 +43,14 @@ export interface ConnectorInfo {
   id: string; name: string; description: string; transport: string; status: string; error: string; setup: string;
   verify: string; required_env: string[]; tools: { name: string; allowed: boolean; reason: string }[];
   enabled: boolean; network: boolean; offline_paused: boolean; builtin: boolean; folders: string[]; variables: ConnectorVariable[];
+  missing: string[];  // what is still needed before it can be switched on
 }
 export interface Profile {
   name: string; role: string; organization_context: string; goals: string[]; working_preferences: string[]; domain_notes: string;
 }
 export interface Budgets {
-  max_run_cost_usd: number; max_run_tokens: number; max_steps: number; max_tool_calls_per_step: number;
+  enabled: boolean; max_run_cost_usd: number; max_run_tokens: number; max_chat_cost_usd: number; max_chat_tokens: number;
+  max_steps: number; max_tool_calls_per_step: number;
   max_tool_result_chars: number; max_context_fraction: number;
 }
 export interface GeneralEdit {
@@ -61,6 +63,9 @@ export interface ChatMsg {
   role: "user" | "assistant"; content: string; at: string; agent?: string; model?: string;
   files?: { id: string; name: string }[]; delegations?: ChatDelegation[]; warnings?: string[];
   suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cost_usd?: number; seconds?: number;
+  // set when the person asked for the answer as a file; saved_to is where the app wrote it (null: not saved)
+  file?: { format: "md" | "html"; name: string; saved_to?: string | null; source?: number };
+  tool_calls?: { tool: string; arguments: Record<string, unknown>; error: boolean }[];
 }
 export interface ChatSummary {
   id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;
@@ -73,6 +78,7 @@ export interface Overview {
   offline_override: boolean | null; endpoints: ModelEndpoint[];
   budgets: Budgets; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
   profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; model_refs: string[]; general_edited: string[];
+  outputs_dir: string | null;  // readable copies of chats and deliverables; null when switched off
   agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;
   agent_overrides: Record<string, string[]>;
   warnings: string[]; pending_approvals: number;
@@ -168,6 +174,8 @@ export const api = {
     call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(edit) }),
   resetConnector: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/settings`, { method: "DELETE" }),
   saveGeneral: (edit: GeneralEdit) => call<Overview>("/api/settings/general", { method: "PUT", body: JSON.stringify(edit) }),
+  saveAnswer: (chatId: string, index: number, format: "md" | "html") =>
+    call<{ name: string; path: string }>(`/api/chats/${chatId}/messages/${index}/save?format=${format}`, { method: "POST" }),
   resetGeneral: (part: "tiers" | "budgets" | "all") => call<Overview>(`/api/settings/general/${part}`, { method: "DELETE" }),
   saveProfile: (p: Profile) => call<Profile>("/api/settings/profile", { method: "PUT", body: JSON.stringify(p) }),
   resetProfile: () => call<Profile>("/api/settings/profile", { method: "DELETE" }),
@@ -182,10 +190,19 @@ export const api = {
 };
 
 export async function download(id: string, format: "md" | "html") {
+  return downloadFrom(api.exportUrl(id, format), format);
+}
+
+/** One chat answer as a Markdown or HTML file. */
+export async function downloadAnswer(chatId: string, index: number, format: "md" | "html") {
+  return downloadFrom(`/api/chats/${chatId}/messages/${index}/export?format=${format}`, format);
+}
+
+async function downloadFrom(url: string, format: "md" | "html") {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(api.exportUrl(id, format), { headers });
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new ApiError(res.status, "export failed");
   const blob = await res.blob();
   const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "")?.[1] || `deliverable.${format}`;
