@@ -62,6 +62,7 @@ export interface ChatMsg {
   role: "user" | "assistant"; content: string; at: string; agent?: string; model?: string;
   files?: { id: string; name: string }[]; delegations?: ChatDelegation[]; warnings?: string[];
   suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cost_usd?: number; seconds?: number;
+  file?: { format: "md" | "html"; name: string };  // set when the person asked for the answer as a file
 }
 export interface ChatSummary {
   id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;
@@ -183,10 +184,19 @@ export const api = {
 };
 
 export async function download(id: string, format: "md" | "html") {
+  return downloadFrom(api.exportUrl(id, format), format);
+}
+
+/** One chat answer as a Markdown or HTML file. */
+export async function downloadAnswer(chatId: string, index: number, format: "md" | "html") {
+  return downloadFrom(`/api/chats/${chatId}/messages/${index}/export?format=${format}`, format);
+}
+
+async function downloadFrom(url: string, format: "md" | "html") {
   const headers = new Headers();
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const res = await fetch(api.exportUrl(id, format), { headers });
+  const res = await fetch(url, { headers });
   if (!res.ok) throw new ApiError(res.status, "export failed");
   const blob = await res.blob();
   const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") || "")?.[1] || `deliverable.${format}`;

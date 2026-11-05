@@ -721,6 +721,27 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except KeyError as e:
             raise HTTPException(404, "chat not found") from e
 
+    @app.get("/api/chats/{cid}/messages/{index}/export")
+    def chat_export(cid: str, index: int, format: Literal["md", "html"] = "md"):
+        """One agent answer as a Markdown or standalone HTML file (HTML is built from the Markdown)."""
+        from .chat import file_name
+        try:
+            chat = suite.chat.get(cid)
+        except KeyError as e:
+            raise HTTPException(404, "chat not found") from e
+        msgs = chat["messages"]
+        if not 0 <= index < len(msgs) or msgs[index].get("role") != "assistant":
+            raise HTTPException(404, "no agent answer at that position")
+        text = msgs[index]["content"]
+        name = file_name(text, chat["title"], format)
+        store.audit("chat_exported", None, chat=cid, index=index, format=format)
+        if format == "html":
+            title = name.rsplit(".", 1)[0].replace("-", " ").capitalize()
+            return Response(to_html(text, title, settings.theme_dir), media_type="text/html; charset=utf-8",
+                            headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        return Response(text, media_type="text/markdown; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
     @app.post("/api/chats/{cid}/messages")
     async def chat_send(cid: str, body: ChatMessage):
         try:

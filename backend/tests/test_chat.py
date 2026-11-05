@@ -130,6 +130,33 @@ def test_chats_are_independent_files_stay_in_their_chat(make):
         assert c.post(f"/api/chats/{a['id']}/messages", json={"content": "Again", "files": [up["id"]]}).status_code == 200
 
 
+def test_answers_export_as_files_and_requested_files_are_offered(make):
+    seen: list = []
+    with make(seen, delegate=False) as c:
+        setup_models(c)
+        chat = c.post("/api/chats", json={"agent_id": "program-manager"}).json()
+        plain = c.post(f"/api/chats/{chat['id']}/messages", json={"content": "What are the top program risks?"}).json()
+        assert "file" not in plain and "Delivery note" not in seen[-1]["user"]
+        asked = c.post(f"/api/chats/{chat['id']}/messages", json={"content": "Give me the risk summary as an HTML file"}).json()
+        assert asked["file"]["format"] == "html" and asked["file"]["name"].endswith(".html")
+        assert "wants this answer as an HTML file" in seen[-1]["user"] and "do not write raw HTML" in seen[-1]["user"]
+        # Any answer downloads as Markdown or as a standalone HTML page built from the Markdown.
+        md = c.get(f"/api/chats/{chat['id']}/messages/1/export?format=md")
+        assert md.status_code == 200 and md.text == plain["content"] and md.headers["content-disposition"].endswith('.md"')
+        page = c.get(f"/api/chats/{chat['id']}/messages/3/export?format=html")
+        assert page.status_code == 200 and page.text.startswith("<!doctype html>") and asked["file"]["name"] in page.headers["content-disposition"]
+        assert c.get(f"/api/chats/{chat['id']}/messages/0/export").status_code == 404  # a user message is not an answer
+        assert c.get(f"/api/chats/{chat['id']}/messages/9/export").status_code == 404
+        assert c.get("/api/chats/nope/messages/1/export").status_code == 404
+        assert "chat_exported" in [e["event"] for e in c.get("/api/audit").json()]
+
+
+def test_raw_html_from_a_model_is_never_rendered_in_exports():
+    from app.export import to_html
+    page = to_html("# Report\n\n<script>alert(1)</script>\n\n<img src=x onerror=alert(2)>", "Report")
+    assert "<script>" not in page and "<img" not in page and "&lt;script&gt;" in page
+
+
 def test_no_model_gives_a_clear_message(make):
     with make([]) as c:
         chat = c.post("/api/chats", json={"agent_id": "counselor"}).json()
