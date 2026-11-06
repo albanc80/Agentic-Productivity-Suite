@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Budgets, type ConnectorInfo, type ConnectorVariable, type Overview, type Profile, type SignedInAccount,
   type SigninState } from "../api";
+import { connectorAccounts, playbooksUsing } from "../connectors";
 import { ErrorNote } from "../ui";
 
 /** On/off switch: a real button with role="switch". `paused` shows it locked off by offline mode. */
@@ -143,16 +144,22 @@ export function ConnectorsPanel({ ov, onChange }: { ov: Overview; onChange: () =
     <section className="stack" aria-labelledby="conn-h">
       <div className="stack-sm">
         <h2 id="conn-h">Connectors (read-only)</h2>
-        <p className="muted small measure">Connectors let agents read your systems and files. Agents only ever get read-only tools: write tools are hidden and refused, whatever the connector offers. Every connector starts switched off: use <strong>Edit</strong> to enter what it needs, then switch it on. Values you type are saved on this computer; an environment variable with the same name takes precedence.</p>
+        <p className="muted small measure">Connectors let agents read your systems and files. Agents only ever get read-only tools: write tools are hidden and refused, whatever the connector offers.</p>
+        <ul className="small muted measure conn-rules">
+          <li><strong>In chat</strong>, every agent can use every connector that is on.</li>
+          <li><strong>In playbooks</strong>, a step uses only the connectors its playbook requires (listed on each connector below).</li>
+          <li><strong>Nothing to install</strong>: Microsoft 365 and Google sign in with a button in <strong>Edit</strong>, and the app provides Node.js, uv and GitHub's server program when this computer has none.</li>
+        </ul>
+        <p className="muted small measure">Every connector starts switched off: use <strong>Edit</strong> to sign in or enter what it needs, then switch it on. Values you type are saved on this computer; an environment variable with the same name takes precedence.</p>
       </div>
       <div className="stack-sm">
-        {[...ov.connectors].sort((a, b) => Number(b.builtin) - Number(a.builtin)).map((c) => <ConnectorRow key={c.id} c={c} onChange={onChange} />)}
+        {[...ov.connectors].sort((a, b) => Number(b.builtin) - Number(a.builtin)).map((c) => <ConnectorRow key={c.id} c={c} ov={ov} onChange={onChange} />)}
       </div>
     </section>
   );
 }
 
-function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void }) {
+function ConnectorRow({ c, ov, onChange }: { c: ConnectorInfo; ov: Overview; onChange: () => void }) {
   const [editing, setEditing] = useState(c.builtin && c.status === "unconfigured");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -182,6 +189,7 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
             <span className={`tag ${c.network ? "outline" : ""}`}>{c.network ? "internet" : "this computer"}</span>
           </div>
           <span className="muted small">{c.builtin ? (c.folders.length ? c.folders.join(" · ") : "No folder chosen") : c.description}</span>
+          <UsedBy c={c} ov={ov} />
         </div>
         <span className={`pill ${tone}`} title={c.error}>{c.status === "disabled" && c.missing.length ? "Off · needs setup" : STATUS_TEXT[c.status] || c.status}</span>
         <div className="row-tight">
@@ -212,6 +220,24 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
         ? <FoldersEditor c={c} onDone={() => { setEditing(false); onChange(); }} />
         : <VariablesEditor key={signinKey(c)} c={c} onRefresh={onChange} onDone={() => { setEditing(false); onChange(); }} />)}
     </article>
+  );
+}
+
+/** Who can use this connector, and with which accounts: chat (every agent, when it is on) and the playbooks that list it. */
+function UsedBy({ c, ov }: { c: ConnectorInfo; ov: Overview }) {
+  const books = playbooksUsing(ov, c.id);
+  const accounts = connectorAccounts(c);
+  return (
+    <span className="small conn-usedby">
+      <span className="muted">Used by: </span>
+      <span className={`tag ${c.enabled ? "" : "outline"}`} title="In chat, every agent can use every connector that is on">
+        {c.enabled ? "Chat · every agent" : "Chat · when on"}</span>
+      {books.map((b) => <span key={b.id} className="tag outline" title={`${b.name}: its steps can use this connector`}>{b.code}</span>)}
+      {books.length === 0 && <span className="muted"> · no playbook lists it</span>}
+      {c.signin && (accounts.length
+        ? <span className="muted"> · Accounts: {accounts.map((a, i) => (i === 0 ? `${a} (default)` : a)).join(", ")}</span>
+        : <span className="muted"> · No account signed in</span>)}
+    </span>
   );
 }
 

@@ -78,7 +78,7 @@ export interface ChatMsg {
   suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cost_usd?: number; seconds?: number;
   // set when the person asked for the answer as a file; saved_to is where the app wrote it (null: not saved)
   file?: { format: "md" | "html"; name: string; saved_to?: string | null; source?: number };
-  tool_calls?: { tool: string; arguments: Record<string, unknown>; error: boolean }[];
+  tool_calls?: { connector?: string; tool: string; arguments: Record<string, unknown>; error: boolean }[];
 }
 export interface ChatSummary {
   id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;

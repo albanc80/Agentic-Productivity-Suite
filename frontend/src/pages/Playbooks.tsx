@@ -1,3 +1,4 @@
+import { isLive, shortName } from "../connectors";
 import type { Overview } from "../api";
 import { go } from "../ui";
 
@@ -26,7 +27,13 @@ export default function Playbooks({ ov }: { ov: Overview }) {
                   <p className="muted">{p.summary}</p>
                   <div className="tags">
                     {p.patterns.map((x) => <span key={x} className="tag">{PATTERNS[x] || x}</span>)}
-                    {p.connectors.length > 0 && <span className="tag outline">Uses: {p.connectors.join(", ")}</span>}
+                    {p.connectors.map((id) => {
+                      const c = ov.connectors.find((x) => x.id === id);
+                      const on = !!c && isLive(c);
+                      return <span key={id} className={`tag ${on ? "ok-tag" : "outline"}`}
+                        title={on ? "On: the steps of this playbook can use it" : "Off or not set up: agents work from what you paste or upload"}>
+                        {shortName(ov, id)} {on ? "· on" : "· off"}</span>;
+                    })}
                   </div>
                 </div>
                 <button className="primary" onClick={() => go(`/start/${p.id}`)}>Start</button>
