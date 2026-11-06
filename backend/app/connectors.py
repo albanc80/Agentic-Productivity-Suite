@@ -773,20 +773,25 @@ SHIPPED_TEXT = ("setup", "steps", "hints", "labels", "docs_url", "verify")
 def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) -> ConnectorConfig:
     """Bring a connectors.yaml copied by an earlier version up to date, without touching what the person changed.
 
-    * It still uses a launch an earlier version shipped (GitHub and Jira through Docker): take the shipped launch
-      (command, arguments, environment) and the setup text that goes with it. Values stay where they are: in the
-      app or in environment variables.
-    * It launches the shipped server but predates sign-in from the app: take the shipped sign-in, client file and
-      setup text.
+    * It still uses a launch an earlier version shipped (``legacy``: Microsoft 365 in org mode, GitHub and Jira
+      through Docker): take the shipped entry whole. Values stay where they are: in the app or the environment.
+    * It launches the shipped server: take today's setup text, and the shipped sign-in and client file if it
+      predates them.
     A connector whose launch was changed in any other way is left alone."""
     if not shipped or cfg.transport != shipped.transport:
         return cfg
     if any(cfg.command == old.command and cfg.args == old.args for old in shipped.legacy):
-        cfg = cfg.model_copy(update={"command": shipped.command, "args": shipped.args, "env": shipped.env,
-                                     **{k: getattr(shipped, k) for k in SHIPPED_TEXT}})
-    if cfg.signin or not shipped.signin or cfg.command != shipped.command or cfg.args != shipped.args:
+        # Nothing in a connector entry is personal (values live in the app or the environment), so an entry an
+        # earlier version shipped unchanged is replaced whole: launch, name, accounts, sign-in and setup text.
+        return shipped.model_copy()
+    if cfg.command != shipped.command or cfg.args != shipped.args:
         return cfg
-    return cfg.model_copy(update={k: getattr(shipped, k) for k in ("signin", "client_file", *SHIPPED_TEXT)})
+    # Same launch as today: the setup text is today's (it is display text, written for this version), and a sign-in
+    # or built-in client the file predates is added. Anything else in the entry (allow or deny lists) is kept.
+    update = {k: getattr(shipped, k) for k in SHIPPED_TEXT}
+    if not cfg.signin:
+        update.update(signin=shipped.signin, client_file=shipped.client_file)
+    return cfg.model_copy(update=update)
 
 
 def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:

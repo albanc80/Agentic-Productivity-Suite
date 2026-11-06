@@ -28,6 +28,8 @@ connectors:
     legacy:  # earlier versions ran it in Docker; a connectors.yaml still doing so is upgraded when loaded
       - command: docker
         args: [run, -i, --rm, -e, GITHUB_PERSONAL_ACCESS_TOKEN, -e, GITHUB_HOST, -e, GITHUB_READ_ONLY, -e, GITHUB_TOOLSETS, ghcr.io/github/github-mcp-server]
+      - command: docker  # the first release
+        args: [run, -i, --rm, -e, GITHUB_PERSONAL_ACCESS_TOKEN, -e, GITHUB_READ_ONLY, -e, GITHUB_TOOLSETS, ghcr.io/github/github-mcp-server]
     context:
       GITHUB_REPOS: "Repositories the person works in: {value}. Use these unless asked about others."
     labels:
@@ -62,6 +64,9 @@ connectors:
       MS365_MCP_ORG_MODE: ${MS365_MCP_ORG_MODE:-}
     requires: [MS365_MCP_ENABLED]
     accounts: {param: account, vars: [MS365_ACCOUNTS]}
+    legacy:  # the first release launched it in org mode; a connectors.yaml still doing so is upgraded when loaded
+      - command: npx
+        args: [-y, "@softeria/ms-365-mcp-server", --read-only, --org-mode]
     # Sign-in from Settings: the suite runs this server with these arguments added to the ones above, so the
     # sign-in asks for the same read-only permissions. The server keeps the tokens; the suite never sees them.
     signin:
