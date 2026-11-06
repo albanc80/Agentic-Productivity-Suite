@@ -87,6 +87,8 @@ class SigninConfig(BaseModel):
     tool_args: dict[str, Any] = Field(default_factory=dict)
     account_arg: str | None = None
     credentials_dir: str | None = None  # ${VAR:-default} and ~ are expanded
+    success_log: str | None = None  # regex on the server's log: the sign-in finished (group 1: the account)
+    error_log: str | None = None  # regex on the server's log: the sign-in failed (the match is shown)
     confirms: str | None = None
     timeout_s: float = 960.0  # a device code lasts 15 minutes
 
@@ -362,6 +364,20 @@ class ConnectorError(Exception):
     pass
 
 
+MAX_AGENT_TOOLS = 128  # the most tools some model APIs accept in one request
+
+
+@dataclass
+class AgentTools:
+    """What one agent turn may use: the read-only tools of every connector that is on, the names of those connectors,
+    what the agent is told about their accounts and scope, and notes for connectors that were not used."""
+
+    tools: list[ToolInfo] = field(default_factory=list)
+    names: list[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
 # Environment variables a stdio connector inherits from the suite (everything else comes from its own config).
 PASS_ENV = ("PATH", "HOME", "USERPROFILE", "APPDATA", "TMPDIR", "TEMP")
 
@@ -507,6 +523,20 @@ class ConnectorManager:
                 items = [re.sub(r"^https?://[^/]+/|\.git$|/$", "", x) for x in ACCOUNT_SPLIT.split(value) if x]
                 out.append(line.format(value=", ".join(items)))
         return out
+
+    def agent_lines(self, cid: str) -> list[str]:
+        """What an agent is told about a connector it can use: scope the person entered (repositories) and the
+        accounts it may read. Playbook steps and chat say the same thing."""
+        cfg = self.configs.get(cid)
+        if not cfg:
+            return []
+        lines = [f"- {cfg.name}: {line}" for line in self.context_lines(cid)]
+        accounts = self.accounts(cid)
+        if accounts and cfg.accounts:
+            listed = ", ".join([f"{accounts[0]} (default)"] + accounts[1:])
+            lines.append(f"- {cfg.name}: {listed}. Choose the account with the `{cfg.accounts.param}` argument; "
+                         "calls to any other account are refused. Say which account each fact came from.")
+        return lines
 
     def accounts(self, cid: str) -> list[str]:
         """Accounts the user allows on this connector, default first (empty: the server decides)."""
@@ -723,6 +753,36 @@ class ConnectorManager:
         await asyncio.gather(*(w.stop() for w in self.workers.values()), return_exceptions=True)
 
     # ------------------------------------------------------------ tools
+
+    async def tools_for_agent(self, first: list[str] | tuple[str, ...] = (), *, only: bool = False,
+                              room: int = MAX_AGENT_TOOLS) -> AgentTools:
+        """Connector tools for one agent turn. Chat: every connector that is switched on and set up (``first`` come
+        first). A playbook step: only the connectors the playbook requires (``first`` with ``only=True``). Tools stay
+        read-only (blocked ones are never listed). A named connector that is off, or one that cannot start or does
+        not fit in ``room`` tools, is left out with a note; the others still work."""
+        out = AgentTools()
+        for cid in dict.fromkeys([*first, *([] if only else self.configs)]):
+            if cid not in self.configs:
+                continue
+            if not self.configured(cid):
+                if cid in first:
+                    out.notes.append(f"connector {cid} not configured (agent worked from provided inputs)")
+                continue
+            try:
+                infos = await self.tools(cid)
+            except (ConnectorError, TimeoutError) as e:
+                out.notes.append(f"connector {cid} unavailable: {e}"[:400])
+                continue
+            if not infos:
+                continue
+            if len(out.tools) + len(infos) > room:
+                out.notes.append(f"connector {cid} left out: together the connectors offer more than {room} tools; "
+                                 "switch off the ones you do not need")
+                continue
+            out.tools += infos
+            out.names.append(self.configs[cid].name)
+            out.lines += self.agent_lines(cid)
+        return out
 
     async def tools(self, cid: str, *, allowed_only: bool = True) -> list[ToolInfo]:
         w = await self.ensure(cid)

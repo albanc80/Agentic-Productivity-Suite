@@ -9,9 +9,10 @@ The same guardrails as playbooks apply: the data class limits which models may s
 conversation, uploaded files are wrapped as untrusted data, nothing is sent or written anywhere,
 the kill switch stops chat, and every model call is audited.
 
-Files: when the Local files connector is on and the model can call tools, chat agents may list, search and
-read files in the folders the person shared (read-only, results wrapped as untrusted data, every call
-audited). Writing is done by the suite, never by a model: a message that asks for a file ("as a markdown
+Connectors: when the model can call tools, chat agents get the read-only tools of every connector that is
+switched on and set up (Local files, Gmail and Google Workspace, Microsoft 365, GitHub, Jira, and so on), and
+are told which accounts they may read. Results are wrapped as untrusted data and every call is audited. A
+connector that cannot start is named in the answer's warnings; the others still work. Writing is done by the suite, never by a model: a message that asks for a file ("as a markdown
 file", "save as notes.md", "save the previous answer as an HTML file") or the Save button under an answer
 writes one new file into the outputs folder's Files/, and never overwrites a different file.
 
@@ -63,12 +64,17 @@ DELIVERY_RULES = """
 - The app writes files only{where_only}. If they name another folder, the app still saves it there and
   shows the path; say so briefly.
 {files}"""
-FILE_TOOLS_RULE = ("- You can list, search and read files in the folders the person shared with the app, with the "
-                   "local-files tools (read-only). Use them when the question is about their files; say which file each "
-                   "fact came from.\n")
-NO_FILE_TOOLS_RULE = ("- You cannot open files on their computer from here. To use a file, they can attach it to the chat, "
-                      "or switch on Local files in Settings > Connectors and choose a folder.\n")
-FILES_CONNECTOR = "local-files"
+TOOLS_RULE = ("- You can read the person's connected sources with read-only tools: {names}. Use them whenever the "
+              "question is about their mail, calendar, files, documents, repositories or tickets, and never say you cannot "
+              "reach a source listed here. Say which source, and which account or file, each fact came from. You cannot "
+              "send, change or delete anything.\n{scope}")
+NO_TOOLS_RULE = ("- You cannot reach their mail, files or other systems from here. To use a file, they can attach it to "
+                 "the chat, or switch on Local files in Settings > Connectors and choose a folder; mail, calendar, GitHub "
+                 "and the rest are switched on there too.\n")
+NO_TOOL_MODEL_RULE = ("- Connected sources ({names}) are switched on, but the model answering now cannot call tools, so "
+                      "you cannot read them. Say so, and suggest choosing a model with tool calling for this agent in "
+                      "Settings > Models.\n")
+FILES_CONNECTOR = "local-files"  # offered first
 TOOL_LIMIT_NOTE = "Tool limit for this answer is used up. Finish with what you have."
 CHAT_BUDGET_NOTE = "The chat's spending limit is reached. Do not call tools. Finish now with what you have."
 
@@ -252,7 +258,7 @@ class Chat:
                 reply = await self._coordinate(chat, prompt, history, data_blocks, spend)
             else:
                 t = await self._ask(chat["agent_id"], chat["data_class"], CHAT_RULES, history, prompt, data_blocks,
-                                    spend=spend, file_tools=True)
+                                    spend=spend, connector_tools=True)
                 reply = {"content": t.text, "model": t.ref, "delegations": [], "warnings": t.warnings,
                          "tokens": t.usage.input_tokens + t.usage.output_tokens, "cost_usd": t.cost,
                          "tool_calls": t.tool_calls}
@@ -362,7 +368,7 @@ class Chat:
         if not plan:
             try:
                 t = await self._ask(COORDINATOR, chat["data_class"], CHAT_RULES, history, content, data_blocks, spend=spend,
-                                    file_tools=True)
+                                    connector_tools=True)
             except BudgetReached as e:  # the routing call is already spent and is kept on the chat's record
                 return {"content": f"_{e}_", "model": route.ref, "delegations": [], "warnings": warnings + [str(e)],
                         "tokens": tokens, "cost_usd": cost}
@@ -373,7 +379,7 @@ class Chat:
         async def one(item):
             try:
                 t = await self._ask(item["id"], chat["data_class"], CHAT_RULES, history, item["question"], data_blocks,
-                                    spend=spend, file_tools=True)
+                                    spend=spend, connector_tools=True)
                 return {"agent": item["id"], "question": item["question"], "answer": t.text, "model": t.ref,
                         "tokens": t.usage.input_tokens + t.usage.output_tokens, "cost": t.cost, "warnings": t.warnings}
             except ChatError as e:
@@ -414,28 +420,36 @@ class Chat:
             return f"{tokens:,} of {b.max_chat_tokens:,} tokens"
         return None
 
-    async def _file_tools(self) -> tuple[list[ToolSpec], dict[str, str]]:
-        """The Local files tools, when that connector is on. Read-only: the connector manager refuses anything else."""
-        if not self.connectors or not self.connectors.configured(FILES_CONNECTOR):
-            return [], {}
-        try:
-            infos = await self.connectors.tools(FILES_CONNECTOR)
-        except ConnectorError:
-            return [], {}
-        return ([ToolSpec(t.qualified, f"[{FILES_CONNECTOR}, read-only] {t.description}", t.input_schema or {"type": "object"})
-                 for t in infos], {t.qualified: t.name for t in infos})
+    async def _connector_tools(self) -> tuple[list[ToolSpec], dict[str, tuple[str, str]], list[str], list[str], list[str]]:
+        """The read-only tools of every connector that is switched on and set up (Local files first), what the agent
+        is told about their accounts, and warnings for connectors that could not start or did not fit.
+        Read-only is enforced by the connector manager: blocked tools are never listed and a direct call is refused."""
+        if not self.connectors:
+            return [], {}, [], [], []
+        on = [FILES_CONNECTOR] if self.connectors.configured(FILES_CONNECTOR) else []  # first when it is on
+        found = await self.connectors.tools_for_agent(on)
+        specs = [ToolSpec(t.qualified, f"[{t.connector}, read-only] {t.description}", t.input_schema or {"type": "object"})
+                 for t in found.tools]
+        routes = {t.qualified: (t.connector, t.name) for t in found.tools}
+        return specs, routes, found.names, found.lines, found.notes
 
-    def _delivery(self, file_tools: bool) -> str:
+    def _delivery(self, names: list[str], scope: list[str], can_call: bool) -> str:
         on = bool(self.outputs.root)
+        if names and can_call:
+            tools = TOOLS_RULE.format(names=", ".join(names), scope="\n".join(scope) + ("\n" if scope else ""))
+        elif names:
+            tools = NO_TOOL_MODEL_RULE.format(names=", ".join(names))
+        else:
+            tools = NO_TOOLS_RULE
         return DELIVERY_RULES.format(
             save=" and Save" if on else "",
             where=" in their Agentic-Suite-Outputs folder (Files)" if on else " for download",
             where_only=" into that folder" if on else " for download",
-            files=FILE_TOOLS_RULE if file_tools else NO_FILE_TOOLS_RULE)
+            files=tools)
 
     async def _ask(self, agent_id: str, data_class: str, task: str, history: str, content: str, data_blocks: list[str],
                    *, max_tokens: int | None = None, json_only: bool = False, spend: dict | None = None,
-                   file_tools: bool = False) -> Turn:
+                   connector_tools: bool = False) -> Turn:
         if self.killed():
             raise ChatError("The kill switch is on.")
         agent = self.registry.agent(agent_id)
@@ -443,11 +457,12 @@ class Chat:
         if not cands:
             raise ChatError(f"No model configured for {agent.name} with '{data_class}' data. Add or switch on a model in "
                             "Settings." + (" Checked: " + "; ".join(skipped) if skipped else ""))
-        all_specs, routes = await self._file_tools() if file_tools and not json_only else ([], {})
+        all_specs, routes, names, scope, tool_warnings = (await self._connector_tools() if connector_tools and not json_only
+                                                          else ([], {}, [], [], []))
         errors: list[str] = []
         for cand in cands:
             specs = all_specs if cand.model.tools else []
-            rules = task if json_only else task + self._delivery(bool(specs))
+            rules = task if json_only else task + self._delivery(names, scope, bool(specs))
             system = build_system(agent=agent, mode=None, registry=self.registry, policies=self.s.output_policies,
                                   profile=self.profile, persona=self.s.persona.chat, extra_skills=[], has_skill_tool=False,
                                   review=False) + [("chat", rules, 0)]
@@ -468,7 +483,8 @@ class Chat:
                                   spend["cost"] + cand.cost(Usage(input_tokens=in_tokens, output_tokens=out_tokens)))
                 if over:
                     raise BudgetReached(f"This message would take the chat past its budget ({over}). {BUDGET_HELP}")
-            warnings = [f"{x}" for x in errors] + [f"context fit for {cand.ref}: {c}" for c in parts.cuts]
+            warnings = ([f"{x}" for x in errors] + tool_warnings
+                        + [f"context fit for {cand.ref}: {c}" for c in parts.cuts])
             try:
                 r, usage, tool_log = await self._converse(cand, parts, specs, routes, out_tokens, json_only, spend, warnings)
             except ProviderError as e:
@@ -482,9 +498,9 @@ class Chat:
                         tool_calls=tool_log)
         raise ChatError(f"Every model for {agent.name} failed: " + "; ".join(errors)[:600])
 
-    async def _converse(self, cand, parts, specs: list[ToolSpec], routes: dict[str, str], out_tokens: int,
+    async def _converse(self, cand, parts, specs: list[ToolSpec], routes: dict[str, tuple[str, str]], out_tokens: int,
                         json_only: bool, spend: dict | None, warnings: list[str]):
-        """One answer, with up to max_tool_calls_per_step file reads before it. Spend is counted per model call."""
+        """One answer, with up to max_tool_calls_per_step connector calls before it. Spend is counted per model call."""
         provider = cand.provider
         conv = provider.start(parts.system, parts.user)
         usage, tool_log, calls, stop = Usage(), [], 0, False
@@ -505,24 +521,26 @@ class Chat:
             provider.add_assistant(conv, r)
             if spend is not None and self._over(spend["tokens"], spend["cost"]):
                 stop = True
-                warnings.append("chat spending limit reached; the agent was asked to finish without reading more files")
+                warnings.append("chat spending limit reached; the agent was asked to finish without more connector calls")
                 provider.add_tool_results(conv, [(c.id, CHAT_BUDGET_NOTE, True) for c in r.tool_calls])
                 continue
             outputs = []
             for call in r.tool_calls[: max_calls - calls]:
                 calls += 1
-                tool = routes.get(call.name)
-                if tool is None:
+                route = routes.get(call.name)
+                if route is None:
                     outputs.append((call.id, f"unknown tool '{call.name}'", True))
                     continue
+                cid, tool = route
                 try:
-                    text, is_err = await self.connectors.call(FILES_CONNECTOR, tool, call.arguments)
+                    text, is_err = await self.connectors.call(cid, tool, call.arguments)
                 except ConnectorError as e:
                     text, is_err = str(e), True
-                self.store.audit("connector_call", None, connector=FILES_CONNECTOR, tool=tool, error=is_err, chat=True)
-                block, flags, _ = wrap_data(f"{FILES_CONNECTOR}.{tool}", text, self.s.budgets.max_tool_result_chars)
-                warnings += [f"possible prompt injection in {tool} result: {f}" for f in flags]
-                tool_log.append({"tool": tool, "arguments": json.loads(redact(json.dumps(call.arguments))), "error": is_err})
+                self.store.audit("connector_call", None, connector=cid, tool=tool, error=is_err, chat=True)
+                block, flags, _ = wrap_data(f"{cid}.{tool}", text, self.s.budgets.max_tool_result_chars)
+                warnings += [f"possible prompt injection in {cid}.{tool} result: {f}" for f in flags]
+                tool_log.append({"connector": cid, "tool": tool, "arguments": json.loads(redact(json.dumps(call.arguments))),
+                                 "error": is_err})
                 outputs.append((call.id, block, is_err))
             for call in r.tool_calls[len(outputs):]:
                 outputs.append((call.id, TOOL_LIMIT_NOTE, True))

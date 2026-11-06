@@ -347,3 +347,31 @@ async def test_every_input_reaches_the_agents(make_engine):
     # "Options" used to be dropped: it is neither named in a task nor treated as data.
     assert "Options you are considering (optional): Buy Vendor X, or build in-house" in first
     assert "Specialist views: business" in first and "Inputs from the person:" in first
+
+
+async def test_a_playbook_step_gets_only_the_connectors_its_playbook_requires(make_engine):
+    """Chat offers every connector that is on; a playbook step only the ones its playbook lists. quick-ask lists
+    github (here the fake tracker server) but not 'mail', which is on and must not be offered."""
+    from tests.fake_mcp_server import server
+    seen = {}
+
+    def script(system, messages, tools):
+        seen.setdefault("names", sorted(t.name for t in tools or []))
+        seen.setdefault("user", messages[0]["content"])
+        return "Done.\n" + contract()
+
+    conns = ConnectorManager([
+        ConnectorConfig(id="github", name="GitHub", transport="stdio", command="unused", enabled=True,
+                        context={"GITHUB_REPOS": "Repositories the person works in: {value}."}),
+        ConnectorConfig(id="mail", name="Mail", transport="stdio", command="unused", enabled=True,
+                        accounts={"param": "account", "vars": ["MAIL_ACCOUNTS"]}),
+    ], env={"GITHUB_REPOS": "acme/app", "MAIL_ACCOUNTS": "me@corp.com"}, in_process={"github": server, "mail": server})
+    eng, *_ = make_engine(cloud_script=script, connectors=conns)
+    try:
+        rid = await eng.start("quick-ask", {"request": "What is open?"})
+        await run_to_rest(eng, rid)
+    finally:
+        await conns.shutdown()
+    assert "github__list_issues" in seen["names"] and not any(n.startswith("mail__") for n in seen["names"])
+    assert "GitHub: Repositories the person works in: acme/app." in seen["user"] and "me@corp.com" not in seen["user"]
+    assert eng.store.steps(rid)[0]["status"] == "COMPLETE"

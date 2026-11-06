@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from .connectors import ConnectorError, ConnectorManager, ToolInfo
+from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager
 from .contracts import HandoffIn, HandoffOut, Label, Status, parse_handoff, worst
 from .guards import redact, scan_people_eval, wrap_data
 from .outputs import Outputs
@@ -596,27 +596,14 @@ class Engine:
         routes: dict[str, tuple[str, Any]] = {}
         notes: list[str] = []
         account_lines: list[str] = []
-        for cid in step.connectors:
-            if not self.connectors.configured(cid):
-                notes.append(f"connector {cid} not configured (agent worked from provided inputs)")
-                continue
-            try:
-                infos: list[ToolInfo] = await self.connectors.tools(cid)
-            except ConnectorError as e:
-                notes.append(f"connector {cid} unavailable: {e}")
-                continue
-            for t in infos:
-                specs.append(ToolSpec(t.qualified, f"[{cid}, read-only] {t.description}", t.input_schema or {"type": "object"}))
-                routes[t.qualified] = ("mcp", (cid, t.name))
-            if infos:
-                account_lines += [f"- {self.connectors.configs[cid].name}: {line}" for line in self.connectors.context_lines(cid)]
-            accounts = self.connectors.accounts(cid)
-            if accounts and infos:
-                cfg = self.connectors.configs[cid]
-                listed = ", ".join([f"{accounts[0]} (default)"] + accounts[1:])
-                account_lines.append(
-                    f"- {cfg.name}: {listed}. Choose the account with the `{cfg.accounts.param}` argument; "
-                    "calls to any other account are refused. Say which account each fact came from.")
+        # Only the connectors this playbook requires (chat offers every connector that is on): read-only, audited.
+        room = MAX_AGENT_TOOLS - len(dict.fromkeys(step.tools + agent_tools)) - (1 if has_skills else 0)
+        found = await self.connectors.tools_for_agent(step.connectors, only=True, room=room)
+        notes += found.notes
+        account_lines += found.lines
+        for t in found.tools:
+            specs.append(ToolSpec(t.qualified, f"[{t.connector}, read-only] {t.description}", t.input_schema or {"type": "object"}))
+            routes[t.qualified] = ("mcp", (t.connector, t.name))
         for name in dict.fromkeys(step.tools + agent_tools):
             t = TOOLS[name]
             specs.append(ToolSpec(name, t.description, t.parameters))

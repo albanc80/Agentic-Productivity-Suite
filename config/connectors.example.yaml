@@ -131,7 +131,10 @@ connectors:
       tool_args: {service_name: Google Workspace}
       account_arg: user_google_email
       credentials_dir: ${WORKSPACE_MCP_CREDENTIALS_DIR:-~/.google_workspace_mcp/credentials}
-      timeout_s: 600
+      # What the server logs when Google's answer reaches it (auth/oauth_callback_server.py in workspace-mcp).
+      success_log: 'Successfully authenticated user: (\S+?)\.?\s*$'
+      error_log: '(Authentication failed: .*|Error processing OAuth callback: .*|Error handling auth callback: .*)'
+      timeout_s: 900
     timeout_s: 120
     labels:
       GOOGLE_OAUTH_CLIENT_ID: OAuth client ID

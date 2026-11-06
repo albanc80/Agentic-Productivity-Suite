@@ -224,13 +224,15 @@ def google_cfg(**kw) -> ConnectorConfig:
             "env": {"GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID}",
                     "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET}",
                     "USER_GOOGLE_EMAIL": "${USER_GOOGLE_EMAIL}", "WORKSPACE_MCP_CREDENTIALS_DIR": "${CREDS}",
-                    "FAKE_GOOGLE_FAIL": "${FAKE_GOOGLE_FAIL:-}"},
+                    "FAKE_GOOGLE_FAIL": "${FAKE_GOOGLE_FAIL:-}", "FAKE_GOOGLE_CALLBACK": "${FAKE_GOOGLE_CALLBACK:-}"},
             "accounts": {"param": "user_google_email", "vars": ["USER_GOOGLE_EMAIL", "GOOGLE_OTHER_ACCOUNTS"]},
             "client_file": {"name": "google-oauth-client.json",
                             "vars": {"client_id": "GOOGLE_OAUTH_CLIENT_ID", "client_secret": "GOOGLE_OAUTH_CLIENT_SECRET"}},
             "signin": {"provider": "Google", "kind": "tool", "tool": "start_google_auth",
                        "tool_args": {"service_name": "Google Workspace"}, "account_arg": "user_google_email",
-                       "credentials_dir": "${WORKSPACE_MCP_CREDENTIALS_DIR:-~/nowhere}", "timeout_s": 30}}
+                       "credentials_dir": "${WORKSPACE_MCP_CREDENTIALS_DIR:-~/nowhere}", "timeout_s": 30,
+                       "success_log": r"Successfully authenticated user: (\S+?)\.?\s*$",
+                       "error_log": r"(Authentication failed: .*|Error processing OAuth callback: .*)"}}
     base.update(kw)
     return ConnectorConfig.model_validate(base)
 
@@ -338,7 +340,8 @@ def test_google_sign_in_reports_the_server_s_error_and_can_be_cancelled(gclient,
         google_callback(creds, "me@gmail.com")  # too late: nothing is saved
         time.sleep(1.5)
         assert c.get("/api/connectors/google/signin").json()["status"] == "cancelled"
-        assert not gvalues(c)["USER_GOOGLE_EMAIL"]["set"]
+        # The address typed to sign in is the default account at once; nothing signed in, so the connector stays off.
+        assert gvalues(c)["USER_GOOGLE_EMAIL"]["value"] == "me@gmail.com" and not google(c)["enabled"]
 
 
 def test_google_accounts_signed_in_earlier_can_be_used(gclient, creds):
@@ -414,3 +417,34 @@ def test_an_uploaded_client_beats_one_built_into_the_app(tmp_path):
     (uploaded / "google-oauth-client.json").write_text(json.dumps({"web": {"client_id": "up", "client_secret": "s"}}))
     mgr.load_client_files([uploaded, shipped])
     assert mgr.env["GOOGLE_OAUTH_CLIENT_ID"] == "up" and mgr.describe()[0]["client_file"]["source"] == "uploaded"
+
+
+
+def test_google_sign_in_reads_the_server_s_own_report(gclient, creds, tmp_path):
+    """Google's answer reaches the server, not the app; the server's log says how it ended. Success counts even if
+    no credentials file shows up where the app looks, and Google's error is shown at once, not after the timeout."""
+    with gclient(FAKE_GOOGLE_CALLBACK="ok:other@gmail.com") as c:
+        c.post("/api/connectors/google/signin", json={"account": "typed@gmail.com"})
+        assert gvalues(c)["USER_GOOGLE_EMAIL"]["value"] == "typed@gmail.com"  # the default as soon as Sign in is pressed
+        s = gwait(c, "done", "failed")
+        assert s["status"] == "done" and s["account"] == "other@gmail.com", s
+        assert gvalues(c)["USER_GOOGLE_EMAIL"]["value"] == "other@gmail.com" and google(c)["enabled"]
+        log = tmp_path / "data" / "logs" / "google-signin.log"
+        assert "Successfully authenticated user: other@gmail.com" in log.read_text()
+    with gclient(FAKE_GOOGLE_CALLBACK="error") as c:
+        started = time.time()
+        c.post("/api/connectors/google/signin", json={"account": "me@gmail.com"})
+        s = gwait(c, "failed", "done", timeout=10)
+        assert s["status"] == "failed" and time.time() - started < 10  # not the 30-second timeout
+        assert "Google did not complete the sign-in: Authentication failed: Google returned an error: access_denied." in s["error"]
+        assert "Details:" in s["error"] and "google-signin.log" in s["error"] and "\x1b" not in s["error"]
+
+
+def test_a_typed_address_google_did_not_sign_in_is_replaced(gclient, creds):
+    with gclient() as c:
+        c.post("/api/connectors/google/signin", json={"account": "typed@gmail.com"})
+        gwait(c, "waiting")
+        google_callback(creds, "real@gmail.com")
+        gwait(c, "done")
+        v = gvalues(c)
+        assert v["USER_GOOGLE_EMAIL"]["value"] == "real@gmail.com" and not v["GOOGLE_OTHER_ACCOUNTS"]["set"]

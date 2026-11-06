@@ -263,7 +263,7 @@ function Message({ m, ov, chatId, index, restricted }: { m: ChatMsg; ov: Overvie
   return (
     <div className="msg assistant">
       <div className="bubble">
-        <div className="msg-meta small muted">{name(m.agent)}{m.model ? ` · ${m.model}` : ""}{m.tool_calls?.length ? ` · read ${m.tool_calls.length} file${m.tool_calls.length > 1 ? "s" : ""}` : ""}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
+        <div className="msg-meta small muted">{name(m.agent)}{m.model ? ` · ${m.model}` : ""}{m.tool_calls?.length ? ` · ${m.tool_calls.length} connector lookup${m.tool_calls.length > 1 ? "s" : ""}` : ""}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
         <div ref={body}><Markdown text={m.content} /></div>
         <AnswerActions m={m} chatId={chatId} index={index} body={body} canSave={!!ov.outputs_dir && !restricted} />
         {m.delegations && m.delegations.length > 0 && (

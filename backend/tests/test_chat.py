@@ -355,3 +355,61 @@ def test_chat_agents_read_shared_files_read_only(tmp_path, monkeypatch):
         assert msg["tokens"] == 240, "both model calls count"
         reads = [json.loads(e["detail"]) for e in c.get("/api/audit").json() if e["event"] == "connector_call"]
         assert reads and reads[0]["connector"] == "local-files" and reads[0]["tool"] == "read_file" and reads[0]["chat"]
+
+
+def tracker_model(seen: list):
+    """A model that looks something up in the team tracker connector, then answers from it."""
+    def handler(req):
+        if req.url.path.endswith("/models"):
+            return httpx2.Response(200, json={"object": "list", "data": [{"id": "m", "object": "model", "created": 0, "owned_by": "x"}]})
+        body = json.loads(req.content)
+        seen.append(body)
+        tool_results = [m for m in body["messages"] if m.get("role") == "tool"]
+        if body.get("tools") and not tool_results:
+            msg = {"role": "assistant", "content": None, "tool_calls": [{"id": "t1", "type": "function", "function": {
+                "name": "tracker__list_issues", "arguments": json.dumps({"project": "OPS"})}}]}
+            finish = "tool_calls"
+        else:
+            msg = {"role": "assistant", "content": "Open: " + (tool_results[-1]["content"] if tool_results else "none")}
+            finish = "stop"
+        return httpx2.Response(200, json={"id": "c", "object": "chat.completion", "created": 0, "model": body["model"],
+                                          "choices": [{"index": 0, "finish_reason": finish, "message": msg}],
+                                          "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}})
+    return httpx2.AsyncClient(transport=httpx2.MockTransport(handler))
+
+
+def test_chat_agents_use_every_connector_that_is_on(tmp_path, monkeypatch):
+    """Not only Local files: any connector switched on (mail, GitHub, a tracker...) is offered in chat, read-only,
+    with its accounts named; one that cannot start is a warning, not a failure."""
+    from app.connectors import ConnectorConfig, ConnectorManager
+    from tests.fake_mcp_server import server
+    for k in KEYS:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SUITE_DATA_DIR", str(tmp_path / "data"))
+    conns = ConnectorManager([
+        ConnectorConfig(id="tracker", name="Team tracker", transport="stdio", command="unused", enabled=True,
+                        accounts={"param": "account", "vars": ["TRACKER_ACCOUNTS"]}),
+        ConnectorConfig(id="broken", name="Broken mail", transport="stdio", command="/nonexistent/server",
+                        enabled=True, timeout_s=5),
+    ], env={"TRACKER_ACCOUNTS": "me@corp.com"}, in_process={"tracker": server})
+    seen: list = []
+    app = create_app(load_settings(ROOT, ROOT / "config" / "suite.example.yaml"), connectors=conns,
+                     http_client=tracker_model(seen))
+    with TestClient(app) as c:
+        c.put("/api/providers/openai", json={"enabled": True, "api_key": "sk-test",
+                                             "models": [{"model": "gpt-x", "context_tokens": 128000, "tools": True}]})
+        chat = c.post("/api/chats", json={"agent_id": "critical-mentor", "data_class": "public"}).json()
+        msg = c.post(f"/api/chats/{chat['id']}/messages", json={"content": "What is open in OPS?"}).json()
+        first = next(b for b in seen if b.get("tools"))
+        offered = {t["function"]["name"] for t in first["tools"]}
+        assert "tracker__list_issues" in offered and "tracker__create_issue" not in offered
+        system = first["messages"][0]["content"]
+        assert "read-only tools: Team tracker" in system and "me@corp.com (default)" in system
+        assert "never say you cannot reach a source listed here" in system
+        assert msg["tool_calls"][0] == {"connector": "tracker", "tool": "list_issues", "arguments": {"project": "OPS"},
+                                        "error": False}
+        assert "OPS-1" in msg["content"]
+        assert any(w.startswith("connector broken unavailable") for w in msg.get("warnings", []))
+        assert not any("local-files" in w for w in msg.get("warnings", []))  # Local files off: not a warning
+        calls = [json.loads(e["detail"]) for e in c.get("/api/audit").json() if e["event"] == "connector_call"]
+        assert calls and calls[0]["connector"] == "tracker" and calls[0]["chat"]

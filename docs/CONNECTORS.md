@@ -65,7 +65,9 @@ How it works:
 - The Google server has no sign-in command, so the suite starts it and calls its own `start_google_auth` tool. Agents cannot: the tool is not read-only, so the suite's policy hides it from them; only the sign-in code calls it, directly.
 - While signing in, the server runs with `--tool-tier complete` added (it lists its sign-in tool only in that tier). The permissions Google is asked for come from `--tools` and `--read-only`, so they are the same read-only scopes the connector uses: checked against the real server, they are `gmail.readonly`, `calendar.readonly`, `drive.readonly`, `documents.readonly`, `spreadsheets.readonly`, `presentations.readonly`, `tasks.readonly`, `contacts.readonly` and the basic profile.
 - The server's callback saves the account's credentials as one file per address in `~/.google_workspace_mcp/credentials` (or `WORKSPACE_MCP_CREDENTIALS_DIR`). The suite sees the file appear; it never opens it. **Sign out** deletes that file. It does not revoke the app's access at Google: do that at https://myaccount.google.com/permissions if you want it gone there too.
-- A sign-in waits up to 10 minutes. Offline mode blocks it.
+- The app also reads the server's own log while you sign in (saved as `data/logs/google-workspace-signin.log`; the server never logs tokens): when Google's answer reaches the server, the panel shows success or Google's error at once (for example `access_denied` when access is declined or blocked) instead of waiting. A sign-in waits up to 15 minutes. Offline mode blocks it.
+- The address you type becomes the default account as soon as you press **Sign in with Google**; if Google signs in a different account, that one replaces it.
+- **Test** only checks that the connector starts and lists its tools, which works without signing in. The Sign-in box says whether an account is signed in.
 
 ## Built-in Google client
 
@@ -109,4 +111,4 @@ Adding a brand-new connector stays a file edit on purpose: a connector entry can
   allow_tools: [search_docs, get_doc]   # optional; otherwise read-only is inferred
 ```
 
-Then list it under `connectors:` on the playbook steps that may use it. Agents use connector tools only on models with tool calling (`tools: true` in the model config). Other models work from pasted or uploaded inputs, and the run notes say so.
+**Who can use a connector.** In chat, every connector that is switched on and set up is offered to every agent (Local files first; at most 128 tools per answer, the most some model APIs accept). In playbooks, a step gets only the connectors its playbook lists under `connectors:`, so list a new connector on the steps that may use it. Agents use connector tools only on models with tool calling (`tools: true` in the model config). Other models work from pasted or uploaded inputs, and the run notes say so.
