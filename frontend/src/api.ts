@@ -37,7 +37,7 @@ export interface ProviderInfo {
 }
 export interface ConnectorVariable {
   name: string; secret: boolean; flag: boolean; optional: boolean; default: string; set: boolean;
-  source: "env" | "app" | null; value: string | null;
+  source: "env" | "app" | "bundled" | null; value: string | null;  // bundled: an OAuth client built into the app
   label: string; hint: string; part: string | null;  // label and help from the connector; part of a grouped connector
 }
 export interface ConnectorInfo {
@@ -48,7 +48,8 @@ export interface ConnectorInfo {
   steps: string[]; docs_url: string;  // numbered setup steps and the server's own documentation
   parts: { id: string; name: string; description: string; ready: boolean }[];  // grouped connector (Databricks)
   // Sign-in from the app (Microsoft 365): the flag a sign-in confirms and the accounts list it fills in.
-  signin: { provider: string; confirms: string | null; accounts_var: string | null } | null;
+  // kind "tool" (Google) asks for the address to sign in with; "command" (Microsoft) shows a code.
+  signin: { provider: string; kind: "command" | "tool"; confirms: string | null; accounts_vars: string[] } | null;
 }
 export interface SigninState {
   connector: string; status: "none" | "starting" | "waiting" | "finishing" | "done" | "failed" | "cancelled";
@@ -189,7 +190,9 @@ export const api = {
     call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(edit) }),
   resetConnector: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/settings`, { method: "DELETE" }),
   signinState: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`),
-  signinStart: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "POST" }),
+  signinStart: (id: string, account?: string) =>
+    call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "POST", body: JSON.stringify({ account: account || null }) }),
+  useSignedIn: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/use`, { method: "POST" }),
   signinCancel: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "DELETE" }),
   signedInAccounts: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts`),
   signOut: (id: string, accountId: string) =>

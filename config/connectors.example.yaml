@@ -109,6 +109,24 @@ connectors:
       USER_GOOGLE_EMAIL: ${USER_GOOGLE_EMAIL}
       WORKSPACE_MCP_PORT: ${WORKSPACE_MCP_PORT:-8000}
     accounts: {param: user_google_email, vars: [USER_GOOGLE_EMAIL, GOOGLE_OTHER_ACCOUNTS]}
+    # An OAuth client built into the app: google-oauth-client.json (as Google Cloud downloads it) in the config
+    # folder or next to connectors.yaml. Installers get it from the GOOGLE_OAUTH_CLIENT_JSON build secret.
+    client_file:
+      name: google-oauth-client.json
+      vars: {client_id: GOOGLE_OAUTH_CLIENT_ID, client_secret: GOOGLE_OAUTH_CLIENT_SECRET}
+    # Sign-in from Settings: the suite starts this server and calls its own sign-in tool; the server's local
+    # callback saves the account's credentials (one file per address), which is how the suite sees it is done.
+    signin:
+      provider: Google
+      kind: tool
+      # Added to the arguments above while signing in: the server lists its sign-in tool only in the complete
+      # tier. The permissions it asks for come from --tools and --read-only, so they do not change.
+      login: [--tool-tier, complete]
+      tool: start_google_auth
+      tool_args: {service_name: Google Workspace}
+      account_arg: user_google_email
+      credentials_dir: ${WORKSPACE_MCP_CREDENTIALS_DIR:-~/.google_workspace_mcp/credentials}
+      timeout_s: 600
     timeout_s: 120
     labels:
       GOOGLE_OAUTH_CLIENT_ID: OAuth client ID
@@ -118,23 +136,24 @@ connectors:
       GOOGLE_WORKSPACE_TOOL_TIER: Tool tier
       WORKSPACE_MCP_PORT: Sign-in port
     hints:
-      GOOGLE_OTHER_ACCOUNTS: Optional, comma-separated addresses. Each one signs in through the browser the first time it is used.
+      GOOGLE_OAUTH_CLIENT_ID: "Leave blank when it says Built into this app. Otherwise create a client as in the steps above."
+      USER_GOOGLE_EMAIL: Filled in when you sign in above. Agents read this account unless asked about another.
+      GOOGLE_OTHER_ACCOUNTS: "Filled in when you sign in with more accounts. Remove an address here to stop agents using it without signing it out."
       GOOGLE_WORKSPACE_TOOL_TIER: "core (default) or extended (more read tools, for example labels and threads)."
-      WORKSPACE_MCP_PORT: "Default 8000. Change it only if another program uses that port, and update the redirect URI to match."
+      WORKSPACE_MCP_PORT: "Default 8000. Change it only if another program uses that port."
     setup: >-
       Reads Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks and Contacts with the community server
-      workspace-mcp (taylorwilsdon/google_workspace_mcp) in read-only mode, using an OAuth client you create
-      in your own Google Cloud project.
+      workspace-mcp (taylorwilsdon/google_workspace_mcp) in read-only mode. Sign in from here: a Google page
+      opens in your browser, and the server keeps the sign-in on this computer.
     steps:
-      - "Install uv from https://docs.astral.sh/uv/getting-started/installation/ (it provides the uvx command)."
-      - "In Google Cloud Console (https://console.cloud.google.com) create a project, or pick one."
-      - "APIs & Services > Library: enable Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides, Google Tasks and People APIs."
-      - "APIs & Services > OAuth consent screen: set it up (External is fine for a personal account) and add your address as a test user."
-      - "APIs & Services > Credentials > Create credentials > OAuth client ID. Choose Desktop app, or Web application with http://localhost:8000/oauth2callback as an authorised redirect URI. Copy the client ID and secret."
-      - Enter the client ID, the secret and your Google address below, save, switch the connector on and press Test.
-      - The first time an agent reads your data, your browser opens for Google sign-in. Approve it, then run the step again.
+      - "Install uv from https://docs.astral.sh/uv/getting-started/installation/ (it provides the uvx command), then close and reopen the app."
+      - "If OAuth client ID below says Built into this app, go to the next step. Otherwise create your own client: in Google Cloud Console (https://console.cloud.google.com) pick a project, enable the Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides, Google Tasks and People APIs, set up the OAuth consent screen, then Credentials > Create credentials > OAuth client ID > Desktop app. Enter its ID and secret below and press Save."
+      - "Under Sign-in, enter your Google address and press Sign in with Google. The first time, the app downloads the connector, which can take a minute."
+      - "A Google page opens in your browser on this computer. Sign in and allow read-only access. If Google says it has not verified the app, choose Advanced, then continue: it is the app's own client. If Google says access is blocked, ask the person who shared the app to add your address as a test user."
+      - "The app notices when you are done, adds the account and switches the connector on. Press Test to see the tools."
+      - "Several accounts: press Add another account and sign in with the next one. The first account is the default."
     docs_url: https://github.com/taylorwilsdon/google_workspace_mcp#readme
-    verify: Package name (workspace-mcp on PyPI), the --read-only, --tool-tier and --tools flags, the variable names, the per-call user_google_email argument and the OAuth redirect in the google_workspace_mcp README and docs.
+    verify: Package name (workspace-mcp on PyPI), the --read-only, --tool-tier and --tools flags, the variable names, the per-call user_google_email argument, the start_google_auth tool and the credentials folder (WORKSPACE_MCP_CREDENTIALS_DIR, one file per address) in the google_workspace_mcp README and source.
 
   - id: databricks
     name: Databricks

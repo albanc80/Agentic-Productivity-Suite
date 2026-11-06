@@ -10,7 +10,7 @@ Launch commands come from each project's documentation and change between releas
 |---|---|---|---|
 | GitHub | `GITHUB_PERSONAL_ACCESS_TOKEN` (fine-grained, read-only). Optional `GITHUB_HOST` (GitHub Enterprise Server or `ghe.com` only; leave blank for github.com), `GITHUB_REPOS` (the repositories you work in, told to agents), `GITHUB_TOOLSETS` | Runs `ghcr.io/github/github-mcp-server` in Docker with `GITHUB_READ_ONLY=1`. For github.com the token is enough: tools take the owner and repository on each call, and the token decides which repositories can be read | Image name and variables in the github/github-mcp-server README |
 | Microsoft 365 | Nothing to type: press **Sign in with Microsoft** in Edit (see [Sign in from the app](#sign-in-from-the-app-microsoft-365)). Optional `MS365_MCP_ORG_MODE=1` (work or school account, set before signing in), `MS365_MCP_PRESET` (default `personal`). `MS365_ACCOUNTS` is filled in by each sign-in | Community server `@softeria/ms-365-mcp-server` via `npx` with `--read-only --preset personal`: Outlook mail and calendar, OneDrive files, contacts, To Do, OneNote, search. `MS365_MCP_PRESET=work` (with org mode) adds Teams, SharePoint and shared mailboxes. Work tenants may need admin consent | Package name, `--preset` names and `MS365_MCP_ORG_MODE` in its README and PRESETS.md |
-| Google Workspace | `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `USER_GOOGLE_EMAIL`. Optional `GOOGLE_OTHER_ACCOUNTS` (several accounts), `WORKSPACE_MCP_PORT` (default 8000), `GOOGLE_WORKSPACE_TOOL_TIER` (default `core`) | Community server `workspace-mcp` via `uvx` with `--read-only --tools gmail calendar drive docs sheets slides tasks contacts`. Create an OAuth client in Google Cloud and enable those APIs; for a Web application client add `http://localhost:8000/oauth2callback` as a redirect URI. The first read opens your browser for Google sign-in; run the step again afterwards. Requires uv | Package name, flags and variable names in the taylorwilsdon/google_workspace_mcp README |
+| Google Workspace | Nothing to type when the app has a [built-in Google client](#built-in-google-client): enter your address and press **Sign in with Google** in Edit (see [Sign in from the app](#sign-in-from-the-app-google-workspace)). Without one: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` from your own client. `USER_GOOGLE_EMAIL` and `GOOGLE_OTHER_ACCOUNTS` are filled in by each sign-in. Optional `WORKSPACE_MCP_PORT` (default 8000), `GOOGLE_WORKSPACE_TOOL_TIER` (default `core`) | Community server `workspace-mcp` via `uvx` with `--read-only --tools gmail calendar drive docs sheets slides tasks contacts`. Requires uv | Package name, flags, variable names, the `start_google_auth` tool and the credentials folder in the taylorwilsdon/google_workspace_mcp README and source |
 | Databricks (one connector) | `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, then any of: `DATABRICKS_GENIE_SPACE_ID` (Genie space); `DATABRICKS_UC_CATALOG` + `DATABRICKS_UC_SCHEMA` (Unity Catalog functions); `DATABRICKS_VS_CATALOG` + `DATABRICKS_VS_SCHEMA` (Vector Search) | Managed MCP over HTTP, one endpoint per service: `/api/2.0/mcp/genie/{space_id}`, `/api/2.0/mcp/functions/{catalog}/{schema}` (all functions allowed because you defined them), `/api/2.0/mcp/vector-search/{catalog}/{schema}`. Each service turns on when its fields are filled in; tools are listed as `<service>.<tool>`. Replaces the three separate Databricks connectors of earlier versions (their values and switch carry over) | Managed MCP is in preview; URL patterns have changed before, and Vector Search is also called AI Search (`/ai-search/`) |
 | Azure DevOps | `AZURE_DEVOPS_ORG` | `npx @azure-devops/mcp <org> -d core work work-items repositories wiki`; browser sign-in. No server read-only flag, so the suite's policy is the control | Package and `-d` flag; maintainers recommend their remote server going forward |
 | Jira / Confluence | `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` (+ optional Confluence variables) | Community `ghcr.io/sooperset/mcp-atlassian` with `READ_ONLY_MODE=true` | Image tag; whether `CONFLUENCE_URL` needs `/wiki` |
@@ -23,7 +23,7 @@ One connector serves every account you sign in with, for example a work and a pe
 | Connector | Sign in each account | List the accounts agents may use |
 |---|---|---|
 | Microsoft 365 | Press **Add another account** in Edit for each account (or run `npx -y @softeria/ms-365-mcp-server --login` in a terminal) | `MS365_ACCOUNTS`, comma-separated, default first. Each sign-in from the app adds its account; **Sign out** removes it |
-| Google Workspace | Automatic: the first read for an address opens your browser for Google sign-in | `USER_GOOGLE_EMAIL` (default) plus `GOOGLE_OTHER_ACCOUNTS`, comma-separated |
+| Google Workspace | Enter the next address and press **Add another account** in Edit | `USER_GOOGLE_EMAIL` (default) plus `GOOGLE_OTHER_ACCOUNTS`, comma-separated. Each sign-in from the app adds its account; **Sign out** removes it |
 
 What the suite does with the list:
 - Every step that uses the connector tells the agent which accounts are connected and asks it to say which account each fact came from.
@@ -50,6 +50,35 @@ How it works and what it does not do:
 - A `connectors.yaml` copied by an earlier version gets the sign-in automatically as long as its Microsoft 365 launch command and arguments are unchanged; a changed launch is left alone.
 - Behind a proxy that inspects TLS, the connector (and so the sign-in) needs the proxy and certificate variables, which stdio connectors do not inherit today. Add them to the connector's `env` in `connectors.yaml`, for example `NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}`.
 - Other connectors can use the same mechanism with a `signin:` block (`provider`, `login`, `accounts`, `remove`, `confirms`) if their server signs in with a device code and prints JSON results like this one.
+
+## Sign in from the app (Google Workspace)
+
+In Settings → Connectors → Google Workspace → Edit, enter your Google address under **Sign-in** and press **Sign in with Google**:
+
+1. The app starts the connector (Install uv first; the first run downloads it, which can take a minute) and a Google page opens in the browser on this computer. If it does not, use the link the app shows.
+2. Sign in and allow read-only access. With a client that Google has not verified, Google shows a warning first: choose **Advanced**, then continue.
+3. Google sends you back to the connector on this computer (`http://localhost:8000/oauth2callback`). The app notices the new sign-in, fills in the address, and switches the connector on.
+
+Sign in on the computer running the app: the return address is that computer, so a phone cannot finish a Google sign-in. **Add another account**, **Sign out** and **Use them** (accounts signed in earlier) work as for Microsoft 365. Google may sign in a different account than the address you typed; the app records the one Google signed in.
+
+How it works:
+- The Google server has no sign-in command, so the suite starts it and calls its own `start_google_auth` tool. Agents cannot: the tool is not read-only, so the suite's policy hides it from them; only the sign-in code calls it, directly.
+- While signing in, the server runs with `--tool-tier complete` added (it lists its sign-in tool only in that tier). The permissions Google is asked for come from `--tools` and `--read-only`, so they are the same read-only scopes the connector uses: checked against the real server, they are `gmail.readonly`, `calendar.readonly`, `drive.readonly`, `documents.readonly`, `spreadsheets.readonly`, `presentations.readonly`, `tasks.readonly`, `contacts.readonly` and the basic profile.
+- The server's callback saves the account's credentials as one file per address in `~/.google_workspace_mcp/credentials` (or `WORKSPACE_MCP_CREDENTIALS_DIR`). The suite sees the file appear; it never opens it. **Sign out** deletes that file. It does not revoke the app's access at Google: do that at https://myaccount.google.com/permissions if you want it gone there too.
+- A sign-in waits up to 10 minutes. Offline mode blocks it.
+
+## Built-in Google client
+
+Every Google user normally needs their own OAuth client from Google Cloud. A built-in client removes that: the app reads `google-oauth-client.json`, the file Google Cloud downloads for an OAuth client (Credentials → your client → **Download JSON**), and uses its ID and secret when none is typed in Settings or set in the environment. The Client ID and secret fields then say **Built into this app**.
+
+Where the app looks, first match wins: `config/` in the app folder, the folder of `connectors.yaml` (`~/.productivity-suite` for the desktop app), then the data folder. The file is git-ignored; never commit it.
+
+Installers: add the file's contents as the repository secret `GOOGLE_OAUTH_CLIENT_JSON` (GitHub → Settings → Secrets and variables → Actions). The installer build writes it into `config/` before packaging (`desktop/bundle_oauth_client.py`), so everyone who installs that build signs in without any Google Cloud setup. Without the secret the build still succeeds, with no built-in client. A malformed secret fails the build.
+
+What to know about sharing a client:
+- A Desktop app client's secret is not confidential by Google's own design for installed apps: anyone with the installer can read it. It lets them sign in to *their own* Google account through your client; it gives no access to yours.
+- Google's limits for an unverified client: in **Testing**, only the test users you list can sign in and each sign-in expires after 7 days; **In production** without verification, people see the "not verified" warning and the number of users is capped (100, at the time of writing). Check Google's current rules for both.
+- Everyone who signs in through the client counts against its quota, and you can see and revoke its use in your Google Cloud project.
 
 ## Adding a connector
 

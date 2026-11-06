@@ -100,6 +100,10 @@ class Discover(BaseModel):
     api_key: str | None = None
 
 
+class SigninStart(BaseModel):
+    account: str | None = Field(default=None, max_length=320)  # the address to sign in with (Google)
+
+
 class ProviderEdit(BaseModel):
     enabled: bool | None = None
     base_url: str | None = None
@@ -147,6 +151,10 @@ class Suite:
         self.offline_default: str | None = None
         self.http_client = http_client
         self.signin = SigninManager(self.connectors, self.signed_in)
+        # OAuth clients built into the app (Google): in the shipped config folder, or next to connectors.yaml.
+        folders = [settings.home / "config", *([settings.connectors_path.parent] if settings.connectors_path else []),
+                   settings.data_dir]
+        self.warnings += self.connectors.load_client_files(list(dict.fromkeys(folders)))
         self.apply()
 
     # ------------------------------------------------------------ runtime configuration
@@ -382,7 +390,7 @@ class Suite:
             if cfg.transport == "builtin":
                 missing = [] if (st.folders if st.folders is not None else cfg.folders) else ["a folder"]
             else:
-                have = {**{k: v for k, v in values.items() if v}, **{k: v for k, v in self.connectors.base_env.items() if v}}
+                have = self.connectors.available(values)
                 missing = sorted(v for v in cfg.required_env() if not have.get(v))
             if missing:
                 raise ValueError(f"{cfg.name} needs {', '.join(missing)} before it can be switched on. Open Edit to set it up.")
@@ -414,12 +422,15 @@ class Suite:
         everything it needs after a sign-in, off once no account is left)."""
         cfg = self.connectors.file_configs[cid]
         env = self.connectors.base_env
-        if cfg.accounts and not env.get(cfg.accounts.vars[0]):  # a list set by an environment variable stays as it is
-            var = cfg.accounts.vars[0]
-            if accounts:
-                values[var] = ", ".join(accounts)
-            else:
-                values.pop(var, None)
+        if cfg.accounts and not any(env.get(v) for v in cfg.accounts.vars):  # a list set in the environment stays
+            names = cfg.accounts.vars
+            # One field holds them all (Microsoft). Two (Google): the default address, then the others.
+            parts = [accounts] if len(names) == 1 else [accounts[:1], *([] for _ in names[1:-1]), accounts[1:]]
+            for var, part in zip(names, parts, strict=True):
+                if part:
+                    values[var] = ", ".join(part)
+                else:
+                    values.pop(var, None)
         flag = cfg.signin.confirms if cfg.signin else None
         if flag and not env.get(flag):
             if accounts:
@@ -429,7 +440,7 @@ class Suite:
         all_settings = self.connector_settings()
         st = all_settings.get(cid, ConnectorSetting())
         enabled = self.connectors.configs[cid].enabled
-        have = {**{k: v for k, v in values.items() if v}, **{k: v for k, v in env.items() if v}}
+        have = self.connectors.available(values)
         if accounts and not enabled and all(have.get(v) for v in cfg.required_env()):
             st.enabled = True
         elif not accounts and enabled:
@@ -440,13 +451,32 @@ class Suite:
         self.apply()
         self.store.audit(event, None, connector=cid, enabled=self.connectors.configs[cid].enabled, by=by, **audit)
 
+    def _listed_accounts(self, cid: str, values: dict[str, str]) -> list[str]:
+        """The accounts agents may use, default first, as saved in the app (every account field, in order)."""
+        cfg = self.connectors.file_configs[cid]
+        out: list[str] = []
+        for var in cfg.accounts.vars if cfg.accounts else []:
+            for a in ACCOUNT_SPLIT.split(values.get(var, "")):
+                if a and a.lower() not in (x.lower() for x in out):
+                    out.append(a)
+        return out
+
+    async def use_signed_in(self, cid: str, by: str) -> list[dict]:
+        """Allow the accounts already signed in to the connector's server (for example from a terminal)."""
+        accounts = await self.signin.accounts(cid)
+        if not accounts:
+            raise SigninError("No account is signed in yet.")
+        names = [a["username"] for a in sorted(accounts, key=lambda a: not a["selected"]) if a["username"]]
+        values = dict(self.store.get_setting("connector_values", {}))
+        self._sign_in_state(cid, values, names, by, "connector_signed_in", account=", ".join(names))
+        await self.connectors.restart([cid])
+        return accounts
+
     async def signed_in(self, cid: str, account: str, signed_in: list[dict]) -> None:
         """After a sign-in from the app: add the account to the accounts agents may use, confirm the sign-in and
         switch the connector on if it now has everything it needs. The server's new tokens apply on restart."""
-        cfg = self.connectors.file_configs[cid]
         values = dict(self.store.get_setting("connector_values", {}))
-        var = cfg.accounts.vars[0] if cfg.accounts else None
-        listed = [a for a in ACCOUNT_SPLIT.split(values.get(var, "") if var else "") if a]
+        listed = self._listed_accounts(cid, values)
         if not listed:  # until now the server chose among every signed-in account: keep them, its default first
             listed = [a["username"] for a in sorted(signed_in, key=lambda a: not a["selected"]) if a["username"]]
         if account and account.lower() not in (a.lower() for a in listed):
@@ -462,10 +492,8 @@ class Suite:
             raise SigninError("That account is not signed in.")
         await self.signin.remove(cid, account_id)
         left = [a for a in accounts if a["id"] != account_id]
-        cfg = self.connectors.file_configs[cid]
         values = dict(self.store.get_setting("connector_values", {}))
-        var = cfg.accounts.vars[0] if cfg.accounts else None
-        listed = [a for a in ACCOUNT_SPLIT.split(values.get(var, "") if var else "") if a]
+        listed = self._listed_accounts(cid, values)
         gone = target["username"].lower()
         keep = [a for a in listed if a.lower() != gone] if listed else [a["username"] for a in left]
         self._sign_in_state(cid, values, keep if left else [], by, "connector_signed_out", account=target["username"])
@@ -1028,9 +1056,9 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         return s.view() if s else {"connector": cid, "status": "none"}
 
     @app.post("/api/connectors/{cid}/signin")
-    async def signin_start(cid: str):
+    async def signin_start(cid: str, body: SigninStart | None = None):
         try:
-            s = await suite.signin.start(cid)
+            s = await suite.signin.start(cid, (body or SigninStart()).account)
         except (KeyError, SigninError, ConnectorError) as e:
             raise signin_errors(e) from e
         store.audit("connector_signin_started", None, connector=cid, by="ui")
@@ -1048,6 +1076,13 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     async def signin_accounts(cid: str):
         try:
             return {"accounts": await suite.signin.accounts(cid)}
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
+
+    @app.post("/api/connectors/{cid}/accounts/use")
+    async def signin_use_existing(cid: str):
+        try:
+            return {"accounts": await suite.use_signed_in(cid, "ui")}
         except (KeyError, SigninError, ConnectorError) as e:
             raise signin_errors(e) from e
 

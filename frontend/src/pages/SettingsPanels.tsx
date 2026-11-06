@@ -192,7 +192,8 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
       {c.missing.length > 0 && !c.offline_paused && (
         <p className="small provider-reason">Needs: {c.missing.map((n) => {
           const v = c.variables.find((x) => x.name === n);
-          return v?.flag ? (c.signin ? `a ${c.signin.provider} sign-in` : "the one-time sign-in confirmation")
+          if (c.signin && (v?.flag || c.signin.accounts_vars.includes(n))) return `a ${c.signin.provider} sign-in`;
+          return v?.flag ? "the one-time sign-in confirmation"
             : /^[A-Z0-9_]+$/.test(n) ? (v?.label || varLabel(n)).toLowerCase() : n;
         }).join(", ")}. Open Edit to {c.signin ? "sign in" : "set it up"}{c.enabled || c.signin ? "" : ", then switch it on"}.</p>
       )}
@@ -302,10 +303,11 @@ function VariablesEditor({ c, onDone, onRefresh }: { c: ConnectorInfo; onDone: (
           }
           return (
             <div key={v.name} className="field">
-              <label htmlFor={id}>{label(v)}{!v.optional && <span className="req" aria-label="required"> *</span>}</label>
+              <label htmlFor={id}>{label(v)}{!v.optional && v.source !== "bundled" && <span className="req" aria-label="required"> *</span>}</label>
               <input id={id} type={v.secret ? "password" : "text"} value={vals[v.name] ?? ""} autoComplete="off" spellCheck={false}
-                placeholder={v.secret && v.set ? "•••••••• (saved)" : v.default || ""}
+                placeholder={v.source === "bundled" ? "Built into this app" : v.secret && v.set ? "•••••••• (saved)" : v.default || ""}
                 onChange={(e) => setVals((x) => ({ ...x, [v.name]: e.target.value }))} />
+              {v.source === "bundled" && <span className="help ok-text">Built into this app: nothing to enter. Type a value only to use your own.</span>}
               {v.hint && <span className="help">{v.hint}</span>}
               <span className="help"><code>{v.name}</code>{v.optional ? " · optional" : ""}{v.secret ? " · never shown again once saved" : ""}</span>
               {v.secret && v.set && v.source === "app" && (
@@ -345,7 +347,7 @@ function VariablesEditor({ c, onDone, onRefresh }: { c: ConnectorInfo; onDone: (
 function signinKey(c: ConnectorInfo) {
   if (!c.signin) return c.id;
   const v = (n: string | null) => c.variables.find((x) => x.name === n);
-  return `${c.id}:${v(c.signin.accounts_var)?.value ?? ""}:${v(c.signin.confirms)?.set ? 1 : 0}`;
+  return `${c.id}:${c.signin.accounts_vars.map((n) => v(n)?.value ?? "").join("|")}:${v(c.signin.confirms)?.set ? 1 : 0}`;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -361,13 +363,16 @@ const SIGNIN_ACTIVE = ["starting", "waiting", "finishing"];
 /** Sign in with a code: the connector's server shows a code, the person enters it on the provider's page. */
 function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }) {
   const provider = c.signin!.provider;
+  const byAddress = c.signin!.kind === "tool";  // Google: sign in with an address, in this computer's browser
+  const [address, setAddress] = useState("");
   const [s, setS] = useState<SigninState | null>(null);
   const [accounts, setAccounts] = useState<SignedInAccount[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState("");
   const [copied, setCopied] = useState(false);
   const active = !!s && SIGNIN_ACTIVE.includes(s.status);
-  const confirmed = !!c.variables.find((v) => v.name === c.signin!.confirms)?.set;
+  const confirmed = c.signin!.confirms ? !!c.variables.find((v) => v.name === c.signin!.confirms)?.set
+    : c.signin!.accounts_vars.some((n) => c.variables.find((v) => v.name === n)?.set);
 
   async function loadAccounts() {
     try { setAccounts((await api.signedInAccounts(c.id)).accounts); } catch (e) { setAccounts([]); setError(e); }
@@ -391,23 +396,21 @@ function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }
 
   async function start() {
     setBusy("start"); setError(null); setCopied(false);
-    try { setS(await api.signinStart(c.id)); } catch (e) { setError(e); } finally { setBusy(""); }
+    try { setS(await api.signinStart(c.id, byAddress ? address.trim() : undefined)); } catch (e) { setError(e); } finally { setBusy(""); }
   }
   async function cancel() {
     setBusy("cancel");
     try { setS(await api.signinCancel(c.id)); } catch (e) { setError(e); } finally { setBusy(""); }
   }
   async function signOut(a: SignedInAccount) {
-    if (!window.confirm(`Sign ${a.username} out? Agents stop reading this account, and ${provider} forgets the sign-in on this computer.`)) return;
+    if (!window.confirm(`Sign ${a.username} out? Agents stop reading this account, and the app forgets its ${provider} sign-in on this computer.`)) return;
     setBusy(a.id); setError(null);
     try { setAccounts((await api.signOut(c.id, a.id)).accounts); setS(null); onChange(); } catch (e) { setError(e); } finally { setBusy(""); }
   }
   async function useExisting() {
     if (!accounts?.length) return;
     setBusy("adopt"); setError(null);
-    const values: Record<string, string> = { [c.signin!.confirms!]: "1" };
-    if (c.signin!.accounts_var) values[c.signin!.accounts_var] = accounts.map((a) => a.username).join(", ");
-    try { await api.updateConnector(c.id, { values, enabled: true }); onChange(); } catch (e) { setError(e); } finally { setBusy(""); }
+    try { await api.useSignedIn(c.id); onChange(); } catch (e) { setError(e); } finally { setBusy(""); }
   }
   async function copyCode() {
     if (s?.code) setCopied(await copyText(s.code));
@@ -437,7 +440,14 @@ function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }
       {s?.status === "starting" && (
         <p className="small muted">Starting the {provider} sign-in… The first time, the app downloads the connector, which can take a minute.</p>
       )}
-      {s?.status === "waiting" && (
+      {s?.status === "waiting" && byAddress && (
+        <ol className="setup-steps small signin-steps">
+          <li>A {provider} page should have opened in your browser. If not, <a href={s.url} target="_blank" rel="noreferrer">open the {provider} sign-in page ↗</a>.</li>
+          <li>Sign in and allow read-only access. If {provider} says it has not verified the app, choose Advanced, then continue: it is this app's own client.</li>
+          <li>Use the browser on the computer running the app: {provider} sends you back to it. This page updates by itself.</li>
+        </ol>
+      )}
+      {s?.status === "waiting" && !byAddress && (
         <ol className="setup-steps small signin-steps">
           {s.code ? (
             <li>Your code: <code className="signin-code">{s.code}</code>{" "}
@@ -456,10 +466,16 @@ function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }
       {s?.status === "cancelled" && <p className="small muted">Sign-in cancelled.</p>}
       <ErrorNote error={error} />
 
-      <div className="row-tight">
+      <div className="row-tight signin-actions">
+        {byAddress && !active && (
+          <input type="email" aria-label={`${provider} address to sign in with`} placeholder={`you@gmail.com`} value={address}
+            autoComplete="email" spellCheck={false} onChange={(e) => setAddress(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address.trim())) start(); } }} />
+        )}
         {active
           ? <button type="button" className="ghost" onClick={cancel} disabled={busy === "cancel" || s?.status === "finishing"}>Cancel sign-in</button>
-          : <button type="button" className={accounts?.length ? "" : "primary"} onClick={start} disabled={!!busy || c.offline_paused}
+          : <button type="button" className={accounts?.length ? "" : "primary"} onClick={start}
+              disabled={!!busy || c.offline_paused || (byAddress && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address.trim()))}
               title={c.offline_paused ? "Go online to sign in" : undefined}>
               {busy === "start" ? "Starting…" : accounts?.length ? "Add another account" : `Sign in with ${provider}`}</button>}
       </div>

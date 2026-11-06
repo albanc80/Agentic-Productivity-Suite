@@ -111,6 +111,10 @@ jobs:
       - name: Build UI
         working-directory: frontend
         run: npm ci --no-audit --no-fund && npm run build
+      - name: Built-in Google OAuth client (from the GOOGLE_OAUTH_CLIENT_JSON secret, if set)
+        env:
+          GOOGLE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON }}
+        run: python desktop/bundle_oauth_client.py
       - name: Build app (PyInstaller)
         working-directory: backend
         run: |
@@ -166,6 +170,10 @@ jobs:
       - name: Build UI
         working-directory: frontend
         run: npm ci --no-audit --no-fund; npm run build
+      - name: Built-in Google OAuth client (from the GOOGLE_OAUTH_CLIENT_JSON secret, if set)
+        env:
+          GOOGLE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON }}
+        run: python desktop/bundle_oauth_client.py
       - name: Build app (PyInstaller)
         working-directory: backend
         run: |

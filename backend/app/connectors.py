@@ -60,21 +60,40 @@ ACCOUNT_SPLIT = re.compile(r"[\s,;]+")
 
 
 class SigninConfig(BaseModel):
-    """Sign-in from the app, run by the connector's own server (see signin.py).
+    """Sign-in from the app, run by the connector's own server (see signin.py). The server keeps the tokens;
+    the suite never reads them. A successful sign-in adds the account to the connector's account list and sets
+    ``confirms`` (the connector's opt-in flag, if it has one).
 
-    The suite runs the connector's launch command with extra arguments: ``login`` signs one account in
-    (the server prints a link and a code, then a JSON result), ``accounts`` lists the signed-in accounts
-    as JSON and ``remove`` (followed by an account id) signs one out. The server keeps the tokens; the
-    suite never sees them. A successful sign-in sets ``confirms`` (the connector's opt-in flag) and adds
-    the account to the connector's account list.
+    ``kind: command`` (Microsoft 365): the suite runs the connector's launch command with extra arguments.
+    ``login`` signs one account in (the server prints a link and a code, then a JSON result), ``accounts``
+    lists the signed-in accounts as JSON and ``remove`` (followed by an account id) signs one out.
+
+    ``kind: tool`` (Google Workspace): the suite starts the connector's server (with ``login`` added to its
+    arguments) and calls its sign-in ``tool`` with ``tool_args`` and the address in ``account_arg``. The tool answers with a sign-in address; the
+    server's own callback receives the result and saves the account's credentials as one file per address in
+    ``credentials_dir``, which is how the suite sees who is signed in. Signing out deletes that file.
     """
 
     provider: str  # shown on the button: "Sign in with Microsoft"
-    login: list[str]
-    accounts: list[str]
-    remove: list[str]
+    kind: Literal["command", "tool"] = "command"
+    login: list[str] = Field(default_factory=list)
+    accounts: list[str] = Field(default_factory=list)
+    remove: list[str] = Field(default_factory=list)
+    tool: str | None = None
+    tool_args: dict[str, Any] = Field(default_factory=dict)
+    account_arg: str | None = None
+    credentials_dir: str | None = None  # ${VAR:-default} and ~ are expanded
     confirms: str | None = None
     timeout_s: float = 960.0  # a device code lasts 15 minutes
+
+
+class ClientFileConfig(BaseModel):
+    """An OAuth client the app can ship with: a JSON file as Google Cloud downloads it ({"installed": {...}}
+    or {"web": {...}}), found by ``name`` in the suite's config folders. ``vars`` maps its keys to the
+    connector's variables. A value typed in the app, or an environment variable, still wins."""
+
+    name: str
+    vars: dict[str, str]
 
 
 class ConnectorPart(BaseModel):
@@ -115,6 +134,7 @@ class ConnectorConfig(BaseModel):
     folders: list[str] = Field(default_factory=list)  # builtin local-files: folders agents may read
     accounts: AccountsConfig | None = None  # several accounts behind one server
     signin: SigninConfig | None = None  # sign-in from the app (stdio connectors)
+    client_file: ClientFileConfig | None = None  # an OAuth client built into the app
     steps: list[str] = Field(default_factory=list)  # numbered setup steps shown in the app
     docs_url: str = ""  # the server's own documentation
     labels: dict[str, str] = Field(default_factory=dict)  # variable -> label shown in the app
@@ -327,6 +347,8 @@ class ConnectorManager:
 
         self.base_env = dict(os.environ) if env is None else env
         self.values: dict[str, str] = {}  # variables entered in the app (shared by every connector that uses them)
+        self.bundled: dict[str, str] = {}  # values from an OAuth client file built into the app (lowest priority)
+        self.bundled_from: dict[str, str] = {}  # variable -> the file it came from
         self.env = dict(self.base_env)
         self.file_configs = {c.id: _normalize(c) for c in configs}
         self.configs = dict(self.file_configs)
@@ -356,6 +378,35 @@ class ConnectorManager:
                 configs.pop(old, None)
         return cls(list(configs.values()), offline=offline)
 
+    def available(self, values: dict[str, str]) -> dict[str, str]:
+        """Every value a connector can use: built into the app, then typed in the app, then the environment."""
+        return {**self.bundled, **{k: v for k, v in values.items() if v}, **{k: v for k, v in self.base_env.items() if v}}
+
+    def load_client_files(self, folders: list[Path]) -> list[str]:
+        """Read the OAuth client files connectors ship with (the first match in ``folders``). Returns problems."""
+        problems: list[str] = []
+        self.bundled, self.bundled_from = {}, {}
+        for cfg in self.file_configs.values():
+            spec = cfg.client_file
+            if not spec:
+                continue
+            path = next((f / spec.name for f in folders if (f / spec.name).is_file()), None)
+            if path is None:
+                continue
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                body = raw.get("installed") or raw.get("web") or raw
+                found = {var: str(body[key]) for key, var in spec.vars.items() if body.get(key)}
+            except (OSError, ValueError, AttributeError) as e:
+                problems.append(f"{cfg.name}: could not read the OAuth client file {path}: {e}")
+                continue
+            if len(found) < len(spec.vars):
+                problems.append(f"{cfg.name}: {path} is missing {', '.join(k for k in spec.vars if spec.vars[k] not in found)}")
+            self.bundled.update(found)
+            self.bundled_from.update({var: str(path) for var in found})
+        self.env = self.available(self.values)
+        return problems
+
     def replaced_by(self) -> dict[str, str]:
         """Old connector id -> the connector that now covers it."""
         return {old: cid for cid, cfg in self.file_configs.items() for old in cfg.replaces}
@@ -363,7 +414,7 @@ class ConnectorManager:
     def apply_settings(self, settings: dict[str, ConnectorSetting], values: dict[str, str]) -> None:
         """Layer the app's choices over the file. Environment variables still win over values typed in the app."""
         self.values = {k: v for k, v in values.items() if v}
-        self.env = {**self.values, **{k: v for k, v in self.base_env.items() if v}}
+        self.env = self.available(self.values)
         self.configs = {}
         for cid, cfg in self.file_configs.items():
             st = settings.get(cid)
@@ -478,11 +529,12 @@ class ConnectorManager:
             default = found[name]
             env = self.base_env.get(name)
             app = self.values.get(name)
+            built_in = self.bundled.get(name)
             secret = is_secret(name)
             flag = name in cfg.requires
             out.append({"name": name, "secret": secret, "flag": flag, "optional": default is not None,
-                        "default": default or "", "set": bool(env or app),
-                        "source": "env" if env else ("app" if app else None),
+                        "default": default or "", "set": bool(env or app or built_in),
+                        "source": "env" if env else ("app" if app else ("bundled" if built_in else None)),
                         "value": None if secret or env else (app or ""),
                         "label": cfg.labels.get(name, ""), "hint": cfg.hints.get(name, ""), "part": part_of.get(name)})
         return out
@@ -509,8 +561,8 @@ class ConnectorManager:
                         "parts": [{"id": p.id, "name": p.name, "description": p.description,
                                    "ready": p in self.ready_parts(cid)} for p in cfg.parts],
                         "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools,
-                        "signin": ({"provider": cfg.signin.provider, "confirms": cfg.signin.confirms,
-                                    "accounts_var": cfg.accounts.vars[0] if cfg.accounts else None}
+                        "signin": ({"provider": cfg.signin.provider, "kind": cfg.signin.kind, "confirms": cfg.signin.confirms,
+                                    "accounts_vars": list(cfg.accounts.vars) if cfg.accounts else []}
                                    if cfg.signin and cfg.transport == "stdio" else None)})
         return out
 
@@ -649,7 +701,7 @@ def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) 
             or cfg.command != shipped.command or cfg.args != shipped.args):
         return cfg
     return cfg.model_copy(update={k: getattr(shipped, k) for k in
-                                  ("signin", "setup", "steps", "hints", "labels", "docs_url", "verify")})
+                                  ("signin", "client_file", "setup", "steps", "hints", "labels", "docs_url", "verify")})
 
 
 def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:
