@@ -10,7 +10,7 @@ Launch commands come from each project's documentation and change between releas
 |---|---|---|---|
 | GitHub | `GITHUB_PERSONAL_ACCESS_TOKEN` (fine-grained, read-only). Optional `GITHUB_HOST` (GitHub Enterprise Server or `ghe.com` only; leave blank for github.com), `GITHUB_REPOS` (the repositories you work in, told to agents), `GITHUB_TOOLSETS` | Runs `ghcr.io/github/github-mcp-server` in Docker with `GITHUB_READ_ONLY=1`. For github.com the token is enough: tools take the owner and repository on each call, and the token decides which repositories can be read | Image name and variables in the github/github-mcp-server README |
 | Microsoft 365 | Nothing to type: press **Sign in with Microsoft** in Edit (see [Sign in from the app](#sign-in-from-the-app-microsoft-365)). Optional `MS365_MCP_ORG_MODE=1` (work or school account, set before signing in), `MS365_MCP_PRESET` (default `personal`). `MS365_ACCOUNTS` is filled in by each sign-in | Community server `@softeria/ms-365-mcp-server` via `npx` with `--read-only --preset personal`: Outlook mail and calendar, OneDrive files, contacts, To Do, OneNote, search. `MS365_MCP_PRESET=work` (with org mode) adds Teams, SharePoint and shared mailboxes. Work tenants may need admin consent | Package name, `--preset` names and `MS365_MCP_ORG_MODE` in its README and PRESETS.md |
-| Google Workspace | Nothing to type when the app has a [built-in Google client](#built-in-google-client): enter your address and press **Sign in with Google** in Edit (see [Sign in from the app](#sign-in-from-the-app-google-workspace)). Without one: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` from your own client. `USER_GOOGLE_EMAIL` and `GOOGLE_OTHER_ACCOUNTS` are filled in by each sign-in. Optional `WORKSPACE_MCP_PORT` (default 8000), `GOOGLE_WORKSPACE_TOOL_TIER` (default `core`) | Community server `workspace-mcp` via `uvx` with `--read-only --tools gmail calendar drive docs sheets slides tasks contacts`. Requires uv | Package name, flags, variable names, the `start_google_auth` tool and the credentials folder in the taylorwilsdon/google_workspace_mcp README and source |
+| Google Workspace | Nothing to type when the app has a [built-in Google client](#built-in-google-client): enter your address and press **Sign in with Google** in Edit (see [Sign in from the app](#sign-in-from-the-app-google-workspace)). Without one: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` from your own client. `USER_GOOGLE_EMAIL` and `GOOGLE_OTHER_ACCOUNTS` are filled in by each sign-in. Optional `WORKSPACE_MCP_PORT` (default 8000), `GOOGLE_WORKSPACE_TOOL_TIER` (default `core`) | Community server `workspace-mcp` via `uvx` with `--read-only --tools gmail calendar drive docs sheets slides tasks contacts`. uv is [provided by the app](#runtimes-uv-and-nodejs) when the computer has none | Package name, flags, variable names, the `start_google_auth` tool and the credentials folder in the taylorwilsdon/google_workspace_mcp README and source |
 | Databricks (one connector) | `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, then any of: `DATABRICKS_GENIE_SPACE_ID` (Genie space); `DATABRICKS_UC_CATALOG` + `DATABRICKS_UC_SCHEMA` (Unity Catalog functions); `DATABRICKS_VS_CATALOG` + `DATABRICKS_VS_SCHEMA` (Vector Search) | Managed MCP over HTTP, one endpoint per service: `/api/2.0/mcp/genie/{space_id}`, `/api/2.0/mcp/functions/{catalog}/{schema}` (all functions allowed because you defined them), `/api/2.0/mcp/vector-search/{catalog}/{schema}`. Each service turns on when its fields are filled in; tools are listed as `<service>.<tool>`. Replaces the three separate Databricks connectors of earlier versions (their values and switch carry over) | Managed MCP is in preview; URL patterns have changed before, and Vector Search is also called AI Search (`/ai-search/`) |
 | Azure DevOps | `AZURE_DEVOPS_ORG` | `npx @azure-devops/mcp <org> -d core work work-items repositories wiki`; browser sign-in. No server read-only flag, so the suite's policy is the control | Package and `-d` flag; maintainers recommend their remote server going forward |
 | Jira / Confluence | `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` (+ optional Confluence variables) | Community `ghcr.io/sooperset/mcp-atlassian` with `READ_ONLY_MODE=true` | Image tag; whether `CONFLUENCE_URL` needs `/wiki` |
@@ -37,7 +37,7 @@ Accounts are matched by email address, ignoring capitalisation.
 
 Microsoft 365 no longer needs a terminal. In Settings → Connectors → Microsoft 365 → Edit:
 
-1. Press **Sign in with Microsoft**. The first time, the app downloads the connector (Node.js 20+ must be installed), which can take a minute.
+1. Press **Sign in with Microsoft**. The first time, the app downloads the connector, which can take a minute. Node.js comes from the computer or the app (see [Runtimes](#runtimes-uv-and-nodejs)).
 2. The app shows a code. Press **Open the Microsoft sign-in page** (this also copies the code), paste the code, sign in and accept the read-only permissions. The page can be opened on any device, a phone included.
 3. The app notices when you are done: it adds the account to the accounts agents may use, records the sign-in and switches the connector on.
 
@@ -55,7 +55,7 @@ How it works and what it does not do:
 
 In Settings → Connectors → Google Workspace → Edit, enter your Google address under **Sign-in** and press **Sign in with Google**:
 
-1. The app starts the connector (Install uv first; the first run downloads it, which can take a minute) and a Google page opens in the browser on this computer. If it does not, use the link the app shows.
+1. The app starts the connector (the first run downloads it, which can take a minute; uv comes from the computer or the app) and a Google page opens in the browser on this computer. If it does not, use the link the app shows.
 2. Sign in and allow read-only access. With a client that Google has not verified, Google shows a warning first: choose **Advanced**, then continue.
 3. Google sends you back to the connector on this computer (`http://localhost:8000/oauth2callback`). The app notices the new sign-in, fills in the address, and switches the connector on.
 
@@ -71,7 +71,9 @@ How it works:
 
 Every Google user normally needs their own OAuth client from Google Cloud. A built-in client removes that: the app reads `google-oauth-client.json`, the file Google Cloud downloads for an OAuth client (Credentials → your client → **Download JSON**), and uses its ID and secret when none is typed in Settings or set in the environment. The Client ID and secret fields then say **Built into this app**.
 
-Where the app looks, first match wins: `config/` in the app folder, the folder of `connectors.yaml` (`~/.productivity-suite` for the desktop app), then the data folder. The file is git-ignored; never commit it.
+**Upload it in the app:** Settings → Connectors → Google Workspace → Edit → **Upload client file**. The app checks it is an OAuth client file, saves it in its data folder readable only by you, and uses it from then on (**Replace** and **Remove** are next to it). The upload is audited with the client ID; the secret is never shown or logged.
+
+Where the app looks, first match wins: a file uploaded in Settings (the data folder), the folder of `connectors.yaml` (`~/.productivity-suite` for the desktop app), then `config/` in the app folder (where installers put a built-in one). The file is git-ignored; never commit it.
 
 Installers: add the file's contents as the repository secret `GOOGLE_OAUTH_CLIENT_JSON` (GitHub → Settings → Secrets and variables → Actions). The installer build writes it into `config/` before packaging (`desktop/bundle_oauth_client.py`), so everyone who installs that build signs in without any Google Cloud setup. Without the secret the build still succeeds, with no built-in client. A malformed secret fails the build.
 
@@ -79,6 +81,18 @@ What to know about sharing a client:
 - A Desktop app client's secret is not confidential by Google's own design for installed apps: anyone with the installer can read it. It lets them sign in to *their own* Google account through your client; it gives no access to yours.
 - Google's limits for an unverified client: in **Testing**, only the test users you list can sign in and each sign-in expires after 7 days; **In production** without verification, people see the "not verified" warning and the number of users is capped (100, at the time of writing). Check Google's current rules for both.
 - Everyone who signs in through the client counts against its quota, and you can see and revoke its use in your Google Cloud project.
+
+## Runtimes (uv and Node.js)
+
+Connectors run community servers with `uvx` (Google Workspace) or `npx` (Microsoft 365, Azure DevOps). Nobody has to install uv or Node.js, and the installers do not ship them:
+
+1. **The computer's own copy is used** when it is new enough (Node.js 20 or newer, uv 0.5 or newer). Nothing is duplicated, and a copy newer than the app's always wins.
+2. **Otherwise the installer gets it.** At the end of the install, the `.msi` and the `.deb` run the app once with `--install-tools`: it checks the computer and downloads what is missing or too old into the app's folder (`_internal/tools`), and writes what it did to `install.log` there. A failed download (offline, a proxy) never fails the install. Uninstalling deletes these copies; an upgrade keeps them.
+3. **Otherwise the app downloads it** the first time a connector needs it, into the data folder (`~/.productivity-suite/data/tools`), with no administrator rights. Opening Settings never triggers a download.
+
+Every download is a pinned release from the project's own site (uv 0.11.32 from GitHub, Node.js v24.22.2 LTS from nodejs.org), checked against the SHA-256 in `backend/app/runtimes.py` before anything is unpacked, and unpacked only inside its own folder. To move to newer releases, change the versions and checksums there. uv fetches the Python it needs by itself.
+
+Limits: the install step runs as the installer (SYSTEM on Windows, root on Linux), so it sees machine-wide installs (for example the Node.js installer) but not a copy installed for one user only (nvm, uv's own installer). In that case it downloads a copy anyway; the app still prefers yours, because it checks your PATH first. Docker-based connectors (GitHub, Jira/Confluence) still need Docker.
 
 ## Adding a connector
 

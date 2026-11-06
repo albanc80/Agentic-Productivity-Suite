@@ -50,6 +50,8 @@ export interface ConnectorInfo {
   // Sign-in from the app (Microsoft 365): the flag a sign-in confirms and the accounts list it fills in.
   // kind "tool" (Google) asks for the address to sign in with; "command" (Microsoft) shows a code.
   signin: { provider: string; kind: "command" | "tool"; confirms: string | null; accounts_vars: string[] } | null;
+  // An OAuth client file (Google): uploaded in Settings, built into the app, or neither.
+  client_file: { name: string; source: "uploaded" | "built-in" | null } | null;
 }
 export interface SigninState {
   connector: string; status: "none" | "starting" | "waiting" | "finishing" | "done" | "failed" | "cancelled";
@@ -192,6 +194,11 @@ export const api = {
   signinState: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`),
   signinStart: (id: string, account?: string) =>
     call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "POST", body: JSON.stringify({ account: account || null }) }),
+  uploadClientFile: (id: string, file: File) => {
+    const fd = new FormData(); fd.append("file", file);
+    return call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "POST", body: fd });
+  },
+  removeClientFile: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "DELETE" }),
   useSignedIn: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/use`, { method: "POST" }),
   signinCancel: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "DELETE" }),
   signedInAccounts: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts`),

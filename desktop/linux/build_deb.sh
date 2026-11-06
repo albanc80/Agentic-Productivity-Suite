@@ -42,6 +42,25 @@ Description: Governed agent playbooks for daily work, management, product,
  models. Opens in your browser when no native web view is available.
 CTRL
 
+# uv and Node.js for connectors (see backend/app/runtimes.py): checked and, if missing or too old, downloaded
+# into /opt/productivity-suite/_internal/tools at the end of the install. A failed download never fails the
+# install (the app downloads on first use instead). Removing the package deletes them; an upgrade keeps them.
+cat > "$PKG/DEBIAN/postinst" <<'SH'
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+  /opt/productivity-suite/ProductivitySuite --install-tools || true
+fi
+SH
+cat > "$PKG/DEBIAN/prerm" <<'SH'
+#!/bin/sh
+set -e
+if [ "$1" = "remove" ]; then
+  /opt/productivity-suite/ProductivitySuite --remove-tools || true
+fi
+SH
+chmod 0755 "$PKG/DEBIAN/postinst" "$PKG/DEBIAN/prerm"
+
 mkdir -p "$OUT"
 dpkg-deb --root-owner-group --build "$PKG" "$OUT/productivity-suite_${VERSION}_${ARCH}.deb"
 echo "Built $OUT/productivity-suite_${VERSION}_${ARCH}.deb"

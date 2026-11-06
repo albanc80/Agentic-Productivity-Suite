@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type Budgets, type ConnectorInfo, type ConnectorVariable, type Overview, type Profile, type SignedInAccount,
   type SigninState } from "../api";
 import { ErrorNote } from "../ui";
@@ -305,9 +305,10 @@ function VariablesEditor({ c, onDone, onRefresh }: { c: ConnectorInfo; onDone: (
             <div key={v.name} className="field">
               <label htmlFor={id}>{label(v)}{!v.optional && v.source !== "bundled" && <span className="req" aria-label="required"> *</span>}</label>
               <input id={id} type={v.secret ? "password" : "text"} value={vals[v.name] ?? ""} autoComplete="off" spellCheck={false}
-                placeholder={v.source === "bundled" ? "Built into this app" : v.secret && v.set ? "•••••••• (saved)" : v.default || ""}
+                placeholder={v.source === "bundled" ? (c.client_file?.source === "uploaded" ? "From the uploaded client file" : "Built into this app")
+                  : v.secret && v.set ? "•••••••• (saved)" : v.default || ""}
                 onChange={(e) => setVals((x) => ({ ...x, [v.name]: e.target.value }))} />
-              {v.source === "bundled" && <span className="help ok-text">Built into this app: nothing to enter. Type a value only to use your own.</span>}
+              {v.source === "bundled" && <span className="help ok-text">{c.client_file?.source === "uploaded" ? "From the client file you uploaded" : "Built into this app"}: nothing to enter.</span>}
               {v.hint && <span className="help">{v.hint}</span>}
               <span className="help"><code>{v.name}</code>{v.optional ? " · optional" : ""}{v.secret ? " · never shown again once saved" : ""}</span>
               {v.secret && v.set && v.source === "app" && (
@@ -321,6 +322,7 @@ function VariablesEditor({ c, onDone, onRefresh }: { c: ConnectorInfo; onDone: (
   return (
     <form className="provider-edit stack" onSubmit={save}>
       <SetupGuide c={c} />
+      {c.client_file && <ClientFilePanel c={c} onChange={onRefresh} />}
       {c.signin && <SigninPanel c={c} onChange={onRefresh} />}
       <div className="ep-grid">{shared.map(field)}</div>
       {c.parts.map((p) => (
@@ -343,11 +345,48 @@ function VariablesEditor({ c, onDone, onRefresh }: { c: ConnectorInfo; onDone: (
 
 // ------------------------------------------------------------------ sign-in from the app
 
+/** The OAuth client a connector signs in with (Google): built in, uploaded here, or none yet. */
+function ClientFilePanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }) {
+  const source = c.client_file!.source;
+  const typed = c.variables.some((v) => v.secret && (v.source === "app" || v.source === "env") && /CLIENT/.test(v.name));
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setBusy(true); setError(null);
+    try { await api.uploadClientFile(c.id, file); onChange(); } catch (e) { setError(e); } finally {
+      setBusy(false); if (input.current) input.current.value = "";
+    }
+  }
+  async function remove() {
+    if (!window.confirm("Remove the uploaded client file? Accounts already signed in keep working until they sign in again.")) return;
+    setBusy(true); setError(null);
+    try { await api.removeClientFile(c.id); onChange(); } catch (e) { setError(e); } finally { setBusy(false); }
+  }
+  return (
+    <div className="signin stack-sm">
+      <strong>OAuth client</strong>
+      {typed ? <p className="small muted">Using the client ID and secret entered below.</p>
+        : source === "built-in" ? <p className="small ok-text">Built into this app. Nothing to do.</p>
+        : source === "uploaded" ? <p className="small ok-text">Using the client file you uploaded.</p>
+        : <p className="small">Upload the OAuth client file (<code>.json</code>) you were given with the app, or download your own from Google Cloud: Credentials, your OAuth client, Download JSON.</p>}
+      <ErrorNote error={error} />
+      <div className="row-tight">
+        <input ref={input} type="file" accept=".json,application/json" hidden aria-hidden="true" onChange={(e) => upload(e.target.files?.[0])} />
+        <button type="button" className={source || typed ? "" : "primary"} onClick={() => input.current?.click()} disabled={busy}>
+          {busy ? "Saving…" : source === "uploaded" ? "Replace client file" : "Upload client file"}</button>
+        {source === "uploaded" && <button type="button" className="ghost" onClick={remove} disabled={busy}>Remove uploaded file</button>}
+      </div>
+    </div>
+  );
+}
+
 /** Changes when a sign-in changes the connector's values, so the open form is rebuilt from fresh ones. */
 function signinKey(c: ConnectorInfo) {
   if (!c.signin) return c.id;
   const v = (n: string | null) => c.variables.find((x) => x.name === n);
-  return `${c.id}:${c.signin.accounts_vars.map((n) => v(n)?.value ?? "").join("|")}:${v(c.signin.confirms)?.set ? 1 : 0}`;
+  return `${c.id}:${c.signin.accounts_vars.map((n) => v(n)?.value ?? "").join("|")}:${v(c.signin.confirms)?.set ? 1 : 0}:${c.client_file?.source ?? ""}`;
 }
 
 async function copyText(text: string): Promise<boolean> {
@@ -438,7 +477,7 @@ function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }
       )}
 
       {s?.status === "starting" && (
-        <p className="small muted">Starting the {provider} sign-in… The first time, the app downloads the connector, which can take a minute.</p>
+        <p className="small muted">{s.message || `Starting the ${provider} sign-in… The first time, the app downloads the connector, which can take a minute.`}</p>
       )}
       {s?.status === "waiting" && byAddress && (
         <ol className="setup-steps small signin-steps">

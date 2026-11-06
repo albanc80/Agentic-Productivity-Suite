@@ -10,7 +10,7 @@ Two front doors. **Chat** with the Chief of Staff, who answers or brings in up t
 
 ## Quick start
 
-Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 20+. Docker or `npx` only if you enable connectors that use them.
+Requirements (running from the source code): Python 3.12+ with [uv](https://docs.astral.sh/uv/) and Node 20+ to build the UI. The installers need nothing: connectors that run uv or Node.js use the computer's copy or one the installer downloads (see [docs/CONNECTORS.md](docs/CONNECTORS.md#runtimes-uv-and-nodejs)). Docker only for the GitHub and Jira/Confluence connectors.
 
 ```bash
 ./scripts/dev.sh

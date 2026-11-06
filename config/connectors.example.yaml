@@ -87,9 +87,8 @@ connectors:
       community server by Softeria in read-only mode. Sign in from here: the app shows a code, you enter it on
       Microsoft's sign-in page, and the server keeps the sign-in on this computer.
     steps:
-      - "Install Node.js 20 or newer from https://nodejs.org (the LTS installer), then close and reopen the app."
       - "Work or school account only: enter 1 in Work or school account below and press Save first."
-      - "Press Sign in with Microsoft. The first time, the app downloads the connector, which can take a minute."
+      - "Press Sign in with Microsoft. Nothing to install: the app uses Node.js from this computer if it has a recent one, or its own copy. The first sign-in downloads the connector, which can take a minute."
       - "Copy the code the app shows, open Microsoft's sign-in page, paste the code, sign in with the account agents should read and accept the permissions (read-only). Work tenants may need an administrator to approve them."
       - "The app notices when you are done, adds the account and switches the connector on. Press Test to see the tools."
       - "Several accounts: press Add another account and sign in with the next one. The first account is the default."
@@ -146,9 +145,8 @@ connectors:
       workspace-mcp (taylorwilsdon/google_workspace_mcp) in read-only mode. Sign in from here: a Google page
       opens in your browser, and the server keeps the sign-in on this computer.
     steps:
-      - "Install uv from https://docs.astral.sh/uv/getting-started/installation/ (it provides the uvx command), then close and reopen the app."
-      - "If OAuth client ID below says Built into this app, go to the next step. Otherwise create your own client: in Google Cloud Console (https://console.cloud.google.com) pick a project, enable the Gmail, Google Calendar, Google Drive, Google Docs, Google Sheets, Google Slides, Google Tasks and People APIs, set up the OAuth consent screen, then Credentials > Create credentials > OAuth client ID > Desktop app. Enter its ID and secret below and press Save."
-      - "Under Sign-in, enter your Google address and press Sign in with Google. The first time, the app downloads the connector, which can take a minute."
+      - "OAuth client: nothing to do when it says Built into this app. Otherwise press Upload client file and choose the .json file you were given with the app (or your own: see the full setup guide)."
+      - "Under Sign-in, enter your Google address and press Sign in with Google. Nothing to install: the app uses uv from this computer or its own copy. The first sign-in downloads the connector, which can take a minute."
       - "A Google page opens in your browser on this computer. Sign in and allow read-only access. If Google says it has not verified the app, choose Advanced, then continue: it is the app's own client. If Google says access is blocked, ask the person who shared the app to add your address as a test user."
       - "The app notices when you are done, adds the account and switches the connector on. Press Test to see the tools."
       - "Several accounts: press Add another account and sign in with the next one. The first account is the default."
@@ -212,8 +210,7 @@ connectors:
       AZURE_DEVOPS_ORG: "The name only: for https://dev.azure.com/contoso enter contoso."
     setup: Reads projects, work items, repositories and wiki with Microsoft's Azure DevOps MCP server. The suite blocks write tools; this server has no read-only flag.
     steps:
-      - "Install Node.js 20 or newer from https://nodejs.org."
-      - Enter your organisation name below, save, switch the connector on and press Test.
+      - "Enter your organisation name below, save, switch the connector on and press Test. Nothing to install: the app uses Node.js from this computer if it has a recent one, or its own copy."
       - Your browser opens for Microsoft sign-in the first time; sign in with the account that has access to the organisation.
     docs_url: https://github.com/microsoft/azure-devops-mcp#readme
     verify: Package name and the -d domain flag in microsoft/azure-devops-mcp. Maintainers recommend their remote server going forward.

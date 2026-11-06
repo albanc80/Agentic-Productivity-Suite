@@ -21,7 +21,10 @@ import asyncio
 import fnmatch
 import json
 import logging
+import os
 import re
+import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -31,6 +34,7 @@ from mcp import Client, StdioServerParameters
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 from pydantic import BaseModel, Field
 
+from . import runtimes
 from .settings import env_refs, env_vars, expand_env
 
 log = logging.getLogger("suite.connectors")
@@ -85,6 +89,22 @@ class SigninConfig(BaseModel):
     credentials_dir: str | None = None  # ${VAR:-default} and ~ are expanded
     confirms: str | None = None
     timeout_s: float = 960.0  # a device code lasts 15 minutes
+
+
+def parse_client_file(raw: str | bytes, spec: ClientFileConfig) -> dict[str, str]:
+    """The connector variables in an OAuth client file, or ValueError saying what is wrong with it."""
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        raise ValueError("This is not a JSON file. Use the file Google Cloud downloads for an OAuth client.") from e
+    body = (data.get("installed") or data.get("web") or data) if isinstance(data, dict) else None
+    if not isinstance(body, dict):
+        raise ValueError("This is not an OAuth client file.")
+    found = {var: str(body[key]).strip() for key, var in spec.vars.items() if str(body.get(key) or "").strip()}
+    missing = [key for key, var in spec.vars.items() if var not in found]
+    if missing:
+        raise ValueError(f"The file has no {' or '.join(missing)}. Download the OAuth client JSON again.")
+    return found
 
 
 class ClientFileConfig(BaseModel):
@@ -343,12 +363,16 @@ PASS_ENV = ("PATH", "HOME", "USERPROFILE", "APPDATA", "TMPDIR", "TEMP")
 class ConnectorManager:
     def __init__(self, configs: list[ConnectorConfig], env: dict[str, str] | None = None,
                  in_process: dict[str, Any] | None = None, offline: bool = False):
-        import os
-
         self.base_env = dict(os.environ) if env is None else env
         self.values: dict[str, str] = {}  # variables entered in the app (shared by every connector that uses them)
         self.bundled: dict[str, str] = {}  # values from an OAuth client file built into the app (lowest priority)
         self.bundled_from: dict[str, str] = {}  # variable -> the file it came from
+        self.uploads_dir: Path | None = None  # where a client file uploaded in the app is saved (it wins)
+        # uv and Node.js (runtimes.py): tool folders searched after the computer's own copy (the installer's
+        # first, then first-use downloads), and the one first-use downloads go to.
+        self.tool_roots: list[Path] = []
+        self.download_root: Path | None = None
+        self.on_tool_download: Callable[[str, str], None] | None = None  # (tool, version) once downloaded
         self.env = dict(self.base_env)
         self.file_configs = {c.id: _normalize(c) for c in configs}
         self.configs = dict(self.file_configs)
@@ -394,18 +418,25 @@ class ConnectorManager:
             if path is None:
                 continue
             try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                body = raw.get("installed") or raw.get("web") or raw
-                found = {var: str(body[key]) for key, var in spec.vars.items() if body.get(key)}
-            except (OSError, ValueError, AttributeError) as e:
-                problems.append(f"{cfg.name}: could not read the OAuth client file {path}: {e}")
+                found = parse_client_file(path.read_text(encoding="utf-8"), spec)
+            except (OSError, ValueError) as e:
+                problems.append(f"{cfg.name}: could not use the OAuth client file {path}: {e}")
                 continue
-            if len(found) < len(spec.vars):
-                problems.append(f"{cfg.name}: {path} is missing {', '.join(k for k in spec.vars if spec.vars[k] not in found)}")
             self.bundled.update(found)
             self.bundled_from.update({var: str(path) for var in found})
         self.env = self.available(self.values)
         return problems
+
+    def _client_file_view(self, cfg: ConnectorConfig) -> dict | None:
+        """Where this connector's OAuth client comes from: uploaded in the app, built into the app, or neither."""
+        if not cfg.client_file:
+            return None
+        found = next((self.bundled_from[v] for v in cfg.client_file.vars.values() if v in self.bundled_from), None)
+        source = None
+        if found:
+            uploaded = self.uploads_dir is not None and Path(found).parent.resolve() == self.uploads_dir.resolve()
+            source = "uploaded" if uploaded else "built-in"
+        return {"name": cfg.client_file.name, "source": source}
 
     def replaced_by(self) -> dict[str, str]:
         """Old connector id -> the connector that now covers it."""
@@ -561,6 +592,7 @@ class ConnectorManager:
                         "parts": [{"id": p.id, "name": p.name, "description": p.description,
                                    "ready": p in self.ready_parts(cid)} for p in cfg.parts],
                         "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools,
+                        "client_file": self._client_file_view(cfg),
                         "signin": ({"provider": cfg.signin.provider, "kind": cfg.signin.kind, "confirms": cfg.signin.confirms,
                                     "accounts_vars": list(cfg.accounts.vars) if cfg.accounts else []}
                                    if cfg.signin and cfg.transport == "stdio" else None)})
@@ -574,7 +606,40 @@ class ConnectorManager:
         if not cfg.command:
             raise ConnectorError(f"{cfg.id}: stdio connector needs a command")
         env = {**{k: v for k, v in self.env.items() if k in PASS_ENV}, **expand_env(cfg.env, self.env)}
-        return expand_env(cfg.command, self.env), expand_env(cfg.args, self.env), env
+        command = expand_env(cfg.command, self.env)
+        tool = runtimes.tool_for(command) if os.path.basename(command) == command else None
+        if tool is not None:
+            path = env.get("PATH") or os.environ.get("PATH", "")
+            where = runtimes.find(tool, path, self.tool_roots)
+            if where and where[0] == "app":  # the computer has none, or one too old: the app's copy goes first
+                env["PATH"] = os.pathsep.join([str(where[1]), *[p for p in path.split(os.pathsep) if p]])
+                # A full path, so it is found on every OS (Windows looks up commands on the suite's own PATH).
+                command = shutil.which(command, path=str(where[1])) or command
+        return command, expand_env(cfg.args, self.env), env
+
+    def missing_tool(self, cfg: ConnectorConfig) -> runtimes.Tool | None:
+        """The runtime (uv, Node.js) the app has to download before this connector can run, or None: the computer
+        has a new-enough copy, the app has one, or it is not a runtime the app can get."""
+        if cfg.transport != "stdio" or not cfg.command or self.download_root is None:
+            return None
+        command = expand_env(cfg.command, self.env)
+        tool = runtimes.tool_for(command) if os.path.basename(command) == command else None
+        if tool is None:
+            return None
+        path = self.env.get("PATH") or os.environ.get("PATH", "")
+        return None if runtimes.find(tool, path, self.tool_roots) else tool
+
+    async def prepare(self, cfg: ConnectorConfig) -> None:
+        """Download the runtime this connector needs if neither the computer nor the app has it (once)."""
+        tool = self.missing_tool(cfg)
+        if tool is None:
+            return
+        try:
+            downloaded = await runtimes.ensure(tool, self.download_root)
+        except runtimes.ToolError as e:
+            raise ConnectorError(str(e)) from e
+        if downloaded and self.on_tool_download:
+            self.on_tool_download(tool.name, tool.version)
 
     def _target(self, cfg: ConnectorConfig):
         if cfg.id in self._in_process:
@@ -601,6 +666,8 @@ class ConnectorManager:
             raise ConnectorError(f"connector '{cid}' is not configured (needs: {', '.join(self.missing(cid)) or 'to be switched on'})")
         if self.configs[cid].parts:
             return await self._ensure_group(cid)
+        if cid not in self._in_process:
+            await self.prepare(self.configs[cid])
         return await self._start(cid, self.configs[cid])
 
     async def _start(self, key: str, cfg: ConnectorConfig) -> ConnectorWorker:

@@ -31,7 +31,15 @@ from .appconfig import (
     order_chain,
 )
 from .chat import Chat, ChatError
-from .connectors import ACCOUNT_SPLIT, ConnectorConfig, ConnectorError, ConnectorManager, ConnectorSetting, is_secret
+from .connectors import (
+    ACCOUNT_SPLIT,
+    ConnectorConfig,
+    ConnectorError,
+    ConnectorManager,
+    ConnectorSetting,
+    is_secret,
+    parse_client_file,
+)
 from .endpoints import Endpoint, ModelEdit, ProviderOverride, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
@@ -100,6 +108,9 @@ class Discover(BaseModel):
     api_key: str | None = None
 
 
+MAX_CLIENT_FILE_BYTES = 64 * 1024  # a Google OAuth client file is well under 1 KB
+
+
 class SigninStart(BaseModel):
     account: str | None = Field(default=None, max_length=320)  # the address to sign in with (Google)
 
@@ -152,9 +163,18 @@ class Suite:
         self.http_client = http_client
         self.signin = SigninManager(self.connectors, self.signed_in)
         # OAuth clients built into the app (Google): in the shipped config folder, or next to connectors.yaml.
-        folders = [settings.home / "config", *([settings.connectors_path.parent] if settings.connectors_path else []),
-                   settings.data_dir]
-        self.warnings += self.connectors.load_client_files(list(dict.fromkeys(folders)))
+        # First match wins: a file uploaded in Settings, then one next to connectors.yaml, then the shipped one.
+        self.client_folders = list(dict.fromkeys(
+            [settings.data_dir, *([settings.connectors_path.parent] if settings.connectors_path else []),
+             settings.home / "config"]))
+        self.connectors.uploads_dir = settings.data_dir
+        # uv and Node.js: the computer's own copy if new enough, else the one the installer put in <app>/tools,
+        # else downloaded into the data folder the first time a connector needs it (runtimes.py).
+        self.connectors.tool_roots = [settings.home / "tools", settings.data_dir / "tools"]
+        self.connectors.download_root = settings.data_dir / "tools"
+        self.connectors.on_tool_download = lambda name, version: self.store.audit(
+            "tool_downloaded", None, tool=name, version=version)
+        self.warnings += self.connectors.load_client_files(self.client_folders)
         self.apply()
 
     # ------------------------------------------------------------ runtime configuration
@@ -450,6 +470,35 @@ class Suite:
         self.store.set_setting("connector_values", values)
         self.apply()
         self.store.audit(event, None, connector=cid, enabled=self.connectors.configs[cid].enabled, by=by, **audit)
+
+    async def save_client_file(self, cid: str, data: bytes, by: str) -> None:
+        """Keep an OAuth client file uploaded in Settings (it wins over one built into the app)."""
+        cfg = self.connectors.file_configs[cid]
+        if not cfg.client_file:
+            raise ValueError(f"{cfg.name} does not take an OAuth client file.")
+        if len(data) > MAX_CLIENT_FILE_BYTES:
+            raise ValueError("That file is too large to be an OAuth client file.")
+        found = parse_client_file(data, cfg.client_file)  # ValueError says what is wrong
+        target = self.settings.data_dir / cfg.client_file.name
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # readable by this user only
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data.decode("utf-8"))
+        self.connectors.load_client_files(self.client_folders)
+        self.apply()
+        await self.connectors.restart([cid])
+        # The client ID is not secret (it appears in every sign-in address); the secret is never logged.
+        self.store.audit("connector_client_file_saved", None, connector=cid, by=by,
+                         client_id=next((v for k, v in found.items() if not is_secret(k)), ""))
+
+    async def remove_client_file(self, cid: str, by: str) -> None:
+        cfg = self.connectors.file_configs[cid]
+        if not cfg.client_file:
+            raise ValueError(f"{cfg.name} does not take an OAuth client file.")
+        (self.settings.data_dir / cfg.client_file.name).unlink(missing_ok=True)
+        self.connectors.load_client_files(self.client_folders)
+        self.apply()
+        await self.connectors.restart([cid])
+        self.store.audit("connector_client_file_removed", None, connector=cid, by=by)
 
     def _listed_accounts(self, cid: str, values: dict[str, str]) -> list[str]:
         """The accounts agents may use, default first, as saved in the app (every account field, in order)."""
@@ -1078,6 +1127,26 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             return {"accounts": await suite.signin.accounts(cid)}
         except (KeyError, SigninError, ConnectorError) as e:
             raise signin_errors(e) from e
+
+    @app.post("/api/connectors/{cid}/client-file")
+    async def upload_client_file(cid: str, file: UploadFile = File(...)):
+        if cid not in suite.connectors.file_configs:
+            raise HTTPException(404, "connector not found")
+        try:
+            await suite.save_client_file(cid, await file.read(MAX_CLIENT_FILE_BYTES + 1), "ui")
+        except (ValueError, UnicodeDecodeError) as e:
+            raise HTTPException(422, str(e) if isinstance(e, ValueError) else "That is not a text file.") from e
+        return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.delete("/api/connectors/{cid}/client-file")
+    async def delete_client_file(cid: str):
+        if cid not in suite.connectors.file_configs:
+            raise HTTPException(404, "connector not found")
+        try:
+            await suite.remove_client_file(cid, "ui")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return next(c for c in suite.connectors.describe() if c["id"] == cid)
 
     @app.post("/api/connectors/{cid}/accounts/use")
     async def signin_use_existing(cid: str):

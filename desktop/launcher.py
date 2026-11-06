@@ -59,6 +59,28 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
+def install_tools(root: Path, remove: bool = False) -> int:
+    """Installer and uninstaller step: uv and Node.js for connectors, in <app>/tools (see app/runtimes.py).
+    Runs with administrator rights and no window, before anyone opened the app: it touches no user folder.
+    Always exits 0 so a failed download never fails the install; the app retries the first time it is needed."""
+    if not getattr(sys, "frozen", False):
+        sys.path.insert(0, str(root / "backend"))
+    from app import runtimes
+
+    dest = root / "tools"
+    if remove:
+        runtimes.remove_for_app(dest)
+        return 0
+    dest.mkdir(parents=True, exist_ok=True)
+    lines = runtimes.install_for_app(dest)
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    with open(dest / "install.log", "a", encoding="utf-8") as log:
+        log.writelines(f"{stamp} {line}\n" for line in lines)
+    for line in lines:
+        print(line, flush=True)
+    return 0
+
+
 def wait_healthy(url: str, timeout: float = 30) -> None:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -77,7 +99,13 @@ def main() -> int:
     ap.add_argument("--headless", action="store_true", help="run the server without opening a window")
     ap.add_argument("--browser", action="store_true", help="open the default browser instead of a native window")
     ap.add_argument("--port", type=int, default=0)
+    ap.add_argument("--install-tools", action="store_true",
+                    help="(run by the installer) get uv and Node.js for connectors if this computer lacks them, then exit")
+    ap.add_argument("--remove-tools", action="store_true", help="(run by the uninstaller) delete them, then exit")
     args = ap.parse_args()
+
+    if args.install_tools or args.remove_tools:
+        return install_tools(bundle_root(), remove=args.remove_tools)
 
     root, udir = bundle_root(), user_dir()
     first_run(udir, root)

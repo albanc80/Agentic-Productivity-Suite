@@ -362,10 +362,10 @@ def test_built_in_client_file_is_the_lowest_priority(tmp_path):
     mgr.apply_settings({}, {})
     assert mgr.env["GOOGLE_OAUTH_CLIENT_ID"] == "123-abc.apps.googleusercontent.com"
     (folder / "google-oauth-client.json").write_text("{not json", encoding="utf-8")
-    assert "could not read the OAuth client file" in mgr.load_client_files([folder])[0]
+    assert "This is not a JSON file" in mgr.load_client_files([folder])[0]
     assert "GOOGLE_OAUTH_CLIENT_ID" not in mgr.env
     (folder / "google-oauth-client.json").write_text(json.dumps({"installed": {"client_id": "x"}}), encoding="utf-8")
-    assert "is missing client_secret" in mgr.load_client_files([folder])[0]
+    assert "The file has no client_secret" in mgr.load_client_files([folder])[0]
 
 
 def test_shipped_google_connector_signs_in_through_its_server():
@@ -376,3 +376,41 @@ def test_shipped_google_connector_signs_in_through_its_server():
     assert "--read-only" in cfg.args
     # The sign-in server keeps the same services and read-only mode; only the tier changes (last one wins).
     assert cfg.signin.login == ["--tool-tier", "complete"] and cfg.args.index("--tools") < len(cfg.args)
+
+
+def test_client_file_is_uploaded_in_settings_and_wins(gclient, tmp_path):
+    with gclient() as c:
+        assert google(c)["client_file"] == {"name": "google-oauth-client.json", "source": "uploaded"}  # in the data folder
+        assert c.delete("/api/connectors/google/client-file").json()["client_file"]["source"] is None
+        g = google(c)
+        assert not gvalues(c)["GOOGLE_OAUTH_CLIENT_ID"]["set"] and "GOOGLE_OAUTH_CLIENT_ID" in g["missing"]
+        bad = c.post("/api/connectors/google/client-file", files={"file": ("x.json", b'{"installed": {"client_id": "x"}}')})
+        assert bad.status_code == 422 and "no client_secret" in bad.json()["detail"]
+        assert c.post("/api/connectors/google/client-file", files={"file": ("x.json", b"not json")}).status_code == 422
+        big = c.post("/api/connectors/google/client-file", files={"file": ("x.json", b"{" + b" " * 70000 + b"}")})
+        assert big.status_code == 422 and "too large" in big.json()["detail"]
+        mine = {"installed": {"client_id": "999-mine.apps.googleusercontent.com", "client_secret": "GOCSPX-mine"}}
+        g = c.post("/api/connectors/google/client-file", files={"file": ("client_secret_999.json", json.dumps(mine).encode())}).json()
+        assert g["client_file"]["source"] == "uploaded" and g["missing"] == ["USER_GOOGLE_EMAIL"]
+        saved = tmp_path / "data" / "google-oauth-client.json"
+        assert json.loads(saved.read_text()) == mine and (saved.stat().st_mode & 0o077) == 0  # this user only
+        assert "GOCSPX-mine" not in c.get("/api/overview").text and "GOCSPX-mine" not in c.get("/api/audit").text
+        assert "999-mine.apps.googleusercontent.com" in c.get("/api/audit").text  # the ID is not secret
+        assert c.post("/api/connectors/nope/client-file", files={"file": ("x.json", b"{}")}).status_code == 404
+        assert c.post("/api/connectors/google/signin", json={"account": "me@gmail.com"}).status_code == 200
+        assert "client_id=999-mine" in gwait(c, "waiting")["url"]  # the sign-in uses the uploaded client
+
+
+def test_an_uploaded_client_beats_one_built_into_the_app(tmp_path):
+    uploaded, shipped = tmp_path / "data", tmp_path / "shipped"
+    uploaded.mkdir()
+    shipped.mkdir()
+    (shipped / "google-oauth-client.json").write_text(json.dumps(CLIENT), encoding="utf-8")
+    mgr = ConnectorManager([google_cfg()], env={})
+    mgr.uploads_dir = uploaded
+    mgr.load_client_files([uploaded, shipped])
+    assert mgr.env["GOOGLE_OAUTH_CLIENT_ID"].startswith("123-abc")
+    assert mgr.describe()[0]["client_file"]["source"] == "built-in"
+    (uploaded / "google-oauth-client.json").write_text(json.dumps({"web": {"client_id": "up", "client_secret": "s"}}))
+    mgr.load_client_files([uploaded, shipped])
+    assert mgr.env["GOOGLE_OAUTH_CLIENT_ID"] == "up" and mgr.describe()[0]["client_file"]["source"] == "uploaded"

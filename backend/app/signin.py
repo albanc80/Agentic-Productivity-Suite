@@ -41,7 +41,7 @@ from urllib.parse import unquote
 
 from mcp.client.stdio import get_default_environment
 
-from .connectors import ConnectorConfig, ConnectorManager, ConnectorWorker
+from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorWorker
 from .settings import expand_env
 
 log = logging.getLogger("suite.signin")
@@ -219,15 +219,34 @@ class SigninManager:
             account = (account or "").strip()
             if not EMAIL_RE.match(account):
                 raise SigninError(f"Enter the {cfg.signin.provider} address to sign in with.")
+        if self.connectors.missing_tool(cfg) is None:  # not one the app downloads: say what to install now
             command, _args, env = self.connectors.launch(cfg)
-            resolve(command, get_default_environment() | env)  # say what to install before starting
+            resolve(command, get_default_environment() | env)
+        if cfg.signin.kind == "tool":
             run: Coroutine[Any, Any, None] = self._tool_login(cfg, session, account)
         else:
-            argv, env = self._argv(cfg, cfg.signin.login)
-            run = asyncio.to_thread(self._login, cfg, session, argv, env)
+            run = self._command_login(cfg, session)
         self.sessions[cid] = session
         session.task = asyncio.create_task(self._session(cfg, session, run), name=f"signin:{cid}")
         return session
+
+    async def _prepare(self, cfg: ConnectorConfig, s: SigninSession) -> None:
+        """Download uv or Node.js first if this connector needs it and the computer has none."""
+        tool = self.connectors.missing_tool(cfg)
+        if tool is not None:
+            s.message = f"Downloading {tool.name} (once, for this connector)…"
+            try:
+                await self.connectors.prepare(cfg)
+            except ConnectorError as e:
+                raise SigninError(str(e)) from e
+            s.message = ""
+
+    async def _command_login(self, cfg: ConnectorConfig, s: SigninSession) -> None:
+        await self._prepare(cfg, s)
+        if s.status == "cancelled":
+            return
+        argv, env = self._argv(cfg, cfg.signin.login)
+        await asyncio.to_thread(self._login, cfg, s, argv, env)
 
     async def _session(self, cfg: ConnectorConfig, s: SigninSession, run: Coroutine[Any, Any, None]) -> None:
         try:
@@ -310,6 +329,8 @@ class SigninManager:
             default = (self.connectors.env.get(cfg.accounts.vars[0], "") if cfg.accounts else "").lower()
             return [{"id": email, "username": email, "name": "", "selected": email.lower() == default}
                     for email in sorted(credential_files(self.credentials_dir(cfg)))]
+        if self.connectors.missing_tool(cfg) is not None:
+            return []  # its tool is not downloaded yet, so nothing can be signed in; opening Settings downloads nothing
         argv, env = self._argv(cfg, cfg.signin.accounts)
         code, out, err = await asyncio.to_thread(_run, argv, env, COMMAND_TIMEOUT_S)
         data = parse_json(out, "accounts")
@@ -356,6 +377,7 @@ class SigninManager:
         return Path(raw).expanduser()
 
     async def _tool_login(self, cfg: ConnectorConfig, s: SigninSession, account: str) -> None:
+        await self._prepare(cfg, s)
         folder = self.credentials_dir(cfg)
         before = {email: stamp for email, (stamp, _paths) in credential_files(folder).items()}
         await self.connectors.restart([cfg.id])  # one server at a time owns the sign-in callback port

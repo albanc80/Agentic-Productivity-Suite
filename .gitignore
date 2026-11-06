@@ -26,6 +26,7 @@ config/google-oauth-client.json
 client_secret*.json
 
 # Desktop builds
+/tools/
 backend/build/
 backend/dist/
 *.spec.bak
