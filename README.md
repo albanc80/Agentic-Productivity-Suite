@@ -220,7 +220,7 @@ registry/           compiled agents, skills, desks (generated; do not edit by ha
 playbooks/          workflow definitions
 config/             example config, output policies, profile
 evals/              benchmark cases
-scripts/            ingest, evals, dev server
+scripts/            ingest, evals, dev server, version (every PR raises it: python scripts/version.py set <version>)
 docs/               connector setup, desktop, safety, ADRs
 ```
 
