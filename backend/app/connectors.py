@@ -132,6 +132,11 @@ class ConnectorPart(BaseModel):
     timeout_s: float | None = None
 
 
+class Launch(BaseModel):
+    command: str
+    args: list[str] = Field(default_factory=list)
+
+
 class ConnectorConfig(BaseModel):
     id: str
     name: str
@@ -162,6 +167,7 @@ class ConnectorConfig(BaseModel):
     context: dict[str, str] = Field(default_factory=dict)  # variable -> line told to agents ({value})
     parts: list[ConnectorPart] = Field(default_factory=list)  # grouped connector: one endpoint per part
     replaces: list[str] = Field(default_factory=list)  # older connector ids this one supersedes
+    legacy: list[Launch] = Field(default_factory=list)  # launches earlier versions shipped (upgraded on load)
 
     def _sources(self) -> list:
         return [self.args, self.env, self.url or "", self.headers, self.command or ""]
@@ -761,14 +767,26 @@ class _GroupView:
         return ConnectorState(status=status, error="; ".join(self.errors), tools=self.tools)
 
 
+SHIPPED_TEXT = ("setup", "steps", "hints", "labels", "docs_url", "verify")
+
+
 def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) -> ConnectorConfig:
-    """A connectors.yaml copied before sign-in from the app existed still launches the shipped server: give it
-    the shipped sign-in, and the setup text that goes with it. A connector whose launch was changed is left alone."""
-    if (cfg.signin or not shipped or not shipped.signin or cfg.transport != shipped.transport
-            or cfg.command != shipped.command or cfg.args != shipped.args):
+    """Bring a connectors.yaml copied by an earlier version up to date, without touching what the person changed.
+
+    * It still uses a launch an earlier version shipped (GitHub and Jira through Docker): take the shipped launch
+      (command, arguments, environment) and the setup text that goes with it. Values stay where they are: in the
+      app or in environment variables.
+    * It launches the shipped server but predates sign-in from the app: take the shipped sign-in, client file and
+      setup text.
+    A connector whose launch was changed in any other way is left alone."""
+    if not shipped or cfg.transport != shipped.transport:
         return cfg
-    return cfg.model_copy(update={k: getattr(shipped, k) for k in
-                                  ("signin", "client_file", "setup", "steps", "hints", "labels", "docs_url", "verify")})
+    if any(cfg.command == old.command and cfg.args == old.args for old in shipped.legacy):
+        cfg = cfg.model_copy(update={"command": shipped.command, "args": shipped.args, "env": shipped.env,
+                                     **{k: getattr(shipped, k) for k in SHIPPED_TEXT}})
+    if cfg.signin or not shipped.signin or cfg.command != shipped.command or cfg.args != shipped.args:
+        return cfg
+    return cfg.model_copy(update={k: getattr(shipped, k) for k in ("signin", "client_file", *SHIPPED_TEXT)})
 
 
 def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:

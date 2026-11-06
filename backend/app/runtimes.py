@@ -1,7 +1,8 @@
-"""Runtimes connectors need (uv, Node.js): found on the computer, or installed by the app.
+"""Runtimes connectors need (uv, Node.js, the GitHub MCP server): found on the computer, or installed by the app.
 
-Connectors run community servers through ``uvx`` (Google Workspace) or ``npx`` (Microsoft 365, Azure DevOps).
-People should not have to install either, and the installers should not grow by shipping them. So:
+Connectors run community servers through ``uvx`` (Google Workspace, Jira and Confluence), ``npx`` (Microsoft 365,
+Azure DevOps) or GitHub's own server program (GitHub). People should not have to install any of them, Docker
+included, and the installers should not grow by shipping them. So:
 
 1. A copy already on the computer is used when it is new enough (``min_version``). Nothing is duplicated, and a
    newer copy than the app's always wins.
@@ -113,7 +114,28 @@ NODE = Tool(
     commands=frozenset({"node", "npx", "npm"}), program="node", min_version=(20, 0, 0), whole=True, posix_bin="bin",
 )
 
-TOOLS = (UV, NODE)
+GITHUB_MCP = Tool(
+    name="GitHub MCP server", key="github-mcp-server", version="2.0.3",  # github/github-mcp-server, MIT
+    url="https://github.com/github/github-mcp-server/releases/download/v{version}/{asset}",
+    builds={  # from github-mcp-server_2.0.3_checksums.txt in the release
+        ("linux", "x86_64"): ("github-mcp-server_Linux_x86_64.tar.gz",
+                              "f797c20fe02a755865d0e2d46184ab47e31bf1619b0855b8d89c531e45a651c2"),
+        ("linux", "aarch64"): ("github-mcp-server_Linux_arm64.tar.gz",
+                               "5d2ddc71273fec8917e8f42cf19f26a6bd7acbb679b3a57de2917018b2eadf82"),
+        ("darwin", "x86_64"): ("github-mcp-server_Darwin_x86_64.tar.gz",
+                               "115350858c3287843274efbf45e821d98f15d3304cb2c074740461ed32b45598"),
+        ("darwin", "aarch64"): ("github-mcp-server_Darwin_arm64.tar.gz",
+                                "5c95c01f75a7ec2370607e989b2968d314b02a54d78af8a9fdf38f3dfe6135f4"),
+        ("win32", "x86_64"): ("github-mcp-server_Windows_x86_64.zip",
+                              "f0e1b9880a1b88730d1250d1c25cfee39617ec3e800a7a252f2279cd0c8394e0"),
+        ("win32", "aarch64"): ("github-mcp-server_Windows_arm64.zip",
+                               "d1321c411023c9a08e7709c2e9689551e3bff5a57033a3e5ff5f2c1db0c67a6f"),
+    },
+    commands=frozenset({"github-mcp-server"}), program="github-mcp-server", min_version=(2, 0, 0), whole=False,
+    programs={"win32": ("github-mcp-server.exe",), "posix": ("github-mcp-server",)},
+)
+
+TOOLS = (UV, NODE, GITHUB_MCP)
 _lock = asyncio.Lock()
 
 

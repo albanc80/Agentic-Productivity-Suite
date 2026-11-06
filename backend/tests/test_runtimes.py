@@ -117,6 +117,7 @@ def test_the_install_step_never_fails_and_skips_what_the_computer_has(tmp_path):
     system, root = tmp_path / "system", tmp_path / "app" / "tools"
     program(system, "node", "v22.0.0")
     program(system, "uv", "uv 0.11.0 (x)")
+    program(system, "github-mcp-server", "GitHub MCP Server\nVersion: 2.1.0")
     calls = []
     lines = runtimes.install_for_app(root, path=str(system), fetch=lambda url: calls.append(url) or b"")
     assert calls == [] and all("using the copy on this computer" in line for line in lines)  # nothing downloaded
@@ -124,7 +125,7 @@ def test_the_install_step_never_fails_and_skips_what_the_computer_has(tmp_path):
     def offline(url):
         raise OSError("no network")
     lines = runtimes.install_for_app(root, path=str(tmp_path / "empty"), fetch=offline)
-    assert len(lines) == 2 and all("downloads it when first needed" in line for line in lines)  # and no exception
+    assert len(lines) == 3 and all("downloads it when first needed" in line for line in lines)  # and no exception
 
     app_copy(root, runtimes.UV, "uv", "uvx")
     (root / "uv-0.0.1").mkdir()  # an older pinned version from an earlier release
@@ -161,3 +162,33 @@ async def test_a_connector_downloads_its_runtime_once_when_nothing_has_it(tmp_pa
     other.tool_roots, other.download_root = [tmp_path / "none"], tmp_path / "none"
     with pytest.raises(ConnectorError, match="Could not download Node.js"):
         await other.prepare(other.configs["ms"])
+
+
+def test_github_and_jira_run_without_docker_and_old_docker_configs_are_upgraded(tmp_path):
+    import yaml
+    shipped = Path(__file__).resolve().parents[2] / "config" / "connectors.example.yaml"
+    mgr = ConnectorManager.from_file(shipped)
+    gh, atl = mgr.file_configs["github"], mgr.file_configs["atlassian"]
+    assert (gh.command, gh.args[:2]) == ("github-mcp-server", ["stdio", "--read-only"])
+    assert runtimes.tool_for(gh.command) is runtimes.GITHUB_MCP
+    assert (atl.command, atl.args) == ("uvx", ["mcp-atlassian", "--read-only"]) and atl.env["READ_ONLY_MODE"] == "true"
+    assert not any(c.command == "docker" for c in mgr.file_configs.values())
+    assert "GITHUB_TOOLSETS" in gh.variables()  # still set in the app, now as a flag
+
+    raw = yaml.safe_load(shipped.read_text(encoding="utf-8"))
+    old_gh = next(c for c in raw["connectors"] if c["id"] == "github")
+    old_gh = {**{k: v for k, v in old_gh.items() if k != "legacy"}, **old_gh["legacy"][0],
+              "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}", "GITHUB_READ_ONLY": "1"},
+              "steps": ["Install Docker Desktop"]}
+    old_atl = next(c for c in raw["connectors"] if c["id"] == "atlassian")
+    old_atl = {**{k: v for k, v in old_atl.items() if k != "legacy"}, **old_atl["legacy"][0]}
+    path = tmp_path / "connectors.yaml"
+    path.write_text(yaml.safe_dump({"connectors": [old_gh, old_atl]}), encoding="utf-8")
+    up = ConnectorManager.from_file(path, presets=shipped).file_configs
+    assert up["github"].command == "github-mcp-server" and up["github"].env == gh.env
+    assert not any("Docker" in step for step in up["github"].steps)
+    assert up["atlassian"].command == "uvx"
+
+    custom = {**old_gh, "args": [*old_gh["args"][:-1], "ghcr.io/me/my-fork"]}  # changed by the person: left alone
+    path.write_text(yaml.safe_dump({"connectors": [custom]}), encoding="utf-8")
+    assert ConnectorManager.from_file(path, presets=shipped).file_configs["github"].command == "docker"

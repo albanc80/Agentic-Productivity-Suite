@@ -2,7 +2,7 @@
 
 A platform-agnostic application that turns a library of specialist agents into governed, repeatable workflows for professionals: daily planning, decisions, management, product development, engineering and investment cases.
 
-Two front doors. **Chat** with the Chief of Staff, who answers or brings in up to three specialists, or with any single agent, for anything. Or route a request to a **playbook**: a fixed sequence of steps in which specialist agents work in order or in parallel. A different agent reviews the work, and anything that would leave the app waits for a named person. Agents can run on local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, mixed in one run. They read live context through read-only MCP connectors (GitHub, Microsoft 365, Google Workspace, Databricks, Azure DevOps, Jira/Confluence, local files). Microsoft 365 and Google Workspace sign in from Settings, no terminal needed; a Google OAuth client can be built into the app so people you share it with skip Google Cloud setup.
+Two front doors. **Chat** with the Chief of Staff, who answers or brings in up to three specialists, or with any single agent, for anything. Or route a request to a **playbook**: a fixed sequence of steps in which specialist agents work in order or in parallel. A different agent reviews the work, and anything that would leave the app waits for a named person. Agents can run on local models (Ollama, LM Studio, vLLM), OpenAI-compatible clouds (OpenAI, DeepSeek, OpenRouter) and Anthropic, mixed in one run. They read live context through read-only MCP connectors (GitHub, Microsoft 365, Google Workspace, Databricks, Azure DevOps, Jira/Confluence, local files). Connectors need nothing else installed: no terminal, no Docker, no Node.js or uv to set up. Microsoft 365 and Google Workspace sign in with a button in Settings.
 
 > Status: MVP. 19 playbooks (PB-00 to PB-18) and direct chat, with 34 agents in 8 desks. Everything day to day is set up in the app's Settings. Runs in the browser, as a desktop app, and fully offline with local models. See [docs/SAFETY.md](docs/SAFETY.md) for the risk controls and [docs/adr/](docs/adr/) for the design decisions.
 
@@ -10,7 +10,7 @@ Two front doors. **Chat** with the Chief of Staff, who answers or brings in up t
 
 ## Quick start
 
-Requirements (running from the source code): Python 3.12+ with [uv](https://docs.astral.sh/uv/) and Node 20+ to build the UI. The installers need nothing: connectors that run uv or Node.js use the computer's copy or one the installer downloads (see [docs/CONNECTORS.md](docs/CONNECTORS.md#runtimes-uv-and-nodejs)). Docker only for the GitHub and Jira/Confluence connectors.
+Requirements: none for the installers. Running from the source code needs Python 3.12+ with [uv](https://docs.astral.sh/uv/) and Node 20+ to build the UI. What connectors run (uv, Node.js, GitHub's server program) comes from the computer when it has a recent copy, or is downloaded by the installer, or on first use (see [Connectors](#connectors-mcp-read-only)).
 
 ```bash
 ./scripts/dev.sh
@@ -87,7 +87,24 @@ Chats and runs marked **Restricted** are not copied, because Documents is often 
 
 Set them up in Settings → Connectors. **Every connector starts switched off**, and its switch stays locked ("Off · needs setup") until **Edit** has every value it needs (tokens are write-only); then switch it on and **Test**. A playbook step that needs a connector that is off is skipped with a note, or stops the run if the step is required. **Local files** is built in: choose one or more folders and agents can list, search and read files there (including PDF, Word and Excel), offline too, with nothing else to install. Setup notes and what to verify are in [docs/CONNECTORS.md](docs/CONNECTORS.md).
 
-**Several accounts.** Microsoft 365 (Outlook, OneDrive, calendar, contacts, To Do, OneNote; Teams and SharePoint with the work preset) and Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks, Contacts) each serve every account you sign in with, for example work and personal. You list the accounts agents may use; agents are told which accounts are connected and say which account each fact came from, a call without an account goes to the default one, and a call to an unlisted account is refused.
+**Sign in from Settings.** Microsoft 365 (Outlook, OneDrive, calendar, contacts, To Do, OneNote; Teams and SharePoint with the work preset) and Google Workspace (Gmail, Calendar, Drive, Docs, Sheets, Slides, Tasks, Contacts) need no terminal and no values to type:
+
+- **Microsoft 365:** press **Sign in with Microsoft**; the app shows a code and a link (any device, a phone included).
+- **Google Workspace:** enter your address and press **Sign in with Google**; a Google page opens in the browser on this computer.
+- The app notices when you are done, adds the account and switches the connector on. **Add another account**, **Sign out**, and **Use them** for accounts signed in earlier (for example from a terminal).
+- The connector's own server signs in and keeps the tokens; the app never reads, stores or logs a token or a code, and the sign-in asks for the connector's read-only permissions only.
+
+**Google OAuth client.** Google needs an OAuth client. When the app has one built in, there is nothing to do. Otherwise press **Upload client file** in Settings and choose the `.json` you were given (it is checked, saved readable only by you, and its secret is never shown or logged). To build your client into the installers, add the file's contents as the repository secret `GOOGLE_OAUTH_CLIENT_JSON`; people who install that build skip Google Cloud entirely.
+
+**Nothing to install.** uv (Google Workspace, Jira/Confluence), Node.js (Microsoft 365, Azure DevOps) and GitHub's server program (GitHub) come from, in order:
+
+1. the computer, when its copy is new enough (nothing is duplicated, and a newer copy than the app's wins);
+2. the installer, which checks the computer at the end of the install and downloads what is missing or too old into the app's folder (a failed download never fails the install; uninstall removes them);
+3. the app itself, the first time a connector needs it.
+
+Downloads are pinned releases checked against SHA-256 values in the repository. No connector needs Docker; older configurations that used it are upgraded automatically.
+
+**Several accounts.** Microsoft 365 and Google Workspace each serve every account you sign in with, for example work and personal. Agents are told which accounts are connected and say which account each fact came from; a call without an account goes to the default one (the first you signed in), and a call to an account you did not allow is refused.
 
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
@@ -190,7 +207,7 @@ cd backend && uv run pytest
 cd backend && uv run python ../scripts/run_evals.py
 ```
 
-The first runs the backend test suite, with no network or model needed: engine, every playbook end to end, spending limits and guardrails, chat, delegation and chat independence, answer export, the outputs folder, settings made in the app, providers (mocked HTTP), MCP and connectors (including the built-in Local files and several accounts), API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
+The first runs the backend test suite, with no network or model needed: engine, every playbook end to end, spending limits and guardrails, chat, delegation and chat independence, answer export, the outputs folder, settings made in the app, providers (mocked HTTP), MCP and connectors (including the built-in Local files, several accounts, sign-in from Settings with fake Microsoft and Google servers, the uploaded OAuth client, and finding or installing uv, Node.js and the GitHub server), API, guards, calculators and registry. The second runs `evals/cases.yaml` against your configured models and writes a report with a column for your grade.
 
 ## Project layout
 
@@ -198,7 +215,7 @@ The first runs the backend test suite, with no network or model needed: engine, 
 backend/app/        engine, providers, connectors, prompts, guards, store, API
 backend/tests/      pytest suite (no network or model needed)
 frontend/           React UI (built into frontend/dist, served by the backend)
-desktop/            desktop launcher and PyInstaller spec
+desktop/            desktop launcher (also --install-tools for the installers), PyInstaller spec, .msi and .deb packaging
 registry/           compiled agents, skills, desks (generated; do not edit by hand)
 playbooks/          workflow definitions
 config/             example config, output policies, profile
@@ -214,6 +231,9 @@ docs/               connector setup, desktop, safety, ADRs
 - Agent instructions, personas and lineage are a private layer outside this repository and the installers (see How it works).
 - The outputs folder never receives Restricted chats or runs, keys or the database.
 - Company branding is not in the repository. To theme exports privately, set `theme_dir` to a folder containing `theme.css`.
+- Connector sign-ins are kept by each connector's own server (token cache or credentials file); the app never reads them. Signing out deletes them on this computer; revoke the app's access with Microsoft or Google too if you want it gone there.
+- A Google OAuth client file uploaded in Settings is saved readable only by you; its secret is never returned by the API or written to the audit log. Never commit it (it is git-ignored).
+- Tools downloaded for connectors (uv, Node.js, GitHub's server) are pinned versions verified against SHA-256 values in `backend/app/runtimes.py` before anything is unpacked, and are unpacked only inside their own folder.
 
 ## License
 

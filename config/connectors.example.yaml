@@ -19,13 +19,15 @@ connectors:
     name: GitHub
     description: Repositories, issues, pull requests and code search.
     transport: stdio
-    command: docker
-    args: [run, -i, --rm, -e, GITHUB_PERSONAL_ACCESS_TOKEN, -e, GITHUB_HOST, -e, GITHUB_READ_ONLY, -e, GITHUB_TOOLSETS, ghcr.io/github/github-mcp-server]
+    # GitHub's own server program: from this computer, or installed by the app (see backend/app/runtimes.py).
+    command: github-mcp-server
+    args: [stdio, --read-only, --toolsets, "${GITHUB_TOOLSETS:-repos,issues,pull_requests}"]
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN}
       GITHUB_HOST: ${GITHUB_HOST:-}
-      GITHUB_READ_ONLY: "1"
-      GITHUB_TOOLSETS: ${GITHUB_TOOLSETS:-repos,issues,pull_requests}
+    legacy:  # earlier versions ran it in Docker; a connectors.yaml still doing so is upgraded when loaded
+      - command: docker
+        args: [run, -i, --rm, -e, GITHUB_PERSONAL_ACCESS_TOKEN, -e, GITHUB_HOST, -e, GITHUB_READ_ONLY, -e, GITHUB_TOOLSETS, ghcr.io/github/github-mcp-server]
     context:
       GITHUB_REPOS: "Repositories the person works in: {value}. Use these unless asked about others."
     labels:
@@ -41,13 +43,12 @@ connectors:
       Reads repositories, issues, pull requests and code through GitHub's official MCP server, in read-only mode.
       For github.com the token is all it needs; no site or repository URL is required.
     steps:
-      - Install Docker Desktop (Windows, macOS) or Docker Engine (Linux) and start it. The connector runs GitHub's server in a container.
       - "On GitHub open Settings > Developer settings > Personal access tokens > Fine-grained tokens > Generate new token (https://github.com/settings/personal-access-tokens/new)."
       - "Under Repository access choose the repositories agents may read (or all). Under Permissions set Contents, Issues, Pull requests and Metadata to Read-only. Generate the token and copy it."
       - Paste the token below. Leave GitHub Enterprise address blank unless your company runs its own GitHub.
-      - Optionally list the repositories you work in, save, switch the connector on and press Test.
+      - "Optionally list the repositories you work in, save, switch the connector on and press Test. Nothing to install: the app uses GitHub's server program from this computer, or its own copy."
     docs_url: https://github.com/github/github-mcp-server
-    verify: Image name and the GITHUB_HOST, GITHUB_READ_ONLY and GITHUB_TOOLSETS variables in the github/github-mcp-server README.
+    verify: The stdio command, the --read-only and --toolsets flags, and the GITHUB_PERSONAL_ACCESS_TOKEN and GITHUB_HOST variables in the github/github-mcp-server README.
 
   - id: microsoft365
     name: Microsoft 365 (Outlook, OneDrive, Teams)
@@ -219,8 +220,12 @@ connectors:
     name: Jira and Confluence
     description: Issues, projects and Confluence pages.
     transport: stdio
-    command: docker
-    args: [run, -i, --rm, -e, JIRA_URL, -e, JIRA_USERNAME, -e, JIRA_API_TOKEN, -e, CONFLUENCE_URL, -e, CONFLUENCE_USERNAME, -e, CONFLUENCE_API_TOKEN, -e, READ_ONLY_MODE, "ghcr.io/sooperset/mcp-atlassian:latest"]
+    # The same community server, from PyPI through uv instead of a Docker image.
+    command: uvx
+    args: [mcp-atlassian, --read-only]
+    legacy:  # earlier versions ran it in Docker; a connectors.yaml still doing so is upgraded when loaded
+      - command: docker
+        args: [run, -i, --rm, -e, JIRA_URL, -e, JIRA_USERNAME, -e, JIRA_API_TOKEN, -e, CONFLUENCE_URL, -e, CONFLUENCE_USERNAME, -e, CONFLUENCE_API_TOKEN, -e, READ_ONLY_MODE, "ghcr.io/sooperset/mcp-atlassian:latest"]
     env:
       JIRA_URL: ${JIRA_URL}
       JIRA_USERNAME: ${JIRA_USERNAME}
@@ -241,12 +246,11 @@ connectors:
       CONFLUENCE_URL: "Optional. For example https://yourcompany.atlassian.net/wiki"
     setup: Reads Jira issues and projects, and optionally Confluence pages, with the community server sooperset/mcp-atlassian in read-only mode.
     steps:
-      - Install Docker Desktop (Windows, macOS) or Docker Engine (Linux) and start it.
       - "Create an API token at https://id.atlassian.com/manage-profile/security/api-tokens and copy it."
       - Enter the Jira address, your Atlassian email and the token. For Confluence, fill in its fields too (the same token works on Atlassian Cloud).
-      - Save, switch the connector on and press Test.
+      - "Save, switch the connector on and press Test. Nothing to install: the app uses uv from this computer or its own copy. The first start downloads the connector, which can take a minute."
     docs_url: https://github.com/sooperset/mcp-atlassian#readme
-    verify: Image tag and variable names in the sooperset/mcp-atlassian README; whether CONFLUENCE_URL needs the /wiki suffix.
+    verify: Package name (mcp-atlassian on PyPI), the --read-only flag and the variable names in the sooperset/mcp-atlassian README; whether CONFLUENCE_URL needs the /wiki suffix.
 
   - id: local-files
     name: Local files
