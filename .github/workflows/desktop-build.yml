@@ -72,6 +72,19 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "build=$build" >> "$GITHUB_OUTPUT"
 
+  # Every pull request raises the app version (patch for fixes, minor for features), so its merge releases it.
+  # Separate from the build: a missing bump shows as its own red check while tests and installers still run.
+  version-bump:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: The version files agree and are higher than the base branch
+        run: |
+          git fetch --depth=1 origin "${{ github.base_ref }}"
+          base=$(git show FETCH_HEAD:backend/app/__init__.py | python3 -c "import re,sys;print(re.search(r'__version__ = \"(.+?)\"', sys.stdin.read()).group(1))")
+          python3 scripts/version.py check --newer-than "$base"
+
   test:
     needs: version
     if: needs.version.outputs.build == 'true'
