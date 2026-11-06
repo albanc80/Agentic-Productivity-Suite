@@ -304,7 +304,10 @@ class ConnectorWorker:
 
     async def _run(self) -> None:
         try:
-            async with Client(self._target_factory(), read_timeout_seconds=self.cfg.timeout_s) as client:
+            # The classic initialize handshake: every connector server speaks it. The SDK's default first probes
+            # server/discover, which some servers (GitHub's, on the Go SDK) half-handle on a slow start and then
+            # refuse the initialize that follows ("duplicate initialize received").
+            async with Client(self._target_factory(), read_timeout_seconds=self.cfg.timeout_s, mode="legacy") as client:
                 listed = await client.list_tools()
                 self.state.tools = [
                     ToolInfo(self.cfg.id, t.name, t.description or "", t.input_schema or {"type": "object"},
