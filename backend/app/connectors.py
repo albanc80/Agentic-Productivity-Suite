@@ -21,7 +21,10 @@ import asyncio
 import fnmatch
 import json
 import logging
+import os
 import re
+import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -31,6 +34,7 @@ from mcp import Client, StdioServerParameters
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 from pydantic import BaseModel, Field
 
+from . import runtimes
 from .settings import env_refs, env_vars, expand_env
 
 log = logging.getLogger("suite.connectors")
@@ -59,6 +63,59 @@ class AccountsConfig(BaseModel):
 ACCOUNT_SPLIT = re.compile(r"[\s,;]+")
 
 
+class SigninConfig(BaseModel):
+    """Sign-in from the app, run by the connector's own server (see signin.py). The server keeps the tokens;
+    the suite never reads them. A successful sign-in adds the account to the connector's account list and sets
+    ``confirms`` (the connector's opt-in flag, if it has one).
+
+    ``kind: command`` (Microsoft 365): the suite runs the connector's launch command with extra arguments.
+    ``login`` signs one account in (the server prints a link and a code, then a JSON result), ``accounts``
+    lists the signed-in accounts as JSON and ``remove`` (followed by an account id) signs one out.
+
+    ``kind: tool`` (Google Workspace): the suite starts the connector's server (with ``login`` added to its
+    arguments) and calls its sign-in ``tool`` with ``tool_args`` and the address in ``account_arg``. The tool answers with a sign-in address; the
+    server's own callback receives the result and saves the account's credentials as one file per address in
+    ``credentials_dir``, which is how the suite sees who is signed in. Signing out deletes that file.
+    """
+
+    provider: str  # shown on the button: "Sign in with Microsoft"
+    kind: Literal["command", "tool"] = "command"
+    login: list[str] = Field(default_factory=list)
+    accounts: list[str] = Field(default_factory=list)
+    remove: list[str] = Field(default_factory=list)
+    tool: str | None = None
+    tool_args: dict[str, Any] = Field(default_factory=dict)
+    account_arg: str | None = None
+    credentials_dir: str | None = None  # ${VAR:-default} and ~ are expanded
+    confirms: str | None = None
+    timeout_s: float = 960.0  # a device code lasts 15 minutes
+
+
+def parse_client_file(raw: str | bytes, spec: ClientFileConfig) -> dict[str, str]:
+    """The connector variables in an OAuth client file, or ValueError saying what is wrong with it."""
+    try:
+        data = json.loads(raw)
+    except ValueError as e:
+        raise ValueError("This is not a JSON file. Use the file Google Cloud downloads for an OAuth client.") from e
+    body = (data.get("installed") or data.get("web") or data) if isinstance(data, dict) else None
+    if not isinstance(body, dict):
+        raise ValueError("This is not an OAuth client file.")
+    found = {var: str(body[key]).strip() for key, var in spec.vars.items() if str(body.get(key) or "").strip()}
+    missing = [key for key, var in spec.vars.items() if var not in found]
+    if missing:
+        raise ValueError(f"The file has no {' or '.join(missing)}. Download the OAuth client JSON again.")
+    return found
+
+
+class ClientFileConfig(BaseModel):
+    """An OAuth client the app can ship with: a JSON file as Google Cloud downloads it ({"installed": {...}}
+    or {"web": {...}}), found by ``name`` in the suite's config folders. ``vars`` maps its keys to the
+    connector's variables. A value typed in the app, or an environment variable, still wins."""
+
+    name: str
+    vars: dict[str, str]
+
+
 class ConnectorPart(BaseModel):
     """One service of a grouped connector (for example Genie inside Databricks).
 
@@ -73,6 +130,11 @@ class ConnectorPart(BaseModel):
     headers: dict[str, str] | None = None  # default: the connector's headers
     allow_tools: list[str] = Field(default_factory=list)
     timeout_s: float | None = None
+
+
+class Launch(BaseModel):
+    command: str
+    args: list[str] = Field(default_factory=list)
 
 
 class ConnectorConfig(BaseModel):
@@ -96,6 +158,8 @@ class ConnectorConfig(BaseModel):
     verify: str = ""  # what to double-check against upstream docs
     folders: list[str] = Field(default_factory=list)  # builtin local-files: folders agents may read
     accounts: AccountsConfig | None = None  # several accounts behind one server
+    signin: SigninConfig | None = None  # sign-in from the app (stdio connectors)
+    client_file: ClientFileConfig | None = None  # an OAuth client built into the app
     steps: list[str] = Field(default_factory=list)  # numbered setup steps shown in the app
     docs_url: str = ""  # the server's own documentation
     labels: dict[str, str] = Field(default_factory=dict)  # variable -> label shown in the app
@@ -103,6 +167,7 @@ class ConnectorConfig(BaseModel):
     context: dict[str, str] = Field(default_factory=dict)  # variable -> line told to agents ({value})
     parts: list[ConnectorPart] = Field(default_factory=list)  # grouped connector: one endpoint per part
     replaces: list[str] = Field(default_factory=list)  # older connector ids this one supersedes
+    legacy: list[Launch] = Field(default_factory=list)  # launches earlier versions shipped (upgraded on load)
 
     def _sources(self) -> list:
         return [self.args, self.env, self.url or "", self.headers, self.command or ""]
@@ -297,13 +362,23 @@ class ConnectorError(Exception):
     pass
 
 
+# Environment variables a stdio connector inherits from the suite (everything else comes from its own config).
+PASS_ENV = ("PATH", "HOME", "USERPROFILE", "APPDATA", "TMPDIR", "TEMP")
+
+
 class ConnectorManager:
     def __init__(self, configs: list[ConnectorConfig], env: dict[str, str] | None = None,
                  in_process: dict[str, Any] | None = None, offline: bool = False):
-        import os
-
         self.base_env = dict(os.environ) if env is None else env
         self.values: dict[str, str] = {}  # variables entered in the app (shared by every connector that uses them)
+        self.bundled: dict[str, str] = {}  # values from an OAuth client file built into the app (lowest priority)
+        self.bundled_from: dict[str, str] = {}  # variable -> the file it came from
+        self.uploads_dir: Path | None = None  # where a client file uploaded in the app is saved (it wins)
+        # uv and Node.js (runtimes.py): tool folders searched after the computer's own copy (the installer's
+        # first, then first-use downloads), and the one first-use downloads go to.
+        self.tool_roots: list[Path] = []
+        self.download_root: Path | None = None
+        self.on_tool_download: Callable[[str, str], None] | None = None  # (tool, version) once downloaded
         self.env = dict(self.base_env)
         self.file_configs = {c.id: _normalize(c) for c in configs}
         self.configs = dict(self.file_configs)
@@ -317,16 +392,57 @@ class ConnectorManager:
         so connectors added in newer versions appear for people whose file was copied earlier. A connector
         that ``replaces`` older ids (Databricks, which used to be three) removes them, even from an older file."""
         configs: dict[str, ConnectorConfig] = {}
+        shipped: dict[str, ConnectorConfig] = {}
         for src in (presets, path):
             if src and src.exists():
                 raw = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
                 for c in raw.get("connectors", []):
                     cfg = ConnectorConfig.model_validate(c)
+                    if src == presets:
+                        shipped[cfg.id] = cfg
+                    else:
+                        cfg = _with_shipped_signin(cfg, shipped.get(cfg.id))
                     configs[cfg.id] = cfg
         for cfg in list(configs.values()):
             for old in cfg.replaces:
                 configs.pop(old, None)
         return cls(list(configs.values()), offline=offline)
+
+    def available(self, values: dict[str, str]) -> dict[str, str]:
+        """Every value a connector can use: built into the app, then typed in the app, then the environment."""
+        return {**self.bundled, **{k: v for k, v in values.items() if v}, **{k: v for k, v in self.base_env.items() if v}}
+
+    def load_client_files(self, folders: list[Path]) -> list[str]:
+        """Read the OAuth client files connectors ship with (the first match in ``folders``). Returns problems."""
+        problems: list[str] = []
+        self.bundled, self.bundled_from = {}, {}
+        for cfg in self.file_configs.values():
+            spec = cfg.client_file
+            if not spec:
+                continue
+            path = next((f / spec.name for f in folders if (f / spec.name).is_file()), None)
+            if path is None:
+                continue
+            try:
+                found = parse_client_file(path.read_text(encoding="utf-8"), spec)
+            except (OSError, ValueError) as e:
+                problems.append(f"{cfg.name}: could not use the OAuth client file {path}: {e}")
+                continue
+            self.bundled.update(found)
+            self.bundled_from.update({var: str(path) for var in found})
+        self.env = self.available(self.values)
+        return problems
+
+    def _client_file_view(self, cfg: ConnectorConfig) -> dict | None:
+        """Where this connector's OAuth client comes from: uploaded in the app, built into the app, or neither."""
+        if not cfg.client_file:
+            return None
+        found = next((self.bundled_from[v] for v in cfg.client_file.vars.values() if v in self.bundled_from), None)
+        source = None
+        if found:
+            uploaded = self.uploads_dir is not None and Path(found).parent.resolve() == self.uploads_dir.resolve()
+            source = "uploaded" if uploaded else "built-in"
+        return {"name": cfg.client_file.name, "source": source}
 
     def replaced_by(self) -> dict[str, str]:
         """Old connector id -> the connector that now covers it."""
@@ -335,7 +451,7 @@ class ConnectorManager:
     def apply_settings(self, settings: dict[str, ConnectorSetting], values: dict[str, str]) -> None:
         """Layer the app's choices over the file. Environment variables still win over values typed in the app."""
         self.values = {k: v for k, v in values.items() if v}
-        self.env = {**self.values, **{k: v for k, v in self.base_env.items() if v}}
+        self.env = self.available(self.values)
         self.configs = {}
         for cid, cfg in self.file_configs.items():
             st = settings.get(cid)
@@ -450,11 +566,12 @@ class ConnectorManager:
             default = found[name]
             env = self.base_env.get(name)
             app = self.values.get(name)
+            built_in = self.bundled.get(name)
             secret = is_secret(name)
             flag = name in cfg.requires
             out.append({"name": name, "secret": secret, "flag": flag, "optional": default is not None,
-                        "default": default or "", "set": bool(env or app),
-                        "source": "env" if env else ("app" if app else None),
+                        "default": default or "", "set": bool(env or app or built_in),
+                        "source": "env" if env else ("app" if app else ("bundled" if built_in else None)),
                         "value": None if secret or env else (app or ""),
                         "label": cfg.labels.get(name, ""), "hint": cfg.hints.get(name, ""), "part": part_of.get(name)})
         return out
@@ -480,10 +597,55 @@ class ConnectorManager:
                         "missing": self.missing(cid), "steps": list(cfg.steps), "docs_url": cfg.docs_url,
                         "parts": [{"id": p.id, "name": p.name, "description": p.description,
                                    "ready": p in self.ready_parts(cid)} for p in cfg.parts],
-                        "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools})
+                        "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools,
+                        "client_file": self._client_file_view(cfg),
+                        "signin": ({"provider": cfg.signin.provider, "kind": cfg.signin.kind, "confirms": cfg.signin.confirms,
+                                    "accounts_vars": list(cfg.accounts.vars) if cfg.accounts else []}
+                                   if cfg.signin and cfg.transport == "stdio" else None)})
         return out
 
     # ------------------------------------------------------------ lifecycle
+
+    def launch(self, cfg: ConnectorConfig) -> tuple[str, list[str], dict[str, str]]:
+        """Command, arguments and environment of a stdio connector. Sign-in uses the same ones, so it asks for
+        exactly the permissions the connector uses and writes to the token cache the connector reads."""
+        if not cfg.command:
+            raise ConnectorError(f"{cfg.id}: stdio connector needs a command")
+        env = {**{k: v for k, v in self.env.items() if k in PASS_ENV}, **expand_env(cfg.env, self.env)}
+        command = expand_env(cfg.command, self.env)
+        tool = runtimes.tool_for(command) if os.path.basename(command) == command else None
+        if tool is not None:
+            path = env.get("PATH") or os.environ.get("PATH", "")
+            where = runtimes.find(tool, path, self.tool_roots)
+            if where and where[0] == "app":  # the computer has none, or one too old: the app's copy goes first
+                env["PATH"] = os.pathsep.join([str(where[1]), *[p for p in path.split(os.pathsep) if p]])
+                # A full path, so it is found on every OS (Windows looks up commands on the suite's own PATH).
+                command = shutil.which(command, path=str(where[1])) or command
+        return command, expand_env(cfg.args, self.env), env
+
+    def missing_tool(self, cfg: ConnectorConfig) -> runtimes.Tool | None:
+        """The runtime (uv, Node.js) the app has to download before this connector can run, or None: the computer
+        has a new-enough copy, the app has one, or it is not a runtime the app can get."""
+        if cfg.transport != "stdio" or not cfg.command or self.download_root is None:
+            return None
+        command = expand_env(cfg.command, self.env)
+        tool = runtimes.tool_for(command) if os.path.basename(command) == command else None
+        if tool is None:
+            return None
+        path = self.env.get("PATH") or os.environ.get("PATH", "")
+        return None if runtimes.find(tool, path, self.tool_roots) else tool
+
+    async def prepare(self, cfg: ConnectorConfig) -> None:
+        """Download the runtime this connector needs if neither the computer nor the app has it (once)."""
+        tool = self.missing_tool(cfg)
+        if tool is None:
+            return
+        try:
+            downloaded = await runtimes.ensure(tool, self.download_root)
+        except runtimes.ToolError as e:
+            raise ConnectorError(str(e)) from e
+        if downloaded and self.on_tool_download:
+            self.on_tool_download(tool.name, tool.version)
 
     def _target(self, cfg: ConnectorConfig):
         if cfg.id in self._in_process:
@@ -493,13 +655,8 @@ class ConnectorManager:
             server = build_server(cfg.folders)
             return lambda: server
         if cfg.transport == "stdio":
-            if not cfg.command:
-                raise ConnectorError(f"{cfg.id}: stdio connector needs a command")
-            params = StdioServerParameters(
-                command=expand_env(cfg.command, self.env), args=expand_env(cfg.args, self.env),
-                env={**{k: v for k, v in self.env.items() if k in ("PATH", "HOME", "USERPROFILE", "APPDATA", "TMPDIR", "TEMP")},
-                     **expand_env(cfg.env, self.env)},
-            )
+            command, args, env = self.launch(cfg)
+            params = StdioServerParameters(command=command, args=args, env=env)
             return lambda: params
         url = expand_env(cfg.url or "", self.env)
         headers = expand_env(cfg.headers, self.env)
@@ -515,6 +672,8 @@ class ConnectorManager:
             raise ConnectorError(f"connector '{cid}' is not configured (needs: {', '.join(self.missing(cid)) or 'to be switched on'})")
         if self.configs[cid].parts:
             return await self._ensure_group(cid)
+        if cid not in self._in_process:
+            await self.prepare(self.configs[cid])
         return await self._start(cid, self.configs[cid])
 
     async def _start(self, key: str, cfg: ConnectorConfig) -> ConnectorWorker:
@@ -606,6 +765,28 @@ class _GroupView:
     def state(self) -> ConnectorState:
         status = "ready" if self.tools else ("error" if self.errors else "idle")
         return ConnectorState(status=status, error="; ".join(self.errors), tools=self.tools)
+
+
+SHIPPED_TEXT = ("setup", "steps", "hints", "labels", "docs_url", "verify")
+
+
+def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) -> ConnectorConfig:
+    """Bring a connectors.yaml copied by an earlier version up to date, without touching what the person changed.
+
+    * It still uses a launch an earlier version shipped (GitHub and Jira through Docker): take the shipped launch
+      (command, arguments, environment) and the setup text that goes with it. Values stay where they are: in the
+      app or in environment variables.
+    * It launches the shipped server but predates sign-in from the app: take the shipped sign-in, client file and
+      setup text.
+    A connector whose launch was changed in any other way is left alone."""
+    if not shipped or cfg.transport != shipped.transport:
+        return cfg
+    if any(cfg.command == old.command and cfg.args == old.args for old in shipped.legacy):
+        cfg = cfg.model_copy(update={"command": shipped.command, "args": shipped.args, "env": shipped.env,
+                                     **{k: getattr(shipped, k) for k in SHIPPED_TEXT}})
+    if cfg.signin or not shipped.signin or cfg.command != shipped.command or cfg.args != shipped.args:
+        return cfg
+    return cfg.model_copy(update={k: getattr(shipped, k) for k in ("signin", "client_file", *SHIPPED_TEXT)})
 
 
 def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:

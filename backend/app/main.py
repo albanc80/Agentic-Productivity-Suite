@@ -31,7 +31,15 @@ from .appconfig import (
     order_chain,
 )
 from .chat import Chat, ChatError
-from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorSetting, is_secret
+from .connectors import (
+    ACCOUNT_SPLIT,
+    ConnectorConfig,
+    ConnectorError,
+    ConnectorManager,
+    ConnectorSetting,
+    is_secret,
+    parse_client_file,
+)
 from .endpoints import Endpoint, ModelEdit, ProviderOverride, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
@@ -43,6 +51,7 @@ from .providers import ModelRouter, ProviderError
 from .registry import Registry
 from .router import route
 from .settings import Budgets, PersonaSettings, Settings, load_profile, load_settings
+from .signin import SigninError, SigninManager
 from .store import Store
 
 log = logging.getLogger("suite")
@@ -99,6 +108,13 @@ class Discover(BaseModel):
     api_key: str | None = None
 
 
+MAX_CLIENT_FILE_BYTES = 64 * 1024  # a Google OAuth client file is well under 1 KB
+
+
+class SigninStart(BaseModel):
+    account: str | None = Field(default=None, max_length=320)  # the address to sign in with (Google)
+
+
 class ProviderEdit(BaseModel):
     enabled: bool | None = None
     base_url: str | None = None
@@ -145,6 +161,20 @@ class Suite:
                      "agent_overrides": {k: list(v) for k, v in settings.agent_overrides.items()}}
         self.offline_default: str | None = None
         self.http_client = http_client
+        self.signin = SigninManager(self.connectors, self.signed_in)
+        # OAuth clients built into the app (Google): in the shipped config folder, or next to connectors.yaml.
+        # First match wins: a file uploaded in Settings, then one next to connectors.yaml, then the shipped one.
+        self.client_folders = list(dict.fromkeys(
+            [settings.data_dir, *([settings.connectors_path.parent] if settings.connectors_path else []),
+             settings.home / "config"]))
+        self.connectors.uploads_dir = settings.data_dir
+        # uv and Node.js: the computer's own copy if new enough, else the one the installer put in <app>/tools,
+        # else downloaded into the data folder the first time a connector needs it (runtimes.py).
+        self.connectors.tool_roots = [settings.home / "tools", settings.data_dir / "tools"]
+        self.connectors.download_root = settings.data_dir / "tools"
+        self.connectors.on_tool_download = lambda name, version: self.store.audit(
+            "tool_downloaded", None, tool=name, version=version)
+        self.warnings += self.connectors.load_client_files(self.client_folders)
         self.apply()
 
     # ------------------------------------------------------------ runtime configuration
@@ -380,7 +410,7 @@ class Suite:
             if cfg.transport == "builtin":
                 missing = [] if (st.folders if st.folders is not None else cfg.folders) else ["a folder"]
             else:
-                have = {**{k: v for k, v in values.items() if v}, **{k: v for k, v in self.connectors.base_env.items() if v}}
+                have = self.connectors.available(values)
                 missing = sorted(v for v in cfg.required_env() if not have.get(v))
             if missing:
                 raise ValueError(f"{cfg.name} needs {', '.join(missing)} before it can be switched on. Open Edit to set it up.")
@@ -406,6 +436,118 @@ class Suite:
         self.apply()
         await self.connectors.restart([cid])
         self.store.audit("connector_reset", None, connector=cid, by=by)
+
+    def _sign_in_state(self, cid: str, values: dict[str, str], accounts: list[str], by: str, event: str, **audit) -> None:
+        """Save a connector's sign-in state: its accounts list and sign-in flag, and its switch (on once it has
+        everything it needs after a sign-in, off once no account is left)."""
+        cfg = self.connectors.file_configs[cid]
+        env = self.connectors.base_env
+        if cfg.accounts and not any(env.get(v) for v in cfg.accounts.vars):  # a list set in the environment stays
+            names = cfg.accounts.vars
+            # One field holds them all (Microsoft). Two (Google): the default address, then the others.
+            parts = [accounts] if len(names) == 1 else [accounts[:1], *([] for _ in names[1:-1]), accounts[1:]]
+            for var, part in zip(names, parts, strict=True):
+                if part:
+                    values[var] = ", ".join(part)
+                else:
+                    values.pop(var, None)
+        flag = cfg.signin.confirms if cfg.signin else None
+        if flag and not env.get(flag):
+            if accounts:
+                values[flag] = "1"
+            else:
+                values.pop(flag, None)
+        all_settings = self.connector_settings()
+        st = all_settings.get(cid, ConnectorSetting())
+        enabled = self.connectors.configs[cid].enabled
+        have = self.connectors.available(values)
+        if accounts and not enabled and all(have.get(v) for v in cfg.required_env()):
+            st.enabled = True
+        elif not accounts and enabled:
+            st.enabled = False
+        all_settings[cid] = st
+        self.store.set_setting("connector_settings", {k: v.model_dump() for k, v in all_settings.items()})
+        self.store.set_setting("connector_values", values)
+        self.apply()
+        self.store.audit(event, None, connector=cid, enabled=self.connectors.configs[cid].enabled, by=by, **audit)
+
+    async def save_client_file(self, cid: str, data: bytes, by: str) -> None:
+        """Keep an OAuth client file uploaded in Settings (it wins over one built into the app)."""
+        cfg = self.connectors.file_configs[cid]
+        if not cfg.client_file:
+            raise ValueError(f"{cfg.name} does not take an OAuth client file.")
+        if len(data) > MAX_CLIENT_FILE_BYTES:
+            raise ValueError("That file is too large to be an OAuth client file.")
+        found = parse_client_file(data, cfg.client_file)  # ValueError says what is wrong
+        target = self.settings.data_dir / cfg.client_file.name
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # readable by this user only
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data.decode("utf-8"))
+        self.connectors.load_client_files(self.client_folders)
+        self.apply()
+        await self.connectors.restart([cid])
+        # The client ID is not secret (it appears in every sign-in address); the secret is never logged.
+        self.store.audit("connector_client_file_saved", None, connector=cid, by=by,
+                         client_id=next((v for k, v in found.items() if not is_secret(k)), ""))
+
+    async def remove_client_file(self, cid: str, by: str) -> None:
+        cfg = self.connectors.file_configs[cid]
+        if not cfg.client_file:
+            raise ValueError(f"{cfg.name} does not take an OAuth client file.")
+        (self.settings.data_dir / cfg.client_file.name).unlink(missing_ok=True)
+        self.connectors.load_client_files(self.client_folders)
+        self.apply()
+        await self.connectors.restart([cid])
+        self.store.audit("connector_client_file_removed", None, connector=cid, by=by)
+
+    def _listed_accounts(self, cid: str, values: dict[str, str]) -> list[str]:
+        """The accounts agents may use, default first, as saved in the app (every account field, in order)."""
+        cfg = self.connectors.file_configs[cid]
+        out: list[str] = []
+        for var in cfg.accounts.vars if cfg.accounts else []:
+            for a in ACCOUNT_SPLIT.split(values.get(var, "")):
+                if a and a.lower() not in (x.lower() for x in out):
+                    out.append(a)
+        return out
+
+    async def use_signed_in(self, cid: str, by: str) -> list[dict]:
+        """Allow the accounts already signed in to the connector's server (for example from a terminal)."""
+        accounts = await self.signin.accounts(cid)
+        if not accounts:
+            raise SigninError("No account is signed in yet.")
+        names = [a["username"] for a in sorted(accounts, key=lambda a: not a["selected"]) if a["username"]]
+        values = dict(self.store.get_setting("connector_values", {}))
+        self._sign_in_state(cid, values, names, by, "connector_signed_in", account=", ".join(names))
+        await self.connectors.restart([cid])
+        return accounts
+
+    async def signed_in(self, cid: str, account: str, signed_in: list[dict]) -> None:
+        """After a sign-in from the app: add the account to the accounts agents may use, confirm the sign-in and
+        switch the connector on if it now has everything it needs. The server's new tokens apply on restart."""
+        values = dict(self.store.get_setting("connector_values", {}))
+        listed = self._listed_accounts(cid, values)
+        if not listed:  # until now the server chose among every signed-in account: keep them, its default first
+            listed = [a["username"] for a in sorted(signed_in, key=lambda a: not a["selected"]) if a["username"]]
+        if account and account.lower() not in (a.lower() for a in listed):
+            listed.append(account)
+        self._sign_in_state(cid, values, listed, "ui", "connector_signed_in", account=account)
+        await self.connectors.restart([cid])
+
+    async def sign_out(self, cid: str, account_id: str, by: str) -> list[dict]:
+        """Sign one account out of a connector's server and stop offering it to agents. Returns who is left."""
+        accounts = await self.signin.accounts(cid)
+        target = next((a for a in accounts if a["id"] == account_id), None)
+        if target is None:
+            raise SigninError("That account is not signed in.")
+        await self.signin.remove(cid, account_id)
+        left = [a for a in accounts if a["id"] != account_id]
+        values = dict(self.store.get_setting("connector_values", {}))
+        listed = self._listed_accounts(cid, values)
+        gone = target["username"].lower()
+        keep = [a for a in listed if a.lower() != gone] if listed else [a["username"] for a in left]
+        self._sign_in_state(cid, values, keep if left else [], by, "connector_signed_out", account=target["username"])
+        await self.connectors.restart([cid])
+        return left
 
     def save_provider(self, name: str, edit: ProviderEdit, by: str) -> None:
         if name not in self.base["providers"]:
@@ -476,6 +618,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         for w in suite.warnings:
             log.warning(w)
         yield
+        await suite.signin.shutdown()
         await suite.connectors.shutdown()
 
     app = FastAPI(title="Agentic Productivity Suite", version=__version__, lifespan=lifespan)
@@ -945,6 +1088,79 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         store.audit("connector_connected", None, connector=cid, tools=len(tools))
         return {"id": cid, "tools": [{"name": t.name, "allowed": t.allowed, "reason": t.reason, "description": t.description[:200]}
                                      for t in tools]}
+
+    # Sign-in from the app (Microsoft 365): the connector's own server signs in with a code shown here.
+
+    def signin_errors(e: Exception) -> HTTPException:
+        if isinstance(e, KeyError):
+            return HTTPException(404, "connector not found")
+        return HTTPException(409, str(e))
+
+    @app.get("/api/connectors/{cid}/signin")
+    def signin_state(cid: str):
+        try:
+            s = suite.signin.get(cid)
+        except (KeyError, SigninError) as e:
+            raise signin_errors(e) from e
+        return s.view() if s else {"connector": cid, "status": "none"}
+
+    @app.post("/api/connectors/{cid}/signin")
+    async def signin_start(cid: str, body: SigninStart | None = None):
+        try:
+            s = await suite.signin.start(cid, (body or SigninStart()).account)
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
+        store.audit("connector_signin_started", None, connector=cid, by="ui")
+        return s.view()
+
+    @app.delete("/api/connectors/{cid}/signin")
+    async def signin_cancel(cid: str):
+        try:
+            s = await suite.signin.cancel(cid)
+        except (KeyError, SigninError) as e:
+            raise signin_errors(e) from e
+        return s.view() if s else {"connector": cid, "status": "none"}
+
+    @app.get("/api/connectors/{cid}/accounts")
+    async def signin_accounts(cid: str):
+        try:
+            return {"accounts": await suite.signin.accounts(cid)}
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
+
+    @app.post("/api/connectors/{cid}/client-file")
+    async def upload_client_file(cid: str, file: UploadFile = File(...)):
+        if cid not in suite.connectors.file_configs:
+            raise HTTPException(404, "connector not found")
+        try:
+            await suite.save_client_file(cid, await file.read(MAX_CLIENT_FILE_BYTES + 1), "ui")
+        except (ValueError, UnicodeDecodeError) as e:
+            raise HTTPException(422, str(e) if isinstance(e, ValueError) else "That is not a text file.") from e
+        return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.delete("/api/connectors/{cid}/client-file")
+    async def delete_client_file(cid: str):
+        if cid not in suite.connectors.file_configs:
+            raise HTTPException(404, "connector not found")
+        try:
+            await suite.remove_client_file(cid, "ui")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.post("/api/connectors/{cid}/accounts/use")
+    async def signin_use_existing(cid: str):
+        try:
+            return {"accounts": await suite.use_signed_in(cid, "ui")}
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
+
+    @app.delete("/api/connectors/{cid}/accounts/{account_id}")
+    async def signin_sign_out(cid: str, account_id: str):
+        try:
+            return {"accounts": await suite.sign_out(cid, account_id, "ui")}
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
 
     @app.get("/api/admin/kill-switch")
     def kill_state():

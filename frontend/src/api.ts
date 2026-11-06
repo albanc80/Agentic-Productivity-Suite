@@ -37,7 +37,7 @@ export interface ProviderInfo {
 }
 export interface ConnectorVariable {
   name: string; secret: boolean; flag: boolean; optional: boolean; default: string; set: boolean;
-  source: "env" | "app" | null; value: string | null;
+  source: "env" | "app" | "bundled" | null; value: string | null;  // bundled: an OAuth client built into the app
   label: string; hint: string; part: string | null;  // label and help from the connector; part of a grouped connector
 }
 export interface ConnectorInfo {
@@ -47,7 +47,17 @@ export interface ConnectorInfo {
   missing: string[];  // what is still needed before it can be switched on
   steps: string[]; docs_url: string;  // numbered setup steps and the server's own documentation
   parts: { id: string; name: string; description: string; ready: boolean }[];  // grouped connector (Databricks)
+  // Sign-in from the app (Microsoft 365): the flag a sign-in confirms and the accounts list it fills in.
+  // kind "tool" (Google) asks for the address to sign in with; "command" (Microsoft) shows a code.
+  signin: { provider: string; kind: "command" | "tool"; confirms: string | null; accounts_vars: string[] } | null;
+  // An OAuth client file (Google): uploaded in Settings, built into the app, or neither.
+  client_file: { name: string; source: "uploaded" | "built-in" | null } | null;
 }
+export interface SigninState {
+  connector: string; status: "none" | "starting" | "waiting" | "finishing" | "done" | "failed" | "cancelled";
+  provider?: string; url?: string; code?: string; message?: string; account?: string; error?: string;
+}
+export interface SignedInAccount { id: string; username: string; name: string; selected: boolean }
 export interface Profile {
   name: string; role: string; organization_context: string; goals: string[]; working_preferences: string[]; domain_notes: string;
 }
@@ -181,6 +191,19 @@ export const api = {
   updateConnector: (id: string, edit: { enabled?: boolean; values?: Record<string, string>; clear?: string[]; folders?: string[] }) =>
     call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(edit) }),
   resetConnector: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/settings`, { method: "DELETE" }),
+  signinState: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`),
+  signinStart: (id: string, account?: string) =>
+    call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "POST", body: JSON.stringify({ account: account || null }) }),
+  uploadClientFile: (id: string, file: File) => {
+    const fd = new FormData(); fd.append("file", file);
+    return call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "POST", body: fd });
+  },
+  removeClientFile: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "DELETE" }),
+  useSignedIn: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/use`, { method: "POST" }),
+  signinCancel: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "DELETE" }),
+  signedInAccounts: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts`),
+  signOut: (id: string, accountId: string) =>
+    call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(accountId)}`, { method: "DELETE" }),
   saveGeneral: (edit: GeneralEdit) => call<Overview>("/api/settings/general", { method: "PUT", body: JSON.stringify(edit) }),
   saveAnswer: (chatId: string, index: number, format: "md" | "html") =>
     call<{ name: string; path: string }>(`/api/chats/${chatId}/messages/${index}/save?format=${format}`, { method: "POST" }),

@@ -514,6 +514,14 @@ fieldset.plain.is-dim .ep-grid { opacity: .6; }
 .setup-guide { padding: 12px 14px; border-radius: var(--r-control); background: var(--surface-2); }
 .setup-steps { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; }
 .setup-steps code { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1px 5px; }
+
+/* sign-in from the app (connectors) */
+.signin { padding: 12px 14px; border-radius: var(--r-control); border: 1px solid var(--border); }
+.signin-accounts { display: grid; gap: 6px; margin: 0; }
+.signin-steps .signin-code { font-size: 1.15rem; font-weight: 600; letter-spacing: .14em; padding: 2px 8px; user-select: all; color: var(--accent); background: var(--accent-soft); border-radius: 5px; }
+.signin-steps { gap: 10px; }
+.ok-note { background: var(--ok-soft); color: var(--ok); }
+.signin-actions input[type=email] { max-width: 280px; }
 .part-fields { border-top: 1px solid var(--border); padding-top: 12px; }
 .part-fields legend { display: flex; gap: 8px; align-items: center; }
 .in-use-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 6px 16px; }

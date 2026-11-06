@@ -44,6 +44,19 @@
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
 
+    <!-- uv and Node.js for connectors: after the files are in place, the app checks this computer and downloads
+         what is missing or too old into its folder (pinned, checksum-verified; see backend/app/runtimes.py).
+         Hidden, runs as the installer, and Return="ignore": a failed download (offline, proxy) never fails the
+         install; the app downloads on first use instead. Uninstall deletes them; an upgrade keeps them. -->
+    <CustomAction Id="InstallTools" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="ignore"
+                  ExeCommand="&quot;[INSTALLFOLDER]ProductivitySuite.exe&quot; --install-tools" />
+    <CustomAction Id="RemoveTools" Directory="INSTALLFOLDER" Execute="deferred" Impersonate="no" Return="ignore"
+                  ExeCommand="&quot;[INSTALLFOLDER]ProductivitySuite.exe&quot; --remove-tools" />
+    <InstallExecuteSequence>
+      <Custom Action="InstallTools" Before="InstallFinalize" Condition="NOT REMOVE" />
+      <Custom Action="RemoveTools" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
     <Feature Id="Main" Title="Agentic Productivity Suite">
       <ComponentGroupRef Id="AppFiles" />
       <ComponentRef Id="MainExecutable" />

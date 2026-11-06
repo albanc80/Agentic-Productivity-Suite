@@ -21,8 +21,12 @@ evals/reports/
 *.db-wal
 *.db-shm
 .env
+# OAuth clients built into the app (written by CI from a secret; keep your own copy out of git)
+config/google-oauth-client.json
+client_secret*.json
 
 # Desktop builds
+/tools/
 backend/build/
 backend/dist/
 *.spec.bak

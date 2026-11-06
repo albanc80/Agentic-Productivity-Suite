@@ -111,6 +111,10 @@ jobs:
       - name: Build UI
         working-directory: frontend
         run: npm ci --no-audit --no-fund && npm run build
+      - name: Built-in Google OAuth client (from the GOOGLE_OAUTH_CLIENT_JSON secret, if set)
+        env:
+          GOOGLE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON }}
+        run: python desktop/bundle_oauth_client.py
       - name: Build app (PyInstaller)
         working-directory: backend
         run: |
@@ -139,8 +143,13 @@ jobs:
           sudo apt-get install -y --reinstall "./$deb"
           test "$(dpkg-query -W -f='${Version}' productivity-suite)" = "$version"
           cmp /opt/productivity-suite/ProductivitySuite backend/dist/ProductivitySuite/ProductivitySuite
+          # The install step checked for uv and Node.js (and downloaded what the runner lacked).
+          tools=/opt/productivity-suite/_internal/tools
+          test -f "$tools/install.log" || { echo "the install step for uv and Node.js did not run"; exit 1; }
+          cat "$tools/install.log"
           python desktop/smoke_test.py productivity-suite
           sudo apt-get remove -y productivity-suite
+          if [ -e "$tools" ]; then echo "removing the package left $tools behind"; exit 1; fi
       - uses: actions/upload-artifact@v7
         with:
           name: productivity-suite-linux-deb
@@ -166,6 +175,10 @@ jobs:
       - name: Build UI
         working-directory: frontend
         run: npm ci --no-audit --no-fund; npm run build
+      - name: Built-in Google OAuth client (from the GOOGLE_OAUTH_CLIENT_JSON secret, if set)
+        env:
+          GOOGLE_OAUTH_CLIENT_JSON: ${{ secrets.GOOGLE_OAUTH_CLIENT_JSON }}
+        run: python desktop/bundle_oauth_client.py
       - name: Build app (PyInstaller)
         working-directory: backend
         run: |
@@ -229,11 +242,16 @@ jobs:
           $iconFile = ($sc.IconLocation -split ',')[0]
           Write-Host "exe icons: $n; shortcut target: $($sc.TargetPath); icon: $($sc.IconLocation)"
           if (-not $iconFile -or -not (Test-Path $iconFile)) { throw "shortcut icon missing: '$($sc.IconLocation)'" }
+          # The install step checked for uv and Node.js (and downloaded what the runner lacked).
+          $tools = Join-Path $env:ProgramFiles "Agentic Productivity Suite\_internal\tools"
+          if (-not (Test-Path (Join-Path $tools "install.log"))) { throw "the install step for uv and Node.js did not run" }
+          Get-Content (Join-Path $tools "install.log")
           python desktop/smoke_test.py $exe
           if ($LASTEXITCODE -ne 0) { throw "smoke test of installed app failed" }
           $u = Start-Process msiexec.exe -ArgumentList "/x $($e[0].PSChildName) /qn" -Wait -PassThru
           if ($u.ExitCode -ne 0) { throw "uninstall failed: $($u.ExitCode)" }
           if (Test-Path $exe) { throw "uninstall left files behind" }
+          if (Test-Path $tools) { throw "uninstall left the downloaded tools behind in $tools" }
           if ((Entries).Count -ne 0) { throw "uninstall left an entry in Apps" }
       - uses: actions/upload-artifact@v7
         with:
