@@ -192,3 +192,19 @@ def test_github_and_jira_run_without_docker_and_old_docker_configs_are_upgraded(
     custom = {**old_gh, "args": [*old_gh["args"][:-1], "ghcr.io/me/my-fork"]}  # changed by the person: left alone
     path.write_text(yaml.safe_dump({"connectors": [custom]}), encoding="utf-8")
     assert ConnectorManager.from_file(path, presets=shipped).file_configs["github"].command == "docker"
+
+
+@pytest.mark.parametrize("old", sorted((Path(__file__).parent / "fixtures" / "old-connectors").glob("*.yaml")),
+                         ids=lambda p: p.stem)
+def test_every_connectors_file_an_earlier_release_copied_is_brought_up_to_date(old):
+    """The desktop app copies connectors.yaml once and keeps it; each file here is one an earlier commit shipped
+    (taken from git history). Loading any of them must give today's launches and sign-in, never a stale one."""
+    shipped = Path(__file__).resolve().parents[2] / "config" / "connectors.example.yaml"
+    now = ConnectorManager.from_file(shipped).file_configs
+    loaded = ConnectorManager.from_file(old, presets=shipped).file_configs
+    for cid, cfg in loaded.items():
+        if cid not in now or now[cid].transport != "stdio":
+            continue
+        assert (cfg.command, cfg.args) == (now[cid].command, now[cid].args), f"{old.name}: {cid} kept an old launch"
+        assert (cfg.signin is None) == (now[cid].signin is None), f"{old.name}: {cid} lost its sign-in"
+        assert cfg.accounts == now[cid].accounts and cfg.steps == now[cid].steps

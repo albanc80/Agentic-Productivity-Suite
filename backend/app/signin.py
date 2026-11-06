@@ -39,7 +39,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from mcp.client.stdio import get_default_environment
+from mcp import StdioServerParameters
+from mcp.client.stdio import get_default_environment, stdio_client
 
 from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorWorker
 from .settings import expand_env
@@ -51,6 +52,7 @@ CODE_RE = re.compile(r"\bcode\s+([A-Z0-9][A-Z0-9-]{4,})\b", re.I)
 ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9._@-]{1,200}$")  # account ids go on a command line: no shell characters
 COMMAND_TIMEOUT_S = 180.0  # listing or removing accounts; the first run of npx downloads the server
 NODE_COMMANDS = {"npx", "node", "npm"}
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 POLL_S = 1.0  # how often a tool sign-in looks for the account's credentials file
 START_TIMEOUT_S = 300.0  # starting a server; the first run of uvx or npx downloads it
@@ -182,9 +184,10 @@ class SigninManager:
     """One sign-in at a time per connector, run in the background and polled from Settings."""
 
     def __init__(self, connectors: ConnectorManager,
-                 on_done: Callable[[str, str, list[dict]], Awaitable[None]] | None = None):
+                 on_done: Callable[[str, str, list[dict]], Awaitable[None]] | None = None, log_dir: Path | None = None):
         self.connectors = connectors
         self.on_done = on_done  # (connector id, account, every signed-in account) after a successful sign-in
+        self.log_dir = log_dir  # where a tool sign-in keeps the server's log (data/logs)
         self.sessions: dict[str, SigninSession] = {}
 
     def config(self, cid: str) -> ConnectorConfig:
@@ -384,7 +387,17 @@ class SigninManager:
         # ``login`` arguments are added to the launch: workspace-mcp keeps its sign-in tool only in the
         # "complete" tier. Its permissions come from the services and --read-only, so they stay the same.
         launch = cfg.model_copy(update={"id": f"{cfg.id}:signin", "args": [*cfg.args, *cfg.signin.login]})
-        worker = ConnectorWorker(launch, self.connectors._target(launch))
+        command, args, env = self.connectors.launch(launch)
+        params = StdioServerParameters(command=command, args=args, env=env)
+        # The server's own log says how the sign-in ended (Google's answer reaches the server, not the app), so it
+        # is kept in a file and read while waiting. It holds no tokens: the server never logs them.
+        log_path = (self.log_dir / f"{cfg.id}-signin.log") if self.log_dir else None
+        if log_path:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+        errlog = open(log_path, "w", encoding="utf-8", errors="replace") if log_path else sys.stderr  # noqa: SIM115
+        worker = ConnectorWorker(launch, lambda: stdio_client(params, errlog=errlog))
+        ok = re.compile(cfg.signin.success_log, re.M) if cfg.signin.success_log else None
+        bad = re.compile(cfg.signin.error_log, re.M) if cfg.signin.error_log else None
         try:
             worker.start()
             await asyncio.wait_for(worker.ready.wait(), timeout=START_TIMEOUT_S)
@@ -402,19 +415,38 @@ class SigninManager:
             s.message = f"Sign in to {cfg.signin.provider} as {account} in the browser on this computer."
             s.status = "waiting"
             deadline = time.time() + cfg.signin.timeout_s
+            seen = 0
             while s.status == "waiting":
                 await asyncio.sleep(POLL_S)
                 now = credential_files(folder)
                 changed = [email for email, (stamp, _paths) in now.items() if stamp > before.get(email, 0.0)]
-                if changed:  # Google may sign in a different account than the one typed: take what it saved
-                    s.account = next((e for e in changed if e.lower() == account.lower()), changed[0])
+                logged = ""
+                if log_path and log_path.exists():
+                    with open(log_path, encoding="utf-8", errors="replace") as f:
+                        f.seek(seen)
+                        logged = ANSI_RE.sub("", f.read())  # the server colours its log lines
+                        seen = f.tell()
+                said_ok = ok.search(logged) if ok and logged else None
+                said_bad = bad.search(logged) if bad and logged else None
+                if changed or said_ok:  # Google may sign in a different account than the one typed: take what it saved
+                    named = said_ok.group(1) if said_ok and said_ok.groups() else ""
+                    s.account = (next((e for e in changed if e.lower() == account.lower()), None)
+                                 or (changed[0] if changed else named) or account)
                     s.status = "finishing"
+                elif said_bad:
+                    s.status = "failed"
+                    s.error = (f"{cfg.signin.provider} did not complete the sign-in: {said_bad.group(0).strip()[:300]}"
+                               + (f" Details: {log_path}" if log_path else ""))
                 elif time.time() > deadline:
                     s.status = "failed"
-                    s.error = (f"The sign-in was not finished within {int(cfg.signin.timeout_s // 60)} minutes. "
-                               "Press Sign in again.")
+                    s.error = (f"{cfg.signin.provider} did not send the sign-in back to the app within "
+                               f"{int(cfg.signin.timeout_s // 60)} minutes. If the browser showed an error (for example "
+                               "\"Access blocked\"), the OAuth client may still be in Testing without your address as a test "
+                               "user. Press Sign in to try again." + (f" Details: {log_path}" if log_path else ""))
         finally:
             await worker.stop()
+            if log_path:
+                errlog.close()
 
 
 def credential_files(folder: Path) -> dict[str, tuple[float, list[Path]]]:

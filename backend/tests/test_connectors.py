@@ -208,3 +208,13 @@ def test_github_needs_only_a_token_and_names_the_repositories():
                             "GITHUB_REPOS": "https://github.com/acme/portal, acme/api.git"})
     assert mgr.missing("github") == []
     assert mgr.context_lines("github") == ["Repositories the person works in: acme/portal, acme/api. Use these unless asked about others."]
+
+
+async def test_connectors_use_the_classic_handshake_every_server_speaks():
+    """GitHub's server (Go SDK) took the SDK's server/discover probe as its handshake and then refused initialize
+    ('duplicate "initialize" received'). Connectors start with initialize, like Claude Code and Codex."""
+    mgr = ConnectorManager([cfg(id="strict", args=[str(HERE / "fake_strict_server.py")])], env={"PATH": "/usr/bin:/bin"})
+    try:
+        assert [t.name for t in await mgr.tools("strict")] == ["get_repo"]
+    finally:
+        await mgr.shutdown()

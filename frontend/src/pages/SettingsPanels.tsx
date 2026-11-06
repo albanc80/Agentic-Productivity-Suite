@@ -459,6 +459,9 @@ function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }
     <div className="signin stack-sm" aria-live="polite">
       <strong>Sign-in</strong>
       {accounts === null && !c.offline_paused && <span className="small muted">Checking who is signed in…</span>}
+      {accounts !== null && accounts.length === 0 && !active && s?.status !== "done" && (
+        <span className="small muted">No {provider} account signed in yet. Test only checks that the connector starts; sign in to let agents read your data.</span>
+      )}
       {accounts && accounts.length > 0 && (
         <ul className="plain signin-accounts">
           {accounts.map((a) => (

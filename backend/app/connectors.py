@@ -87,6 +87,8 @@ class SigninConfig(BaseModel):
     tool_args: dict[str, Any] = Field(default_factory=dict)
     account_arg: str | None = None
     credentials_dir: str | None = None  # ${VAR:-default} and ~ are expanded
+    success_log: str | None = None  # regex on the server's log: the sign-in finished (group 1: the account)
+    error_log: str | None = None  # regex on the server's log: the sign-in failed (the match is shown)
     confirms: str | None = None
     timeout_s: float = 960.0  # a device code lasts 15 minutes
 
@@ -302,7 +304,10 @@ class ConnectorWorker:
 
     async def _run(self) -> None:
         try:
-            async with Client(self._target_factory(), read_timeout_seconds=self.cfg.timeout_s) as client:
+            # The classic initialize handshake: every connector server speaks it. The SDK's default first probes
+            # server/discover, which some servers (GitHub's, on the Go SDK) half-handle on a slow start and then
+            # refuse the initialize that follows ("duplicate initialize received").
+            async with Client(self._target_factory(), read_timeout_seconds=self.cfg.timeout_s, mode="legacy") as client:
                 listed = await client.list_tools()
                 self.state.tools = [
                     ToolInfo(self.cfg.id, t.name, t.description or "", t.input_schema or {"type": "object"},
@@ -360,6 +365,20 @@ def _short_error(e: BaseException) -> str:
 
 class ConnectorError(Exception):
     pass
+
+
+MAX_AGENT_TOOLS = 128  # the most tools some model APIs accept in one request
+
+
+@dataclass
+class AgentTools:
+    """What one agent turn may use: the read-only tools of every connector that is on, the names of those connectors,
+    what the agent is told about their accounts and scope, and notes for connectors that were not used."""
+
+    tools: list[ToolInfo] = field(default_factory=list)
+    names: list[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 # Environment variables a stdio connector inherits from the suite (everything else comes from its own config).
@@ -507,6 +526,20 @@ class ConnectorManager:
                 items = [re.sub(r"^https?://[^/]+/|\.git$|/$", "", x) for x in ACCOUNT_SPLIT.split(value) if x]
                 out.append(line.format(value=", ".join(items)))
         return out
+
+    def agent_lines(self, cid: str) -> list[str]:
+        """What an agent is told about a connector it can use: scope the person entered (repositories) and the
+        accounts it may read. Playbook steps and chat say the same thing."""
+        cfg = self.configs.get(cid)
+        if not cfg:
+            return []
+        lines = [f"- {cfg.name}: {line}" for line in self.context_lines(cid)]
+        accounts = self.accounts(cid)
+        if accounts and cfg.accounts:
+            listed = ", ".join([f"{accounts[0]} (default)"] + accounts[1:])
+            lines.append(f"- {cfg.name}: {listed}. Choose the account with the `{cfg.accounts.param}` argument; "
+                         "calls to any other account are refused. Say which account each fact came from.")
+        return lines
 
     def accounts(self, cid: str) -> list[str]:
         """Accounts the user allows on this connector, default first (empty: the server decides)."""
@@ -724,6 +757,36 @@ class ConnectorManager:
 
     # ------------------------------------------------------------ tools
 
+    async def tools_for_agent(self, first: list[str] | tuple[str, ...] = (), *, only: bool = False,
+                              room: int = MAX_AGENT_TOOLS) -> AgentTools:
+        """Connector tools for one agent turn. Chat: every connector that is switched on and set up (``first`` come
+        first). A playbook step: only the connectors the playbook requires (``first`` with ``only=True``). Tools stay
+        read-only (blocked ones are never listed). A named connector that is off, or one that cannot start or does
+        not fit in ``room`` tools, is left out with a note; the others still work."""
+        out = AgentTools()
+        for cid in dict.fromkeys([*first, *([] if only else self.configs)]):
+            if cid not in self.configs:
+                continue
+            if not self.configured(cid):
+                if cid in first:
+                    out.notes.append(f"connector {cid} not configured (agent worked from provided inputs)")
+                continue
+            try:
+                infos = await self.tools(cid)
+            except (ConnectorError, TimeoutError) as e:
+                out.notes.append(f"connector {cid} unavailable: {e}"[:400])
+                continue
+            if not infos:
+                continue
+            if len(out.tools) + len(infos) > room:
+                out.notes.append(f"connector {cid} left out: together the connectors offer more than {room} tools; "
+                                 "switch off the ones you do not need")
+                continue
+            out.tools += infos
+            out.names.append(self.configs[cid].name)
+            out.lines += self.agent_lines(cid)
+        return out
+
     async def tools(self, cid: str, *, allowed_only: bool = True) -> list[ToolInfo]:
         w = await self.ensure(cid)
         return [t for t in w.state.tools if t.allowed or not allowed_only]
@@ -773,20 +836,25 @@ SHIPPED_TEXT = ("setup", "steps", "hints", "labels", "docs_url", "verify")
 def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) -> ConnectorConfig:
     """Bring a connectors.yaml copied by an earlier version up to date, without touching what the person changed.
 
-    * It still uses a launch an earlier version shipped (GitHub and Jira through Docker): take the shipped launch
-      (command, arguments, environment) and the setup text that goes with it. Values stay where they are: in the
-      app or in environment variables.
-    * It launches the shipped server but predates sign-in from the app: take the shipped sign-in, client file and
-      setup text.
+    * It still uses a launch an earlier version shipped (``legacy``: Microsoft 365 in org mode, GitHub and Jira
+      through Docker): take the shipped entry whole. Values stay where they are: in the app or the environment.
+    * It launches the shipped server: take today's setup text, and the shipped sign-in and client file if it
+      predates them.
     A connector whose launch was changed in any other way is left alone."""
     if not shipped or cfg.transport != shipped.transport:
         return cfg
     if any(cfg.command == old.command and cfg.args == old.args for old in shipped.legacy):
-        cfg = cfg.model_copy(update={"command": shipped.command, "args": shipped.args, "env": shipped.env,
-                                     **{k: getattr(shipped, k) for k in SHIPPED_TEXT}})
-    if cfg.signin or not shipped.signin or cfg.command != shipped.command or cfg.args != shipped.args:
+        # Nothing in a connector entry is personal (values live in the app or the environment), so an entry an
+        # earlier version shipped unchanged is replaced whole: launch, name, accounts, sign-in and setup text.
+        return shipped.model_copy()
+    if cfg.command != shipped.command or cfg.args != shipped.args:
         return cfg
-    return cfg.model_copy(update={k: getattr(shipped, k) for k in ("signin", "client_file", *SHIPPED_TEXT)})
+    # Same launch as today: the setup text is today's (it is display text, written for this version), and a sign-in
+    # or built-in client the file predates is added. Anything else in the entry (allow or deny lists) is kept.
+    update = {k: getattr(shipped, k) for k in SHIPPED_TEXT}
+    if not cfg.signin:
+        update.update(signin=shipped.signin, client_file=shipped.client_file)
+    return cfg.model_copy(update=update)
 
 
 def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:

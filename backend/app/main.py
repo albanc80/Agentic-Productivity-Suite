@@ -161,7 +161,8 @@ class Suite:
                      "agent_overrides": {k: list(v) for k, v in settings.agent_overrides.items()}}
         self.offline_default: str | None = None
         self.http_client = http_client
-        self.signin = SigninManager(self.connectors, self.signed_in)
+        self.signin = SigninManager(self.connectors, self.signed_in, log_dir=settings.data_dir / "logs")
+        self.prefilled: dict[str, str] = {}  # connector -> address a sign-in filled in as the default account
         # OAuth clients built into the app (Google): in the shipped config folder, or next to connectors.yaml.
         # First match wins: a file uploaded in Settings, then one next to connectors.yaml, then the shipped one.
         self.client_folders = list(dict.fromkeys(
@@ -510,6 +511,20 @@ class Suite:
                     out.append(a)
         return out
 
+    def prefill_default(self, cid: str, account: str) -> None:
+        """The address typed to sign in becomes the default account right away when none is set (Google)."""
+        cfg = self.connectors.file_configs[cid]
+        if not account or not cfg.accounts:
+            return
+        var = cfg.accounts.vars[0]
+        values = dict(self.store.get_setting("connector_values", {}))
+        if values.get(var) or self.connectors.base_env.get(var):
+            return
+        values[var] = account.strip()
+        self.store.set_setting("connector_values", values)
+        self.prefilled[cid] = account.strip()  # replaced if Google signs in a different account
+        self.apply()
+
     async def use_signed_in(self, cid: str, by: str) -> list[dict]:
         """Allow the accounts already signed in to the connector's server (for example from a terminal)."""
         accounts = await self.signin.accounts(cid)
@@ -526,6 +541,12 @@ class Suite:
         switch the connector on if it now has everything it needs. The server's new tokens apply on restart."""
         values = dict(self.store.get_setting("connector_values", {}))
         listed = self._listed_accounts(cid, values)
+        names = {a["username"].lower() for a in signed_in if a["username"]}
+        if names:  # an address typed before signing in that is not signed in (Google chose another) is dropped
+            listed = [a for a in listed if a.lower() in names or a.lower() == account.lower()]
+        typed = self.prefilled.pop(cid, "")
+        if typed and account and typed.lower() != account.lower():  # the address this sign-in filled in was not the one
+            listed = [a for a in listed if a.lower() != typed.lower()]
         if not listed:  # until now the server chose among every signed-in account: keep them, its default first
             listed = [a["username"] for a in sorted(signed_in, key=lambda a: not a["selected"]) if a["username"]]
         if account and account.lower() not in (a.lower() for a in listed):
@@ -1107,7 +1128,10 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     @app.post("/api/connectors/{cid}/signin")
     async def signin_start(cid: str, body: SigninStart | None = None):
         try:
-            s = await suite.signin.start(cid, (body or SigninStart()).account)
+            account = (body or SigninStart()).account
+            s = await suite.signin.start(cid, account)
+            if suite.connectors.configs[cid].signin.kind == "tool":
+                suite.prefill_default(cid, account or "")
         except (KeyError, SigninError, ConnectorError) as e:
             raise signin_errors(e) from e
         store.audit("connector_signin_started", None, connector=cid, by="ui")
