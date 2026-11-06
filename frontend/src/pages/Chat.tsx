@@ -1,3 +1,4 @@
+import { isLive, openConnectors, shortName } from "../connectors";
 import { useEffect, useRef, useState } from "react";
 import { api, downloadAnswer, exportAnswer, type ChatDetail, type ExportResult, type ChatMsg, type ChatSummary, type Overview } from "../api";
 import { ErrorNote, ExportNote, Markdown, fmtCost, fmtTime, go } from "../ui";
@@ -15,6 +16,12 @@ function modelFor(ov: Overview, agentId: string): string {
 }
 
 /** Talk to the Chief of Staff (who answers or asks specialists) or to any single agent. */
+/** "3 lookups in Google Workspace, GitHub": how many connector calls an answer made, and in which connectors. */
+function lookups(ov: Overview, calls: { connector?: string }[]): string {
+  const used = [...new Set(calls.map((c) => c.connector).filter(Boolean) as string[])].map((id) => shortName(ov, id));
+  return `${calls.length} lookup${calls.length > 1 ? "s" : ""}${used.length ? ` in ${used.join(", ")}` : ""}`;
+}
+
 export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string }) {
   const [list, setList] = useState<ChatSummary[] | null>(null);
   const [chat, setChat] = useState<ChatDetail | null>(null);
@@ -84,6 +91,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
 
   const activeAgent = chat?.agent_id || agentId;
   const agent = ov.agents.find((a) => a.id === activeAgent);
+  const live = ov.connectors.filter(isLive);
   const isCoordinator = activeAgent === COORDINATOR;
   const working = isCoordinator ? "The Chief of Staff is answering or asking specialists…" : `${agent?.name} is answering…`;
 
@@ -158,6 +166,12 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
         </div>
 
         <ErrorNote error={error} />
+        <p className="small muted chat-connectors">
+          {live.length
+            ? <>Agents here can read: {live.map((c) => <span key={c.id} className="tag ok-tag">{c.name.replace(/\s*\(.*\)\s*$/, "")}</span>)} (read-only).{" "}</>
+            : <>No connectors are on, so agents can only use what you type or attach.{" "}</>}
+          <button type="button" className="link-btn" onClick={openConnectors}>{live.length ? "Manage connectors" : "Switch on connectors"}</button>
+        </p>
         <form className="chat-compose" onSubmit={send}>
           <label htmlFor="chat-text" className="sr-only">Message</label>
           <textarea id="chat-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} disabled={busy === "send"}
@@ -263,7 +277,7 @@ function Message({ m, ov, chatId, index, restricted }: { m: ChatMsg; ov: Overvie
   return (
     <div className="msg assistant">
       <div className="bubble">
-        <div className="msg-meta small muted">{name(m.agent)}{m.model ? ` · ${m.model}` : ""}{m.tool_calls?.length ? ` · ${m.tool_calls.length} connector lookup${m.tool_calls.length > 1 ? "s" : ""}` : ""}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
+        <div className="msg-meta small muted">{name(m.agent)}{m.model ? ` · ${m.model}` : ""}{m.tool_calls?.length ? ` · ${lookups(ov, m.tool_calls)}` : ""}{m.seconds != null ? ` · ${m.seconds}s` : ""}{m.tokens ? ` · ${m.tokens.toLocaleString()} tokens` : ""}</div>
         <div ref={body}><Markdown text={m.content} /></div>
         <AnswerActions m={m} chatId={chatId} index={index} body={body} canSave={!!ov.outputs_dir && !restricted} />
         {m.delegations && m.delegations.length > 0 && (

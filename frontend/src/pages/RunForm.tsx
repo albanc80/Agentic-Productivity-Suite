@@ -1,3 +1,4 @@
+import { isLive, openConnectors, shortName } from "../connectors";
 import { useMemo, useState } from "react";
 import { api, type Overview, type PlaybookInput } from "../api";
 import { ErrorNote, go } from "../ui";
@@ -31,9 +32,9 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
 
   const allowed = ov.data_classes[dataClass] || [];
   const reachable = useMemo(() => ov.providers.filter((p) => p.available && allowed.includes(p.locality)), [ov, allowed]);
-  const missing = (pb?.connectors || []).filter((c) => {
-    const st = ov.connectors.find((x) => x.id === c)?.status;
-    return !st || st === "unconfigured" || st === "disabled";
+  const missing = (pb?.connectors || []).filter((id) => {
+    const c = ov.connectors.find((x) => x.id === id);
+    return !c || !isLive(c);
   });
 
   if (!pb) return <p>Playbook not found. <a href="#/playbooks">Back to playbooks</a></p>;
@@ -139,7 +140,8 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
             <p className="note warn small">Safety-critical. Output is planning-grade and advisory. A qualified engineer signs off before use.</p>
           )}
           {missing.length > 0 && (
-            <p className="note small">Not connected: {missing.join(", ")}. Agents will work from what you paste or upload.</p>
+            <p className="note small">Not connected: {missing.map((id) => shortName(ov, id)).join(", ")}. This playbook's steps can only use the connectors it requires, so agents will work from what you paste or upload.{" "}
+              <button type="button" className="link-btn" onClick={openConnectors}>Set them up in Settings → Connectors</button></p>
           )}
           <label className="check">
             <input type="checkbox" checked={persona} onChange={(e) => setPersona(e.target.checked)} />
