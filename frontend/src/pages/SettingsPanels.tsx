@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, type Budgets, type ConnectorInfo, type ConnectorVariable, type Overview, type Profile } from "../api";
+import { api, type Budgets, type ConnectorInfo, type ConnectorVariable, type Overview, type Profile, type SignedInAccount,
+  type SigninState } from "../api";
 import { ErrorNote } from "../ui";
 
 /** On/off switch: a real button with role="switch". `paused` shows it locked off by offline mode. */
@@ -191,8 +192,9 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
       {c.missing.length > 0 && !c.offline_paused && (
         <p className="small provider-reason">Needs: {c.missing.map((n) => {
           const v = c.variables.find((x) => x.name === n);
-          return v?.flag ? "the one-time sign-in confirmation" : /^[A-Z0-9_]+$/.test(n) ? (v?.label || varLabel(n)).toLowerCase() : n;
-        }).join(", ")}. Open Edit to set it up{c.enabled ? "" : ", then switch it on"}.</p>
+          return v?.flag ? (c.signin ? `a ${c.signin.provider} sign-in` : "the one-time sign-in confirmation")
+            : /^[A-Z0-9_]+$/.test(n) ? (v?.label || varLabel(n)).toLowerCase() : n;
+        }).join(", ")}. Open Edit to {c.signin ? "sign in" : "set it up"}{c.enabled || c.signin ? "" : ", then switch it on"}.</p>
       )}
       {c.status === "error" && <p className="small note bad">{c.error}</p>}
       {c.offline_paused && <p className="small muted">Paused while offline: it needs the internet. {c.enabled ? "It comes back when you go online." : ""}</p>}
@@ -207,7 +209,7 @@ function ConnectorRow({ c, onChange }: { c: ConnectorInfo; onChange: () => void 
       )}
       {editing && (c.builtin
         ? <FoldersEditor c={c} onDone={() => { setEditing(false); onChange(); }} />
-        : <VariablesEditor c={c} onDone={() => { setEditing(false); onChange(); }} />)}
+        : <VariablesEditor key={signinKey(c)} c={c} onRefresh={onChange} onDone={() => { setEditing(false); onChange(); }} />)}
     </article>
   );
 }
@@ -253,7 +255,7 @@ function FoldersEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }) 
   );
 }
 
-function VariablesEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }) {
+function VariablesEditor({ c, onDone, onRefresh }: { c: ConnectorInfo; onDone: () => void; onRefresh: () => void }) {
   const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(c.variables.map((v) =>
     [v.name, v.flag ? (v.set ? "1" : "") : v.secret ? "" : v.value || ""])));
   const [clear, setClear] = useState<string[]>([]);
@@ -284,6 +286,7 @@ function VariablesEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }
               </div>
             );
           }
+          if (v.flag && c.signin?.confirms === v.name) return null;  // set by signing in, above
           if (v.flag) {
             return (
               <label key={v.name} className="check small field">
@@ -316,6 +319,7 @@ function VariablesEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }
   return (
     <form className="provider-edit stack" onSubmit={save}>
       <SetupGuide c={c} />
+      {c.signin && <SigninPanel c={c} onChange={onRefresh} />}
       <div className="ep-grid">{shared.map(field)}</div>
       {c.parts.map((p) => (
         <fieldset key={p.id} className="plain part-fields">
@@ -332,6 +336,134 @@ function VariablesEditor({ c, onDone }: { c: ConnectorInfo; onDone: () => void }
         <button type="button" className="ghost grow-left" onClick={reset} disabled={busy}>Reset to file defaults</button>
       </div>
     </form>
+  );
+}
+
+// ------------------------------------------------------------------ sign-in from the app
+
+/** Changes when a sign-in changes the connector's values, so the open form is rebuilt from fresh ones. */
+function signinKey(c: ConnectorInfo) {
+  if (!c.signin) return c.id;
+  const v = (n: string | null) => c.variables.find((x) => x.name === n);
+  return `${c.id}:${v(c.signin.accounts_var)?.value ?? ""}:${v(c.signin.confirms)?.set ? 1 : 0}`;
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* not allowed here: try the old way */ }
+  const area = document.createElement("textarea");
+  area.value = text; area.setAttribute("readonly", ""); area.style.position = "fixed"; area.style.opacity = "0";
+  document.body.appendChild(area); area.select();
+  try { return document.execCommand("copy"); } catch { return false; } finally { area.remove(); }
+}
+
+const SIGNIN_ACTIVE = ["starting", "waiting", "finishing"];
+
+/** Sign in with a code: the connector's server shows a code, the person enters it on the provider's page. */
+function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }) {
+  const provider = c.signin!.provider;
+  const [s, setS] = useState<SigninState | null>(null);
+  const [accounts, setAccounts] = useState<SignedInAccount[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState("");
+  const [copied, setCopied] = useState(false);
+  const active = !!s && SIGNIN_ACTIVE.includes(s.status);
+  const confirmed = !!c.variables.find((v) => v.name === c.signin!.confirms)?.set;
+
+  async function loadAccounts() {
+    try { setAccounts((await api.signedInAccounts(c.id)).accounts); } catch (e) { setAccounts([]); setError(e); }
+  }
+  useEffect(() => {
+    api.signinState(c.id).then(setS).catch(() => setS(null));
+    if (!c.offline_paused) loadAccounts();
+  }, [c.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {  // follow the sign-in until it ends; the server does the work
+    if (!active) return;
+    const t = setInterval(async () => {
+      try {
+        const next = await api.signinState(c.id);
+        setS(next);
+        if (next.status === "done") onChange();
+        else if (!SIGNIN_ACTIVE.includes(next.status)) loadAccounts();
+      } catch { /* keep polling */ }
+    }, 1500);
+    return () => clearInterval(t);
+  }, [active, c.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function start() {
+    setBusy("start"); setError(null); setCopied(false);
+    try { setS(await api.signinStart(c.id)); } catch (e) { setError(e); } finally { setBusy(""); }
+  }
+  async function cancel() {
+    setBusy("cancel");
+    try { setS(await api.signinCancel(c.id)); } catch (e) { setError(e); } finally { setBusy(""); }
+  }
+  async function signOut(a: SignedInAccount) {
+    if (!window.confirm(`Sign ${a.username} out? Agents stop reading this account, and ${provider} forgets the sign-in on this computer.`)) return;
+    setBusy(a.id); setError(null);
+    try { setAccounts((await api.signOut(c.id, a.id)).accounts); setS(null); onChange(); } catch (e) { setError(e); } finally { setBusy(""); }
+  }
+  async function useExisting() {
+    if (!accounts?.length) return;
+    setBusy("adopt"); setError(null);
+    const values: Record<string, string> = { [c.signin!.confirms!]: "1" };
+    if (c.signin!.accounts_var) values[c.signin!.accounts_var] = accounts.map((a) => a.username).join(", ");
+    try { await api.updateConnector(c.id, { values, enabled: true }); onChange(); } catch (e) { setError(e); } finally { setBusy(""); }
+  }
+  async function copyCode() {
+    if (s?.code) setCopied(await copyText(s.code));
+  }
+
+  return (
+    <div className="signin stack-sm" aria-live="polite">
+      <strong>Sign-in</strong>
+      {accounts === null && !c.offline_paused && <span className="small muted">Checking who is signed in…</span>}
+      {accounts && accounts.length > 0 && (
+        <ul className="plain signin-accounts">
+          {accounts.map((a) => (
+            <li key={a.id} className="row-tight">
+              <span className="grow"><strong>{a.name || a.username}</strong> <span className="muted small">{a.username}</span></span>
+              {a.selected && <span className="pill ok">default</span>}
+              <button type="button" className="ghost small-btn" onClick={() => signOut(a)} disabled={!!busy}>
+                {busy === a.id ? "Signing out…" : "Sign out"}</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {accounts && accounts.length > 0 && !confirmed && !active && (
+        <p className="small note">Found {accounts.length === 1 ? "an account" : `${accounts.length} accounts`} signed in earlier.{" "}
+          <button type="button" className="ghost small-btn" onClick={useExisting} disabled={!!busy}>Use {accounts.length === 1 ? "it" : "them"}</button></p>
+      )}
+
+      {s?.status === "starting" && (
+        <p className="small muted">Starting the {provider} sign-in… The first time, the app downloads the connector, which can take a minute.</p>
+      )}
+      {s?.status === "waiting" && (
+        <ol className="setup-steps small signin-steps">
+          {s.code ? (
+            <li>Your code: <code className="signin-code">{s.code}</code>{" "}
+              <button type="button" className="small-btn" onClick={copyCode}>{copied ? "Copied" : "Copy code"}</button></li>
+          ) : <li>{s.message}</li>}
+          <li><a href={s.url} target="_blank" rel="noreferrer" onClick={copyCode}>Open the {provider} sign-in page ↗</a>
+            {s.code ? " and paste the code." : "."}</li>
+          <li>Sign in with the account agents should read and accept the permissions (read-only). This page updates by itself.</li>
+        </ol>
+      )}
+      {s?.status === "finishing" && <p className="small muted">Signed in. Saving…</p>}
+      {s?.status === "done" && (
+        <p className="small note ok-note">Signed in as <strong>{s.account}</strong>. {c.enabled ? "The connector is on: press Test to see its tools." : "Switch the connector on to use it."}</p>
+      )}
+      {s?.status === "failed" && <p className="small note bad">Sign-in failed: {s.error}</p>}
+      {s?.status === "cancelled" && <p className="small muted">Sign-in cancelled.</p>}
+      <ErrorNote error={error} />
+
+      <div className="row-tight">
+        {active
+          ? <button type="button" className="ghost" onClick={cancel} disabled={busy === "cancel" || s?.status === "finishing"}>Cancel sign-in</button>
+          : <button type="button" className={accounts?.length ? "" : "primary"} onClick={start} disabled={!!busy || c.offline_paused}
+              title={c.offline_paused ? "Go online to sign in" : undefined}>
+              {busy === "start" ? "Starting…" : accounts?.length ? "Add another account" : `Sign in with ${provider}`}</button>}
+      </div>
+    </div>
   );
 }
 

@@ -61,6 +61,14 @@ connectors:
       MS365_MCP_ORG_MODE: ${MS365_MCP_ORG_MODE:-}
     requires: [MS365_MCP_ENABLED]
     accounts: {param: account, vars: [MS365_ACCOUNTS]}
+    # Sign-in from Settings: the suite runs this server with these arguments added to the ones above, so the
+    # sign-in asks for the same read-only permissions. The server keeps the tokens; the suite never sees them.
+    signin:
+      provider: Microsoft
+      login: [--login]
+      accounts: [--list-accounts]
+      remove: [--remove-account]
+      confirms: MS365_MCP_ENABLED
     timeout_s: 90
     labels:
       MS365_ACCOUNTS: Accounts agents may use
@@ -69,24 +77,24 @@ connectors:
       MS365_MCP_CLIENT_ID: Custom app (client) ID
       MS365_MCP_TENANT_ID: Tenant ID
     hints:
-      MS365_ACCOUNTS: "Optional, comma-separated email addresses, default first. Needed only when you signed in with more than one account."
-      MS365_MCP_ORG_MODE: "Enter 1 for a work or school account (needed for Teams, SharePoint and shared mailboxes). Leave blank for a personal account."
-      MS365_MCP_PRESET: "personal (default): mail, calendar, OneDrive, contacts, To Do, OneNote. work: adds Teams and SharePoint (needs Work or school account = 1). all: everything read-only."
+      MS365_ACCOUNTS: "Comma-separated email addresses, default first. Filled in for you when you sign in above; remove an address here to stop agents using it without signing it out."
+      MS365_MCP_ORG_MODE: "Enter 1 for a work or school account (needed for Teams, SharePoint and shared mailboxes), save, then sign in. Leave blank for a personal account."
+      MS365_MCP_PRESET: "personal (default): mail, calendar, OneDrive, contacts, To Do, OneNote. work: adds Teams and SharePoint (needs Work or school account = 1). all: everything read-only. Sign in again after changing it."
       MS365_MCP_CLIENT_ID: Leave blank unless your IT department gave you an app registration to use.
-      MS365_MCP_TENANT_ID: Leave blank unless your IT department told you to set it.
+      MS365_MCP_TENANT_ID: "Leave blank unless your IT department told you to set it. Personal accounts only: if Microsoft stops accepting the sign-in after a while, enter consumers, save and sign in again."
     setup: >-
       Reads Outlook mail and calendar, OneDrive, contacts, To Do and OneNote through Microsoft Graph, using the
-      community server by Softeria in read-only mode. You sign in once in a terminal; the app then reuses that sign-in.
+      community server by Softeria in read-only mode. Sign in from here: the app shows a code, you enter it on
+      Microsoft's sign-in page, and the server keeps the sign-in on this computer.
     steps:
-      - "Install Node.js 20 or newer from https://nodejs.org (the LTS installer), then close and reopen any terminal."
-      - "Open a terminal: on Windows, PowerShell (Start menu > PowerShell); on Linux or macOS, Terminal."
-      - "Personal account (outlook.com, hotmail.com): run   npx -y @softeria/ms-365-mcp-server --login"
-      - "Work or school account: run   npx -y @softeria/ms-365-mcp-server --login --org-mode   and enter 1 in Work or school account below."
-      - "The terminal shows a web address (https://microsoft.com/devicelogin) and a code. Open the address, enter the code, sign in with the account agents should read, and accept the permissions. Work tenants may need an administrator to approve them."
-      - "Several accounts: run the same command again and sign in with the next account. Then list the addresses in Accounts agents may use, default first. To see who is signed in, run   npx -y @softeria/ms-365-mcp-server --list-accounts"
-      - Tick "I have completed the one-time sign-in", save, switch the connector on and press Test.
+      - "Install Node.js 20 or newer from https://nodejs.org (the LTS installer), then close and reopen the app."
+      - "Work or school account only: enter 1 in Work or school account below and press Save first."
+      - "Press Sign in with Microsoft. The first time, the app downloads the connector, which can take a minute."
+      - "Copy the code the app shows, open Microsoft's sign-in page, paste the code, sign in with the account agents should read and accept the permissions (read-only). Work tenants may need an administrator to approve them."
+      - "The app notices when you are done, adds the account and switches the connector on. Press Test to see the tools."
+      - "Several accounts: press Add another account and sign in with the next one. The first account is the default."
     docs_url: https://github.com/Softeria/ms-365-mcp-server#readme
-    verify: Package name, the --read-only, --preset, --login, --org-mode and --list-accounts flags, MS365_MCP_ORG_MODE and the multi-account `account` argument in the Softeria/ms-365-mcp-server README.
+    verify: Package name, the --read-only, --preset, --login, --list-accounts and --remove-account flags, MS365_MCP_ORG_MODE and the multi-account `account` argument in the Softeria/ms-365-mcp-server README.
 
   - id: google-workspace
     name: Google Workspace (Gmail, Calendar, Drive)

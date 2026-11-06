@@ -47,7 +47,14 @@ export interface ConnectorInfo {
   missing: string[];  // what is still needed before it can be switched on
   steps: string[]; docs_url: string;  // numbered setup steps and the server's own documentation
   parts: { id: string; name: string; description: string; ready: boolean }[];  // grouped connector (Databricks)
+  // Sign-in from the app (Microsoft 365): the flag a sign-in confirms and the accounts list it fills in.
+  signin: { provider: string; confirms: string | null; accounts_var: string | null } | null;
 }
+export interface SigninState {
+  connector: string; status: "none" | "starting" | "waiting" | "finishing" | "done" | "failed" | "cancelled";
+  provider?: string; url?: string; code?: string; message?: string; account?: string; error?: string;
+}
+export interface SignedInAccount { id: string; username: string; name: string; selected: boolean }
 export interface Profile {
   name: string; role: string; organization_context: string; goals: string[]; working_preferences: string[]; domain_notes: string;
 }
@@ -181,6 +188,12 @@ export const api = {
   updateConnector: (id: string, edit: { enabled?: boolean; values?: Record<string, string>; clear?: string[]; folders?: string[] }) =>
     call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(edit) }),
   resetConnector: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/settings`, { method: "DELETE" }),
+  signinState: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`),
+  signinStart: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "POST" }),
+  signinCancel: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "DELETE" }),
+  signedInAccounts: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts`),
+  signOut: (id: string, accountId: string) =>
+    call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/${encodeURIComponent(accountId)}`, { method: "DELETE" }),
   saveGeneral: (edit: GeneralEdit) => call<Overview>("/api/settings/general", { method: "PUT", body: JSON.stringify(edit) }),
   saveAnswer: (chatId: string, index: number, format: "md" | "html") =>
     call<{ name: string; path: string }>(`/api/chats/${chatId}/messages/${index}/save?format=${format}`, { method: "POST" }),

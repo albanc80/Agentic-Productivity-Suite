@@ -31,7 +31,7 @@ from .appconfig import (
     order_chain,
 )
 from .chat import Chat, ChatError
-from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorSetting, is_secret
+from .connectors import ACCOUNT_SPLIT, ConnectorConfig, ConnectorError, ConnectorManager, ConnectorSetting, is_secret
 from .endpoints import Endpoint, ModelEdit, ProviderOverride, apply_runtime, locality_of, normalize_url
 from .engine import Engine, RunStopped
 from .export import to_html
@@ -43,6 +43,7 @@ from .providers import ModelRouter, ProviderError
 from .registry import Registry
 from .router import route
 from .settings import Budgets, PersonaSettings, Settings, load_profile, load_settings
+from .signin import SigninError, SigninManager
 from .store import Store
 
 log = logging.getLogger("suite")
@@ -145,6 +146,7 @@ class Suite:
                      "agent_overrides": {k: list(v) for k, v in settings.agent_overrides.items()}}
         self.offline_default: str | None = None
         self.http_client = http_client
+        self.signin = SigninManager(self.connectors, self.signed_in)
         self.apply()
 
     # ------------------------------------------------------------ runtime configuration
@@ -407,6 +409,69 @@ class Suite:
         await self.connectors.restart([cid])
         self.store.audit("connector_reset", None, connector=cid, by=by)
 
+    def _sign_in_state(self, cid: str, values: dict[str, str], accounts: list[str], by: str, event: str, **audit) -> None:
+        """Save a connector's sign-in state: its accounts list and sign-in flag, and its switch (on once it has
+        everything it needs after a sign-in, off once no account is left)."""
+        cfg = self.connectors.file_configs[cid]
+        env = self.connectors.base_env
+        if cfg.accounts and not env.get(cfg.accounts.vars[0]):  # a list set by an environment variable stays as it is
+            var = cfg.accounts.vars[0]
+            if accounts:
+                values[var] = ", ".join(accounts)
+            else:
+                values.pop(var, None)
+        flag = cfg.signin.confirms if cfg.signin else None
+        if flag and not env.get(flag):
+            if accounts:
+                values[flag] = "1"
+            else:
+                values.pop(flag, None)
+        all_settings = self.connector_settings()
+        st = all_settings.get(cid, ConnectorSetting())
+        enabled = self.connectors.configs[cid].enabled
+        have = {**{k: v for k, v in values.items() if v}, **{k: v for k, v in env.items() if v}}
+        if accounts and not enabled and all(have.get(v) for v in cfg.required_env()):
+            st.enabled = True
+        elif not accounts and enabled:
+            st.enabled = False
+        all_settings[cid] = st
+        self.store.set_setting("connector_settings", {k: v.model_dump() for k, v in all_settings.items()})
+        self.store.set_setting("connector_values", values)
+        self.apply()
+        self.store.audit(event, None, connector=cid, enabled=self.connectors.configs[cid].enabled, by=by, **audit)
+
+    async def signed_in(self, cid: str, account: str, signed_in: list[dict]) -> None:
+        """After a sign-in from the app: add the account to the accounts agents may use, confirm the sign-in and
+        switch the connector on if it now has everything it needs. The server's new tokens apply on restart."""
+        cfg = self.connectors.file_configs[cid]
+        values = dict(self.store.get_setting("connector_values", {}))
+        var = cfg.accounts.vars[0] if cfg.accounts else None
+        listed = [a for a in ACCOUNT_SPLIT.split(values.get(var, "") if var else "") if a]
+        if not listed:  # until now the server chose among every signed-in account: keep them, its default first
+            listed = [a["username"] for a in sorted(signed_in, key=lambda a: not a["selected"]) if a["username"]]
+        if account and account.lower() not in (a.lower() for a in listed):
+            listed.append(account)
+        self._sign_in_state(cid, values, listed, "ui", "connector_signed_in", account=account)
+        await self.connectors.restart([cid])
+
+    async def sign_out(self, cid: str, account_id: str, by: str) -> list[dict]:
+        """Sign one account out of a connector's server and stop offering it to agents. Returns who is left."""
+        accounts = await self.signin.accounts(cid)
+        target = next((a for a in accounts if a["id"] == account_id), None)
+        if target is None:
+            raise SigninError("That account is not signed in.")
+        await self.signin.remove(cid, account_id)
+        left = [a for a in accounts if a["id"] != account_id]
+        cfg = self.connectors.file_configs[cid]
+        values = dict(self.store.get_setting("connector_values", {}))
+        var = cfg.accounts.vars[0] if cfg.accounts else None
+        listed = [a for a in ACCOUNT_SPLIT.split(values.get(var, "") if var else "") if a]
+        gone = target["username"].lower()
+        keep = [a for a in listed if a.lower() != gone] if listed else [a["username"] for a in left]
+        self._sign_in_state(cid, values, keep if left else [], by, "connector_signed_out", account=target["username"])
+        await self.connectors.restart([cid])
+        return left
+
     def save_provider(self, name: str, edit: ProviderEdit, by: str) -> None:
         if name not in self.base["providers"]:
             raise KeyError(name)
@@ -476,6 +541,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         for w in suite.warnings:
             log.warning(w)
         yield
+        await suite.signin.shutdown()
         await suite.connectors.shutdown()
 
     app = FastAPI(title="Agentic Productivity Suite", version=__version__, lifespan=lifespan)
@@ -945,6 +1011,52 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         store.audit("connector_connected", None, connector=cid, tools=len(tools))
         return {"id": cid, "tools": [{"name": t.name, "allowed": t.allowed, "reason": t.reason, "description": t.description[:200]}
                                      for t in tools]}
+
+    # Sign-in from the app (Microsoft 365): the connector's own server signs in with a code shown here.
+
+    def signin_errors(e: Exception) -> HTTPException:
+        if isinstance(e, KeyError):
+            return HTTPException(404, "connector not found")
+        return HTTPException(409, str(e))
+
+    @app.get("/api/connectors/{cid}/signin")
+    def signin_state(cid: str):
+        try:
+            s = suite.signin.get(cid)
+        except (KeyError, SigninError) as e:
+            raise signin_errors(e) from e
+        return s.view() if s else {"connector": cid, "status": "none"}
+
+    @app.post("/api/connectors/{cid}/signin")
+    async def signin_start(cid: str):
+        try:
+            s = await suite.signin.start(cid)
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
+        store.audit("connector_signin_started", None, connector=cid, by="ui")
+        return s.view()
+
+    @app.delete("/api/connectors/{cid}/signin")
+    async def signin_cancel(cid: str):
+        try:
+            s = await suite.signin.cancel(cid)
+        except (KeyError, SigninError) as e:
+            raise signin_errors(e) from e
+        return s.view() if s else {"connector": cid, "status": "none"}
+
+    @app.get("/api/connectors/{cid}/accounts")
+    async def signin_accounts(cid: str):
+        try:
+            return {"accounts": await suite.signin.accounts(cid)}
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
+
+    @app.delete("/api/connectors/{cid}/accounts/{account_id}")
+    async def signin_sign_out(cid: str, account_id: str):
+        try:
+            return {"accounts": await suite.sign_out(cid, account_id, "ui")}
+        except (KeyError, SigninError, ConnectorError) as e:
+            raise signin_errors(e) from e
 
     @app.get("/api/admin/kill-switch")
     def kill_state():

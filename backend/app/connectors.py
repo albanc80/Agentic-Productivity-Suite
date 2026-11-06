@@ -59,6 +59,24 @@ class AccountsConfig(BaseModel):
 ACCOUNT_SPLIT = re.compile(r"[\s,;]+")
 
 
+class SigninConfig(BaseModel):
+    """Sign-in from the app, run by the connector's own server (see signin.py).
+
+    The suite runs the connector's launch command with extra arguments: ``login`` signs one account in
+    (the server prints a link and a code, then a JSON result), ``accounts`` lists the signed-in accounts
+    as JSON and ``remove`` (followed by an account id) signs one out. The server keeps the tokens; the
+    suite never sees them. A successful sign-in sets ``confirms`` (the connector's opt-in flag) and adds
+    the account to the connector's account list.
+    """
+
+    provider: str  # shown on the button: "Sign in with Microsoft"
+    login: list[str]
+    accounts: list[str]
+    remove: list[str]
+    confirms: str | None = None
+    timeout_s: float = 960.0  # a device code lasts 15 minutes
+
+
 class ConnectorPart(BaseModel):
     """One service of a grouped connector (for example Genie inside Databricks).
 
@@ -96,6 +114,7 @@ class ConnectorConfig(BaseModel):
     verify: str = ""  # what to double-check against upstream docs
     folders: list[str] = Field(default_factory=list)  # builtin local-files: folders agents may read
     accounts: AccountsConfig | None = None  # several accounts behind one server
+    signin: SigninConfig | None = None  # sign-in from the app (stdio connectors)
     steps: list[str] = Field(default_factory=list)  # numbered setup steps shown in the app
     docs_url: str = ""  # the server's own documentation
     labels: dict[str, str] = Field(default_factory=dict)  # variable -> label shown in the app
@@ -297,6 +316,10 @@ class ConnectorError(Exception):
     pass
 
 
+# Environment variables a stdio connector inherits from the suite (everything else comes from its own config).
+PASS_ENV = ("PATH", "HOME", "USERPROFILE", "APPDATA", "TMPDIR", "TEMP")
+
+
 class ConnectorManager:
     def __init__(self, configs: list[ConnectorConfig], env: dict[str, str] | None = None,
                  in_process: dict[str, Any] | None = None, offline: bool = False):
@@ -317,11 +340,16 @@ class ConnectorManager:
         so connectors added in newer versions appear for people whose file was copied earlier. A connector
         that ``replaces`` older ids (Databricks, which used to be three) removes them, even from an older file."""
         configs: dict[str, ConnectorConfig] = {}
+        shipped: dict[str, ConnectorConfig] = {}
         for src in (presets, path):
             if src and src.exists():
                 raw = yaml.safe_load(src.read_text(encoding="utf-8")) or {}
                 for c in raw.get("connectors", []):
                     cfg = ConnectorConfig.model_validate(c)
+                    if src == presets:
+                        shipped[cfg.id] = cfg
+                    else:
+                        cfg = _with_shipped_signin(cfg, shipped.get(cfg.id))
                     configs[cfg.id] = cfg
         for cfg in list(configs.values()):
             for old in cfg.replaces:
@@ -480,10 +508,21 @@ class ConnectorManager:
                         "missing": self.missing(cid), "steps": list(cfg.steps), "docs_url": cfg.docs_url,
                         "parts": [{"id": p.id, "name": p.name, "description": p.description,
                                    "ready": p in self.ready_parts(cid)} for p in cfg.parts],
-                        "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools})
+                        "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools,
+                        "signin": ({"provider": cfg.signin.provider, "confirms": cfg.signin.confirms,
+                                    "accounts_var": cfg.accounts.vars[0] if cfg.accounts else None}
+                                   if cfg.signin and cfg.transport == "stdio" else None)})
         return out
 
     # ------------------------------------------------------------ lifecycle
+
+    def launch(self, cfg: ConnectorConfig) -> tuple[str, list[str], dict[str, str]]:
+        """Command, arguments and environment of a stdio connector. Sign-in uses the same ones, so it asks for
+        exactly the permissions the connector uses and writes to the token cache the connector reads."""
+        if not cfg.command:
+            raise ConnectorError(f"{cfg.id}: stdio connector needs a command")
+        env = {**{k: v for k, v in self.env.items() if k in PASS_ENV}, **expand_env(cfg.env, self.env)}
+        return expand_env(cfg.command, self.env), expand_env(cfg.args, self.env), env
 
     def _target(self, cfg: ConnectorConfig):
         if cfg.id in self._in_process:
@@ -493,13 +532,8 @@ class ConnectorManager:
             server = build_server(cfg.folders)
             return lambda: server
         if cfg.transport == "stdio":
-            if not cfg.command:
-                raise ConnectorError(f"{cfg.id}: stdio connector needs a command")
-            params = StdioServerParameters(
-                command=expand_env(cfg.command, self.env), args=expand_env(cfg.args, self.env),
-                env={**{k: v for k, v in self.env.items() if k in ("PATH", "HOME", "USERPROFILE", "APPDATA", "TMPDIR", "TEMP")},
-                     **expand_env(cfg.env, self.env)},
-            )
+            command, args, env = self.launch(cfg)
+            params = StdioServerParameters(command=command, args=args, env=env)
             return lambda: params
         url = expand_env(cfg.url or "", self.env)
         headers = expand_env(cfg.headers, self.env)
@@ -606,6 +640,16 @@ class _GroupView:
     def state(self) -> ConnectorState:
         status = "ready" if self.tools else ("error" if self.errors else "idle")
         return ConnectorState(status=status, error="; ".join(self.errors), tools=self.tools)
+
+
+def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) -> ConnectorConfig:
+    """A connectors.yaml copied before sign-in from the app existed still launches the shipped server: give it
+    the shipped sign-in, and the setup text that goes with it. A connector whose launch was changed is left alone."""
+    if (cfg.signin or not shipped or not shipped.signin or cfg.transport != shipped.transport
+            or cfg.command != shipped.command or cfg.args != shipped.args):
+        return cfg
+    return cfg.model_copy(update={k: getattr(shipped, k) for k in
+                                  ("signin", "setup", "steps", "hints", "labels", "docs_url", "verify")})
 
 
 def _normalize(cfg: ConnectorConfig) -> ConnectorConfig:

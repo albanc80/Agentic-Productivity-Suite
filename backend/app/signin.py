@@ -1,0 +1,297 @@
+"""Sign in to a connector from the app.
+
+Some connector servers sign in with a device code. The server prints a web address and a short code. The
+person opens the address in any browser (on this computer or a phone), enters the code and signs in. The
+server then saves the tokens in its own cache. Before, that meant running a command in a terminal. Now the
+suite runs the same command in the background and shows the address and code in Settings.
+
+The command is the connector's own launch command and environment, with the sign-in arguments added. So
+the sign-in asks for exactly the permissions the connector uses (read-only) and lands in the token cache the
+connector reads. The suite never sees or stores a token: it reads only the printed prompt, the JSON result
+and the list of signed-in accounts.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+
+from mcp.client.stdio import get_default_environment
+
+from .connectors import ConnectorConfig, ConnectorManager
+
+log = logging.getLogger("suite.signin")
+
+URL_RE = re.compile(r"https://[^\s\"'<>]+")
+CODE_RE = re.compile(r"\bcode\s+([A-Z0-9][A-Z0-9-]{4,})\b", re.I)
+ACCOUNT_ID_RE = re.compile(r"^[A-Za-z0-9._@-]{1,200}$")  # account ids go on a command line: no shell characters
+COMMAND_TIMEOUT_S = 180.0  # listing or removing accounts; the first run of npx downloads the server
+NODE_COMMANDS = {"npx", "node", "npm"}
+
+
+class SigninError(Exception):
+    """A sign-in step that cannot run or failed; the message is shown to the person as it is."""
+
+
+@dataclass
+class SigninSession:
+    connector: str
+    provider: str
+    status: str = "starting"  # starting | waiting | finishing | done | failed | cancelled
+    url: str = ""
+    code: str = ""
+    message: str = ""
+    account: str = ""
+    error: str = ""
+    started_at: float = field(default_factory=time.time)
+    proc: subprocess.Popen | None = field(default=None, repr=False)
+    task: asyncio.Task | None = field(default=None, repr=False)
+
+    @property
+    def active(self) -> bool:
+        return self.status in ("starting", "waiting", "finishing")
+
+    def view(self) -> dict:
+        return {"connector": self.connector, "provider": self.provider, "status": self.status, "url": self.url,
+                "code": self.code, "message": self.message, "account": self.account, "error": self.error,
+                "started_at": self.started_at}
+
+
+# ---------------------------------------------------------------- parsing the server's output
+
+
+def parse_prompt(text: str) -> tuple[str, str]:
+    """The sign-in address and code from a device-code prompt (for example Microsoft's "To sign in, use a web
+    browser to open the page https://login.microsoft.com/device and enter the code ABCD1234 to authenticate.")."""
+    url = URL_RE.search(text)
+    code = CODE_RE.search(text)
+    return (url.group(0).rstrip(".,;:)") if url else "", code.group(1) if code else "")
+
+
+def parse_json(lines: list[str], key: str) -> dict | None:
+    """The last line of output that is a JSON object holding ``key``."""
+    for line in reversed(lines):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(obj, dict) and key in obj:
+                return obj
+    return None
+
+
+def last_error(lines: list[str]) -> str:
+    """The last meaningful line a command wrote to stderr (npm's notices and warnings are skipped)."""
+    for line in reversed(lines):
+        line = line.strip()
+        if line and not re.match(r"^npm (warn|notice|WARN)\b", line):
+            return line[:400]
+    return ""
+
+
+# ---------------------------------------------------------------- running commands
+
+
+def resolve(command: str, env: dict[str, str]) -> str:
+    """The full path of the command (on Windows this finds npx.cmd), or a message saying what to install."""
+    found = shutil.which(command, path=env.get("PATH"))
+    if found:
+        return found
+    if os.path.basename(command).lower().split(".")[0] in NODE_COMMANDS:
+        raise SigninError("Node.js is not installed, or the app cannot find it. Install Node.js 20 or newer from "
+                          "https://nodejs.org (the LTS installer), then close and reopen the app.")
+    raise SigninError(f"'{command}' was not found. Install it, then close and reopen the app.")
+
+
+def _popen_kwargs() -> dict:
+    if sys.platform == "win32":
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    return {"start_new_session": True}  # its own process group, so cancelling also stops the node process npx starts
+
+
+def _popen(argv: list[str], env: dict[str, str]) -> subprocess.Popen:
+    return subprocess.Popen(argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8", errors="replace", **_popen_kwargs())
+
+
+def _kill(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=15,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _run(argv: list[str], env: dict[str, str], timeout: float) -> tuple[int, list[str], list[str]]:
+    proc = _popen(argv, env)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        _kill(proc)
+        proc.communicate()
+        raise SigninError(f"The connector did not answer within {int(timeout)} seconds. Try again.") from e
+    return proc.returncode, out.splitlines(), err.splitlines()
+
+
+# ---------------------------------------------------------------- sign-in sessions
+
+
+class SigninManager:
+    """One sign-in at a time per connector, run in the background and polled from Settings."""
+
+    def __init__(self, connectors: ConnectorManager,
+                 on_done: Callable[[str, str, list[dict]], Awaitable[None]] | None = None):
+        self.connectors = connectors
+        self.on_done = on_done  # (connector id, account, every signed-in account) after a successful sign-in
+        self.sessions: dict[str, SigninSession] = {}
+
+    def config(self, cid: str) -> ConnectorConfig:
+        cfg = self.connectors.configs.get(cid)
+        if cfg is None:
+            raise KeyError(cid)
+        if not cfg.signin or cfg.transport != "stdio":
+            raise SigninError(f"{cfg.name} does not sign in from the app.")
+        return cfg
+
+    def _argv(self, cfg: ConnectorConfig, extra: list[str]) -> tuple[list[str], dict[str, str]]:
+        command, args, env = self.connectors.launch(cfg)
+        env = get_default_environment() | env  # what the MCP client gives the connector process too
+        return [resolve(command, env), *args, *extra], env
+
+    def _check_online(self, cfg: ConnectorConfig) -> None:
+        if self.connectors.offline and cfg.network:
+            raise SigninError("Offline mode is on. Go online to sign in.")
+
+    def get(self, cid: str) -> SigninSession | None:
+        self.config(cid)
+        return self.sessions.get(cid)
+
+    async def start(self, cid: str) -> SigninSession:
+        cfg = self.config(cid)
+        self._check_online(cfg)
+        current = self.sessions.get(cid)
+        if current and current.active:
+            return current  # pressing the button twice does not start a second sign-in
+        argv, env = self._argv(cfg, cfg.signin.login)
+        session = SigninSession(cid, cfg.signin.provider)
+        self.sessions[cid] = session
+        session.task = asyncio.create_task(self._session(cfg, session, argv, env), name=f"signin:{cid}")
+        return session
+
+    async def _session(self, cfg: ConnectorConfig, s: SigninSession, argv: list[str], env: dict[str, str]) -> None:
+        try:
+            await asyncio.to_thread(self._login, cfg, s, argv, env)
+            if s.status == "finishing":  # signed in: save the account, then say done
+                try:
+                    accounts = await self.accounts(cfg.id)
+                except SigninError:
+                    accounts = []
+                # The account as the server names it in its list: that is the name agents pass back.
+                match = next((a for a in accounts if a["username"].lower() == s.account.lower()), None)
+                s.account = match["username"] if match else s.account
+                if self.on_done:
+                    await self.on_done(cfg.id, s.account, accounts)
+                s.status = "done"
+        except Exception as e:  # noqa: BLE001 - every failure is reported on the session
+            log.warning("sign-in for %s failed: %s", cfg.id, e)
+            if s.status != "cancelled":
+                s.status, s.error = "failed", str(e)[:400] or type(e).__name__
+
+    def _login(self, cfg: ConnectorConfig, s: SigninSession, argv: list[str], env: dict[str, str]) -> None:
+        """Blocking: run the sign-in command, publish its prompt as soon as it appears, then wait for the result."""
+        proc = _popen(argv, env)
+        s.proc = proc
+        if s.status == "cancelled":
+            _kill(proc)
+        errors: list[str] = []
+        drain = threading.Thread(target=lambda: errors.extend(proc.stderr), daemon=True)  # a full pipe would block it
+        drain.start()
+        expired = threading.Event()
+        timer = threading.Timer(cfg.signin.timeout_s, lambda: (expired.set(), _kill(proc)))
+        timer.start()
+        out: list[str] = []
+        try:
+            for line in proc.stdout:
+                out.append(line)
+                if s.status == "starting" or (s.status == "waiting" and not s.code):
+                    url, code = parse_prompt("".join(out))
+                    if url:  # if the wording ever changes and no code is found, the person still sees the message
+                        s.url, s.code = url, code
+                        s.message = " ".join(x.strip() for x in out if URL_RE.search(x) or CODE_RE.search(x))[:400]
+                        s.status = "waiting"
+            proc.wait()
+        finally:
+            timer.cancel()
+            drain.join(timeout=2)
+        if s.status == "cancelled":
+            return
+        result = parse_json(out, "success")
+        if result and result.get("success") is True:
+            user = result.get("userData") or {}
+            s.account = str(user.get("userPrincipalName") or "")
+            s.status = "finishing"
+            return
+        s.status = "failed"
+        if expired.is_set():
+            s.error = "The code expired before the sign-in finished. Press Sign in again for a new code."
+        else:
+            s.error = (str((result or {}).get("message") or "") or last_error(errors)
+                       or f"The sign-in ended without a result (exit code {proc.returncode}).")[:400]
+
+    async def cancel(self, cid: str) -> SigninSession | None:
+        s = self.get(cid)
+        if s and s.status in ("starting", "waiting"):  # once signed in, the account is saved whatever happens
+            s.status = "cancelled"
+            if s.proc:
+                await asyncio.to_thread(_kill, s.proc)
+        return s
+
+    async def accounts(self, cid: str) -> list[dict]:
+        """Accounts signed in to this connector's server: id, username, name, and whether it is the default."""
+        cfg = self.config(cid)
+        argv, env = self._argv(cfg, cfg.signin.accounts)
+        code, out, err = await asyncio.to_thread(_run, argv, env, COMMAND_TIMEOUT_S)
+        data = parse_json(out, "accounts")
+        if data is None or not isinstance(data.get("accounts"), list):
+            raise SigninError(last_error(err) or f"Could not list the signed-in accounts (exit code {code}).")
+        return [{"id": str(a.get("id") or ""), "username": str(a.get("username") or ""),
+                 "name": str(a.get("name") or ""), "selected": bool(a.get("selected"))}
+                for a in data["accounts"] if isinstance(a, dict) and a.get("id")]
+
+    async def remove(self, cid: str, account_id: str) -> None:
+        """Sign one account out: the server deletes its tokens."""
+        cfg = self.config(cid)
+        if not ACCOUNT_ID_RE.match(account_id):
+            raise SigninError("That is not a valid account id.")
+        argv, env = self._argv(cfg, [*cfg.signin.remove, account_id])
+        code, out, err = await asyncio.to_thread(_run, argv, env, COMMAND_TIMEOUT_S)
+        data = parse_json(out, "error") or {}
+        if code != 0 or data.get("error"):
+            raise SigninError(str(data.get("error") or last_error(err) or f"Sign-out failed (exit code {code})."))
+
+    async def shutdown(self) -> None:
+        for cid, s in list(self.sessions.items()):
+            if s.active:
+                await self.cancel(cid)
