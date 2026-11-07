@@ -55,7 +55,7 @@ Behind these, each **tier** (`router`, `specialist`, `synthesis`, `review`) is a
 
 Settings → Model providers shows each provider's state and has a **Test** button once it is ready. When **Find models** fails, the message says why: a 401 means the server wants an API key, a 404 usually means the address should end in `/v1`, and "could not reach" means nothing is listening there.
 
-**Model prices.** Enter each cloud model's price per million tokens in its Edit panel. The suite uses them to show the cost of every run and chat, and for the cost limit (below). A model with no price counts as costing nothing; check prices with the provider, they change.
+**Model prices.** Enter each cloud model's price per million tokens in its Edit panel. The suite uses them for the chat cost shown and for the cost limits (below); playbook runs show tokens only, since your provider's billing is the real record and local models cost nothing. A model with no price counts as costing nothing; check prices with the provider, they change.
 
 ## Chat
 
@@ -109,7 +109,7 @@ Downloads are pinned releases checked against SHA-256 values in the repository. 
 
 **When something fails,** the screen says what and why (never a bare "Internal Server Error"), and the full details are in the app's log: `%USERPROFILE%\.productivity-suite\suite.log` on Windows, `~/.productivity-suite/suite.log` on Linux.
 
-**Several accounts.** Microsoft 365 and Google Workspace each serve every account you sign in with, for example work and personal. Agents are told which accounts are connected and say which account each fact came from; a call without an account goes to the default one (the first you signed in), and a call to an account you did not allow is refused.
+**Several accounts.** Microsoft 365 and Google Workspace each serve every account you sign in with, for example work and personal. Agents are told which accounts are connected and say which account each fact came from; a call without an account goes to the default one (the first you signed in), and a call to an account you did not allow is refused. Google: only accounts that are signed in are used; an address listed but not signed in is skipped and Settings says so, because asking Google's server about it makes it open a sign-in page every time.
 
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
@@ -120,7 +120,7 @@ Downloads are pinned releases checked against SHA-256 values in the repository. 
 | Code | Playbook | Pattern |
 |---|---|---|
 | PB-00 | Ask the Chief of Staff | single agent |
-| PB-01 | Daily Plan & Priorities | pipeline |
+| PB-01 | Daily Plan & Priorities (tick which trackers to look up: GitHub, Jira, Azure DevOps) | pipeline |
 | PB-03 | Pressure-Tested Decision Brief | fan-out → independent challenge → memo |
 | PB-04 | Audience Status Update | pipeline + evidence check + human gate |
 | PB-05 | Scope-Change Triage | fan-out → synthesis → review (revise on fail) → gate |
@@ -194,7 +194,7 @@ Cost is computed from the prices entered on each model, so a model with no price
 | Guardrail | Default | What happens at the limit |
 |---|---|---|
 | Max steps per run | 40 | A playbook with more steps is refused at the start. Steps repeated by a revision or a resume count, and a run that reaches the limit stops with a note. The longest shipped playbook has 10 steps. |
-| Tool calls per step | 8 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
+| Tool calls per step | 20 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
 | Max characters per tool result | 12,000 | Longer tool results, attachments and earlier steps' outputs are cut to this before an agent sees them. |
 | Share of the context window for the prompt | 0.75 | Prompts are shrunk (persona, skills, older context first) to fit, so a small local model is not overrun. Cuts are listed on the step. |
 

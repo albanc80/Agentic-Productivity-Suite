@@ -29,7 +29,8 @@ What the suite does with the list:
 - Every step that uses the connector tells the agent which accounts are connected and asks it to say which account each fact came from.
 - A call that names no account goes to the default account.
 - A call to an account that is not listed is refused before it reaches the server, and the run shows the refusal.
-- With no list, the server decides: Microsoft 365 uses its only or selected account; Google uses `USER_GOOGLE_EMAIL`.
+- With no list, the server decides: Microsoft 365 uses its only or selected account.
+- **Google: only signed-in accounts.** The suite knows who is signed in (one credentials file per address) and never sends a call for any other account, because workspace-mcp then opens a Google sign-in page in the browser on every call. The default is the first listed account that is signed in; with no list, the signed-in accounts. An address that is listed but not signed in (for example one Google refused at sign-in) is skipped, and Settings names it. If Google's server asks to sign an account in again (expired sign-in), the answer's warnings say so.
 
 Accounts are matched by email address, ignoring capitalisation.
 

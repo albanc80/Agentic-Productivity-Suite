@@ -507,6 +507,12 @@ function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }
   return (
     <div className="signin stack-sm" aria-live="polite">
       <strong>Sign-in</strong>
+      {(c.unsigned_accounts?.length ?? 0) > 0 && (
+        <p className="note small">{c.unsigned_accounts!.join(", ")} {c.unsigned_accounts!.length === 1 ? "is" : "are"} listed below
+          but not signed in, so agents skip {c.unsigned_accounts!.length === 1 ? "it" : "them"} (asking for it made {provider} open a
+          sign-in page every time). Sign in with {c.unsigned_accounts!.length === 1 ? "it" : "them"}, or remove the address from the
+          account fields and Save.</p>
+      )}
       {accounts === null && !c.offline_paused && <span className="small muted">Checking who is signed in…</span>}
       {accounts !== null && accounts.length === 0 && !active && s?.status !== "done" && (
         <span className="small muted">No {provider} account signed in yet. Test only checks that the connector starts; sign in to let agents read your data.</span>

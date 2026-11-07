@@ -129,9 +129,19 @@ class Budgets(BaseModel):
     max_chat_tokens: int = 400_000
     # Guardrails, always on.
     max_steps: int = 40
-    max_tool_calls_per_step: int = 8
+    max_tool_calls_per_step: int = 20
     max_tool_result_chars: int = 12_000
     max_context_fraction: float = 0.75
+
+
+OLD_TOOL_CALLS_DEFAULT = 8  # shipped until 0.7.4; one Gmail answer (a search, then one call per message) used it up
+
+
+def upgrade_budgets(budgets: dict | None) -> dict | None:
+    """The desktop app copied suite.yaml once, so files from earlier releases still say the old default."""
+    if isinstance(budgets, dict) and budgets.get("max_tool_calls_per_step") == OLD_TOOL_CALLS_DEFAULT:
+        budgets["max_tool_calls_per_step"] = Budgets.model_fields["max_tool_calls_per_step"].default
+    return budgets
 
 
 class PersonaSettings(BaseModel):
@@ -201,9 +211,11 @@ def _first_existing(*paths: Path) -> Path | None:
 
 
 def drop_legacy_demo(raw: dict[str, Any]) -> dict[str, Any]:
-    """Remove the demo provider that earlier versions shipped, so their saved suite.yaml still loads."""
+    """Read a suite.yaml an earlier version saved: drop the demo provider it shipped and old default limits."""
     raw = dict(raw)
     raw.pop("allow_demo_provider", None)
+    if isinstance(raw.get("budgets"), dict):
+        raw["budgets"] = upgrade_budgets(dict(raw["budgets"]))
     provs = raw.get("providers") or {}
     gone = {n for n, p in provs.items() if isinstance(p, dict) and p.get("type") == "mock"}
     if not gone:

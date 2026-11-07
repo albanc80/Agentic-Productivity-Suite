@@ -50,7 +50,7 @@ from .playbooks import load_playbooks
 from .providers import ModelRouter, ProviderError
 from .registry import Registry
 from .router import route
-from .settings import Budgets, PersonaSettings, Settings, load_profile, load_settings
+from .settings import Budgets, PersonaSettings, Settings, load_profile, load_settings, upgrade_budgets
 from .signin import SigninError, SigninManager
 from .store import Store
 
@@ -176,6 +176,7 @@ class Suite:
         self.connectors.on_tool_download = lambda name, version: self.store.audit(
             "tool_downloaded", None, tool=name, version=version)
         self.warnings += self.connectors.load_client_files(self.client_folders)
+        self._upgrade_saved_budgets()
         self.apply()
 
     # ------------------------------------------------------------ runtime configuration
@@ -188,6 +189,16 @@ class Suite:
 
     def provider_overrides(self) -> dict[str, ProviderOverride]:
         return {k: ProviderOverride.model_validate(v) for k, v in self.store.get_setting("provider_overrides", {}).items()}
+
+    def _upgrade_saved_budgets(self) -> None:
+        """Once: limits saved in the app before 0.7.5 kept the old default of 8 tool calls; raise it to the new one.
+        A value chosen after this runs is kept, 8 included."""
+        if self.store.get_setting("upgraded_tool_calls_default", False):
+            return
+        saved = self.store.get_setting("general", {})
+        if upgrade_budgets(saved.get("budgets")) is not None:
+            self.store.set_setting("general", saved)
+        self.store.set_setting("upgraded_tool_calls_default", True)
 
     def general(self) -> GeneralSettings:
         return GeneralSettings.model_validate(self.store.get_setting("general", {}))

@@ -14,6 +14,8 @@ inputs:
   - {id: tasks, label: "Open tasks and commitments", type: longtext}
   - {id: inbox, label: "Messages that need attention", type: longtext}
   - {id: documents, label: "Files", type: documents}
+  - {id: trackers, label: "Look up open work in", type: multiselect, options: [GitHub, Jira, Azure DevOps],
+     default: [GitHub, Jira, Azure DevOps], help: "Untick a tracker to leave it out of today's plan (only connected ones are read)."}
 steps:
   - id: digest
     kind: agent
@@ -24,6 +26,10 @@ steps:
       what changed, what is blocked, what is due, and who is waiting on the user. Every item needs a trace.
       Report work items only. Do not characterise people.
     connectors: [azure-devops, github, atlassian]
+    connector_when:
+      github: {input: trackers, contains: GitHub}
+      atlassian: {input: trackers, contains: Jira}
+      azure-devops: {input: trackers, contains: Azure DevOps}
   - id: plan
     kind: agent
     title: Day plan

@@ -37,13 +37,11 @@ from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 from mcp import StdioServerParameters
 from mcp.client.stdio import get_default_environment, stdio_client
 
-from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorWorker
-from .settings import expand_env
+from .connectors import ConnectorConfig, ConnectorError, ConnectorManager, ConnectorWorker, credential_files
 
 log = logging.getLogger("suite.signin")
 
@@ -373,11 +371,10 @@ class SigninManager:
 
     def credentials_dir(self, cfg: ConnectorConfig) -> Path:
         """Where the connector's server saves each account's credentials (one file per address)."""
-        _command, _args, env = self.connectors.launch(cfg)
-        raw = expand_env(cfg.signin.credentials_dir or "", get_default_environment() | env)
-        if not raw:
+        folder = self.connectors.credentials_dir(cfg)
+        if folder is None:
             raise SigninError(f"{cfg.name} does not say where its server keeps sign-ins.")
-        return Path(raw).expanduser()
+        return folder
 
     async def _tool_login(self, cfg: ConnectorConfig, s: SigninSession, account: str) -> None:
         await self._prepare(cfg, s)
@@ -449,22 +446,3 @@ class SigninManager:
                 errlog.close()
 
 
-def credential_files(folder: Path) -> dict[str, tuple[float, list[Path]]]:
-    """Accounts with a credentials file in ``folder``: address -> (newest change time, files). Names are the
-    address, URL-encoded by newer servers; files without an address in the name are not accounts."""
-    out: dict[str, tuple[float, list[Path]]] = {}
-    try:
-        entries = list(folder.glob("*.json"))
-    except OSError:
-        return out
-    for path in entries:
-        email = unquote(path.stem) if "%" in path.stem else path.stem
-        if "@" not in email or not path.is_file():
-            continue
-        try:
-            stamp = path.stat().st_mtime
-        except OSError:
-            continue
-        prev = out.get(email, (0.0, []))
-        out[email] = (max(prev[0], stamp), [*prev[1], path])
-    return out
