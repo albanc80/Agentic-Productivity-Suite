@@ -61,6 +61,12 @@ Each of these passed CI and reached the owner.
 - **Now:** the setup steps and an error table are in `docs/CONNECTORS.md`, the sign-in panel lists the errors, and `setup_hints` turns workspace-mcp's "API is not enabled" (and Google's own `accessNotConfigured` text, for People) into a warning with the enable link for the right project, in chat and in run notes. Answer links open in a new window, the page sends every external link to the browser, and the launcher's `keep_in_app` sends any stray outside page to the browser and reloads the app, which reopens the last page (`sessionStorage`).
 - **Not testable here:** pywebview itself (no GUI); `keep_in_app` is tested with a fake window, the links in a browser.
 
+### 8. A Google sign-in page on every Gmail lookup (v0.7.4)
+- **Seen:** Gmail answers worked, but each query also opened Google's sign-in in the browser.
+- **Cause:** the first address typed (an Advanced Protection account Google refused) had become the default account and stayed listed. Calls without an account went to it; workspace-mcp opens a sign-in page (`webbrowser.open`) on every call for an account without credentials. Seen with the real server: `**ACTION REQUIRED: Google Authentication Needed for Google Gmail for '<address>'**`.
+- **Missed because:** the sign-in tests covered success and Google's errors, not a listed address that never signed in.
+- **Now:** `usable_accounts` keeps only signed-in accounts (credentials files) for tool-kind sign-ins; `_with_account` refuses the others before the server; agents are told which listed accounts are not signed in; Settings names them; `setup_hints` names an account Google asks to sign in again. Verified with the real workspace-mcp and a recording `$BROWSER`: nothing opens.
+
 ### Bugs caught before release by running the real thing
 These are why "run the real thing" is in the definition of done:
 - `start_google_auth` exists only in workspace-mcp's `complete` tier: "Unknown tool" until the sign-in launch added `--tool-tier complete`.

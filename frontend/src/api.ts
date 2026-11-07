@@ -11,6 +11,7 @@ export interface PlaybookCard {
   style: string; patterns: string[]; safety_critical: boolean; inputs: PlaybookInput[];
   steps: { id: string; kind: string; title: string; agent: string | null; children: { id: string; agent: string; title: string }[] }[];
   connectors: string[];
+  connector_choice?: Record<string, { input: string; contains: string }>;
 }
 export interface AgentCard {
   id: string; name: string; desk: string; summary: string; capabilities: string[]; default_tier: string;
@@ -52,6 +53,7 @@ export interface ConnectorInfo {
   signin: { provider: string; kind: "command" | "tool"; confirms: string | null; accounts_vars: string[] } | null;
   // An OAuth client file (Google): uploaded in Settings, built into the app, or neither.
   client_file: { name: string; source: "uploaded" | "built-in" | null } | null;
+  unsigned_accounts?: string[];  // listed but not signed in: agents skip them
 }
 export interface SigninState {
   connector: string; status: "none" | "starting" | "waiting" | "finishing" | "done" | "failed" | "cancelled";

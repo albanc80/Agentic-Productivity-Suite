@@ -69,6 +69,8 @@ class Step(BaseModel):
     models: list[str] | None = None
     skills: list[str] = Field(default_factory=list)
     connectors: list[str] = Field(default_factory=list)
+    # A connector used only when the start form says so, e.g. {github: {input: trackers, contains: GitHub}}.
+    connector_when: dict[str, When] = Field(default_factory=dict)
     tools: list[str] = Field(default_factory=list)
     # parallel
     steps: list[Step] = Field(default_factory=list)
@@ -138,6 +140,9 @@ class Playbook(BaseModel):
                       for s in self.steps],
             "connectors": sorted({c for s in self.flat_steps() for c in s.connectors} |
                                  {s.connector for s in self.flat_steps() if s.connector}),
+            # Connectors the start form can leave out: connector -> the input option that keeps it.
+            "connector_choice": {c: {"input": w.input, "contains": w.contains} for s in self.flat_steps()
+                                 for c, w in s.connector_when.items()},
         }
 
 
@@ -196,6 +201,11 @@ def validate(pb: Playbook, registry: Registry, connector_ids: set[str] | None = 
                 raise PlaybookError(f"{pb.id}: gate '{s.id}' payload '{s.payload_from}' has not run yet")
             if s.when and not pb.input(s.when.input):
                 raise PlaybookError(f"{pb.id}: step '{s.id}' condition uses unknown input '{s.when.input}'")
+            for cid, cond in s.connector_when.items():
+                if cid not in s.connectors:
+                    raise PlaybookError(f"{pb.id}: step '{s.id}' has a condition for connector '{cid}' it does not use")
+                if not pb.input(cond.input):
+                    raise PlaybookError(f"{pb.id}: step '{s.id}' connector condition uses unknown input '{cond.input}'")
             group_ids.append(s.id)
         seen.extend(group_ids)
         if top.kind == "parallel":
@@ -217,6 +227,7 @@ def load_playbooks(directory: Path, registry: Registry, connector_ids: set[str] 
         for s in pb.flat_steps():
             if aliases and s.connectors:
                 s.connectors = list(dict.fromkeys(aliases.get(c, c) for c in s.connectors))
+                s.connector_when = {aliases.get(c, c): w for c, w in s.connector_when.items()}
         if pb.id in books:
             raise PlaybookError(f"duplicate playbook id '{pb.id}' in {p.name}")
         warnings += validate(pb, registry, connector_ids)

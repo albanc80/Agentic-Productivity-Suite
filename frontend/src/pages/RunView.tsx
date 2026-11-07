@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, exportRun, type Approval, type ExportResult, type Overview, type RunDetail, type StepRow } from "../api";
-import { ErrorNote, ExportNote, Markdown, NoteText, Pill, fmtCost, fmtTime } from "../ui";
+import { ErrorNote, ExportNote, Markdown, NoteText, Pill, fmtTime } from "../ui";
 import { StepRail } from "../viz";
 
 const LIVE = new Set(["queued", "running"]);
@@ -48,7 +48,6 @@ export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: 
             {run.outcome && <span>Outcome <Pill value={run.outcome} /></span>}
             <span>Data class <strong>{run.data_class}</strong></span>
             <span>{run.tokens.toLocaleString()} tokens</span>
-            <span>{fmtCost(run.cost_usd)}</span>
             <span className="muted">{fmtTime(run.created_at)}</span>
           </div>
         </div>
@@ -122,7 +121,7 @@ function StepDetail({ row, agentName }: { row: StepRow; agentName: (id: string |
         <Pill value={row.status} />
         {h?.verdict && <Pill value={h.verdict} title="Review verdict" />}
         {row.model && <span className="muted small"> {row.model}</span>}
-        {row.tokens_in + row.tokens_out > 0 && <span className="muted small"> · {(row.tokens_in + row.tokens_out).toLocaleString()} tok · {fmtCost(row.cost_usd)} · {(row.latency_ms / 1000).toFixed(1)}s</span>}
+        {row.tokens_in + row.tokens_out > 0 && <span className="muted small"> · {(row.tokens_in + row.tokens_out).toLocaleString()} tok · {(row.latency_ms / 1000).toFixed(1)}s</span>}
         {row.warnings.length > 0 && <span className="pill warn">{row.warnings.length} note{row.warnings.length > 1 ? "s" : ""}</span>}
       </summary>
       <div className="stack-sm">
