@@ -157,6 +157,18 @@ def main() -> int:
     return 0
 
 
+def keep_in_app(window, app_url: str, open_browser=webbrowser.open) -> bool:
+    """The app window has no address bar or Back button: a page outside the app (a Google sign-in, a Cloud console
+    link) would leave the person stuck. Open it in their browser instead and bring the window back to the app, which
+    reopens the page they were on. Returns True when it sent a page to the browser."""
+    current = window.get_current_url() or ""
+    if not current or current == "about:blank" or current.startswith(app_url):
+        return False
+    open_browser(current)
+    window.load_url(app_url)
+    return True
+
+
 def _open_window(url: str) -> bool:
     try:
         import webview  # pywebview
@@ -174,7 +186,8 @@ def _open_window(url: str) -> bool:
     try:
         # Downloads are off by default in pywebview: without this, Export and Download buttons do nothing.
         webview.settings["ALLOW_DOWNLOADS"] = True
-        webview.create_window("Agentic Productivity Suite", url, width=1360, height=900, min_size=(420, 640))
+        window = webview.create_window("Agentic Productivity Suite", url, width=1360, height=900, min_size=(420, 640))
+        window.events.loaded += lambda window: keep_in_app(window, url)
         webview.start(icon=str(icon) if icon.is_file() else None)
         return True
     except Exception as e:  # noqa: BLE001 - no GUI backend available

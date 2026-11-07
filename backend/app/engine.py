@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager
+from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager, setup_hints
 from .contracts import HandoffIn, HandoffOut, Label, Status, parse_handoff, worst
 from .guards import redact, scan_people_eval, wrap_data
 from .outputs import Outputs
@@ -626,6 +626,8 @@ class Engine:
             except Exception as e:  # noqa: BLE001 - one failing lookup never breaks the step
                 return f"{cid}.{tool} failed: {type(e).__name__}: {e}"[:2000], True, []
             self.store.audit("connector_call", ctx.id, connector=cid, tool=tool, error=is_error)
+            for hint in setup_hints(text):
+                self.store.add_note(ctx.id, hint)
             block, flags, _ = wrap_data(f"{cid}.{tool}", text, self.s.budgets.max_tool_result_chars)
             return block, is_error, flags
         if kind == "tool":

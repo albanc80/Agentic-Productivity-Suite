@@ -367,6 +367,43 @@ class ConnectorError(Exception):
     pass
 
 
+# Google APIs a project must have switched on before the Google connector can read anything. A new Cloud project
+# has every API off; whoever manages the OAuth client enables them once (people signing in do nothing).
+GOOGLE_API_NAMES = {
+    "gmail.googleapis.com": "Gmail API", "calendar-json.googleapis.com": "Google Calendar API",
+    "drive.googleapis.com": "Google Drive API", "people.googleapis.com": "People API (contacts)",
+    "docs.googleapis.com": "Google Docs API", "sheets.googleapis.com": "Google Sheets API",
+    "slides.googleapis.com": "Google Slides API", "tasks.googleapis.com": "Tasks API",
+    "forms.googleapis.com": "Google Forms API", "chat.googleapis.com": "Google Chat API",
+}
+# workspace-mcp: "Gmail API is not enabled for your project (123).\n\nEnable it here: https://console.cloud.google.com/
+# flows/enableapi?apiid=gmail.googleapis.com"; Google's own error (APIs workspace-mcp does not map, such as People):
+# "... https://console.developers.google.com/apis/api/people.googleapis.com/overview?project=123 then retry."
+_API_OFF = [
+    re.compile(r"enableapi\?apiid=(?P<api>[\w.-]+)"),
+    re.compile(r"console\.developers\.google\.com/apis/api/(?P<api>[\w.-]+)/overview\?project=(?P<project>[\w-]+)"),
+]
+_API_OFF_PROJECT = re.compile(r"not enabled for your project \((?P<project>[\w-]+)\)")
+
+
+def setup_hints(text: str) -> list[str]:
+    """What the person must switch on, read from a tool result: one line per Google API that is off, with the link
+    that enables it in the right project. Empty for anything else."""
+    if not text or "googleapis.com" not in text:
+        return []
+    found: dict[str, str] = {}
+    project_m = _API_OFF_PROJECT.search(text)
+    for rx in _API_OFF:
+        for m in rx.finditer(text):
+            api = m.group("api")
+            project = m.groupdict().get("project") or (project_m.group("project") if project_m else "")
+            found.setdefault(api, project)
+    return [f"{GOOGLE_API_NAMES.get(api, api)} is switched off in Google Cloud project {project or 'of the OAuth client'}. "
+            f"Whoever manages the OAuth client enables it once, then waits 2 minutes: "
+            f"https://console.cloud.google.com/apis/library/{api}" + (f"?project={project}" if project else "")
+            for api, project in found.items()]
+
+
 MAX_AGENT_TOOLS = 128  # the most tools some model APIs accept in one request
 
 

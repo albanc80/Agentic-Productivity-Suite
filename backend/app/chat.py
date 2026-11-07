@@ -31,7 +31,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from .connectors import ConnectorError, ConnectorManager
+from .connectors import ConnectorError, ConnectorManager, setup_hints
 from .contracts import strip_reasoning
 from .guards import redact, scan_people_eval, wrap_data
 from .outputs import Outputs
@@ -566,6 +566,7 @@ class Chat:
                     log.exception("chat tool call %s.%s failed", cid, tool)
                     text, is_err = f"{cid}.{tool} failed: {type(e).__name__}: {e}"[:2000], True
                 self.store.audit("connector_call", None, connector=cid, tool=tool, error=is_err, chat=True)
+                warnings += [h for h in setup_hints(text) if h not in warnings]
                 block, flags, _ = wrap_data(f"{cid}.{tool}", text, self.s.budgets.max_tool_result_chars)
                 warnings += [f"possible prompt injection in {cid}.{tool} result: {f}" for f in flags]
                 tool_log.append({"connector": cid, "tool": tool, "arguments": json.loads(redact(json.dumps(call.arguments))),

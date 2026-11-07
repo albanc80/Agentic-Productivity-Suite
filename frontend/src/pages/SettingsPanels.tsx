@@ -408,6 +408,29 @@ function ClientFilePanel({ c, onChange }: { c: ConnectorInfo; onChange: () => vo
   );
 }
 
+/** Google stops on its own page for these and never comes back to the app, so the panel says what each one means. */
+function GoogleErrors() {
+  return (
+    <details className="small signin-help">
+      <summary>Google showed an error instead of asking for access?</summary>
+      <ul>
+        <li><strong>"Access blocked: … not approved by Advanced Protection"</strong> (Error 400: policy_enforced): this account
+          is in Google's Advanced Protection Program, which lets only Google-verified apps read its data. Sign in with another
+          account; nothing in the app can change this.</li>
+        <li><strong>Error 403: org_internal</strong>: the OAuth client is set to Internal, so only accounts of the Google Workspace
+          that owns it can sign in. Whoever manages the client opens Google Cloud, Google Auth Platform, Audience, and
+          chooses <em>Make external</em>.</li>
+        <li><strong>Error 403: access_denied</strong>, or "has not completed the Google verification process": the client is in
+          Testing and this account is not one of its test users. Whoever manages the client adds it under Audience, Test users.</li>
+        <li>Signed in, but answers say an <strong>API is not enabled</strong>: the answer shows the link that switches it on
+          (once, by whoever manages the client).</li>
+      </ul>
+      <p className="muted">Then press <em>Cancel sign-in</em> and sign in again. With the client built into the app, "whoever manages the
+        client" is the person who shared the app with you.</p>
+    </details>
+  );
+}
+
 /** Changes when a sign-in changes the connector's values, so the open form is rebuilt from fresh ones. */
 function signinKey(c: ConnectorInfo) {
   if (!c.signin) return c.id;
@@ -515,6 +538,7 @@ function SigninPanel({ c, onChange }: { c: ConnectorInfo; onChange: () => void }
           <li>Use the browser on the computer running the app: {provider} sends you back to it. This page updates by itself.</li>
         </ol>
       )}
+      {s?.status === "waiting" && byAddress && <GoogleErrors />}
       {s?.status === "waiting" && !byAddress && (
         <ol className="setup-steps small signin-steps">
           {s.code ? (

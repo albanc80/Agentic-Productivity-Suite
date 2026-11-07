@@ -1,12 +1,18 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
+
+// A link in an answer opens in the browser, never inside the app window (which has no Back button).
+function AnswerLink({ href, children }: { href?: string; children?: ReactNode }) {
+  if (!href || href.startsWith("#")) return <a href={href}>{children}</a>;
+  return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
+}
 
 // Model output is rendered as Markdown without raw HTML (react-markdown ignores HTML by default).
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: AnswerLink }}>{text}</ReactMarkdown>
     </div>
   );
 }
@@ -70,4 +76,27 @@ export function fmtTime(iso: string | null | undefined) {
 
 export function go(path: string) {
   window.location.hash = path;
+}
+
+/** Enter sends; Shift+Enter starts a new line. Ctrl/Cmd+Enter still sends. Ignored while an input method is
+ * composing (Japanese, Chinese, accents), so confirming a character never sends half a message. */
+export function enterSends(e: KeyboardEvent<HTMLTextAreaElement>, send: () => void) {
+  if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  send();
+}
+
+export function EnterHint() {
+  return <span className="muted small"><kbd>Enter</kbd> to send · <kbd>Shift</kbd> + <kbd>Enter</kbd> for a new line</span>;
+}
+
+// Only links the app writes itself (Google Cloud steps) become clickable; other text in a warning can come from a
+// connector and stays plain.
+const SAFE_LINK = /(https:\/\/console\.cloud\.google\.com\/[\w./?=&%-]+)/;
+
+export function NoteText({ text }: { text: string }) {
+  const parts = text.split(SAFE_LINK);
+  return <>{parts.map((p, i) => (i % 2
+    ? <a key={i} href={p} target="_blank" rel="noreferrer">{p.replace(/^https:\/\//, "")} ↗</a>
+    : <span key={i}>{p}</span>))}</>;
 }

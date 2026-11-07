@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, exportRun, type Approval, type ExportResult, type Overview, type RunDetail, type StepRow } from "../api";
-import { ErrorNote, ExportNote, Markdown, Pill, fmtCost, fmtTime } from "../ui";
+import { ErrorNote, ExportNote, Markdown, NoteText, Pill, fmtCost, fmtTime } from "../ui";
 import { StepRail } from "../viz";
 
 const LIVE = new Set(["queued", "running"]);
@@ -96,7 +96,7 @@ export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: 
           {run.notes.length > 0 && (
             <div className="card">
               <span className="label">Run notes</span>
-              <ul className="plain small">{run.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+              <ul className="plain small">{run.notes.map((n, i) => <li key={i}><NoteText text={n} /></li>)}</ul>
             </div>
           )}
         </section>
