@@ -208,3 +208,66 @@ def test_every_connectors_file_an_earlier_release_copied_is_brought_up_to_date(o
         assert (cfg.command, cfg.args) == (now[cid].command, now[cid].args), f"{old.name}: {cid} kept an old launch"
         assert (cfg.signin is None) == (now[cid].signin is None), f"{old.name}: {cid} lost its sign-in"
         assert cfg.accounts == now[cid].accounts and cfg.steps == now[cid].steps
+
+
+async def test_a_tool_folder_this_user_cannot_open_is_skipped_not_a_crash(tmp_path, monkeypatch):
+    """Windows, v0.7.2: the installer (SYSTEM) left the GitHub server's folder readable by SYSTEM only. Checking it
+    raised PermissionError ("Access is denied"), which reached the screen as "Internal Server Error". The app now
+    treats it as absent and downloads its own copy into the data folder."""
+    installer, data = tmp_path / "installer", tmp_path / "data-tools"
+    app_copy(installer, runtimes.NODE, "node", "npx")
+    locked = runtimes.NODE.folder(installer) / ".complete"
+    real_is_file = Path.is_file
+
+    def is_file(self):
+        if self == locked:
+            raise PermissionError(13, "Access is denied", str(self))
+        return real_is_file(self)
+    monkeypatch.setattr(Path, "is_file", is_file)
+    assert runtimes.find(runtimes.NODE, str(tmp_path / "empty"), [installer, data]) is None
+
+    got = []
+
+    async def fake_ensure(tool, where, fetch=None):
+        got.append(where)
+        app_copy(where, tool, "node", "npx")
+        return True
+    monkeypatch.setattr(runtimes, "ensure", fake_ensure)
+    mgr = ConnectorManager([npx_cfg()], env={"PATH": str(tmp_path / "empty")})
+    mgr.tool_roots, mgr.download_root = [installer, data], data
+    await mgr.prepare(mgr.configs["ms"])
+    assert got == [data]
+    assert mgr.launch(mgr.configs["ms"])[0] == str(runtimes.NODE.bin_dir(data) / "npx")
+
+
+def test_the_installer_never_makes_a_private_tool_folder(tmp_path, monkeypatch):
+    """mkdtemp makes a folder only its maker may open (on Windows an access list, since Python 3.12.4). Made by
+    SYSTEM at install, nobody else could run the tools. Folders are made with default permissions instead."""
+    import os
+    modes = []
+    real_mkdir = os.mkdir
+
+    def mkdir(path, mode=0o777, *a, **kw):
+        modes.append(mode)
+        return real_mkdir(path, mode, *a, **kw)
+    monkeypatch.setattr(os, "mkdir", mkdir)
+    data = archive({"pkg-1.0/fake": b"a", "pkg-1.0/fakex": b"b"})
+    runtimes.install(fake_tool(data, whole=False, asset="fake.tar.gz"), tmp_path / "tools", fetch=lambda url: data)
+    assert modes and 0o700 not in modes
+
+
+def test_the_install_step_resets_permissions_older_installers_left_on_windows(tmp_path, monkeypatch):
+    root = tmp_path / "tools"
+    app_copy(root, runtimes.GITHUB_MCP, "github-mcp-server")
+    (root / "something-else").mkdir()
+    ran = []
+
+    class Done:
+        returncode, stdout, stderr = 0, "", ""
+    monkeypatch.setattr(runtimes.sys, "platform", "win32")
+    monkeypatch.setattr(runtimes.subprocess, "run", lambda cmd, **kw: ran.append(cmd) or Done())
+    lines = runtimes._repair_access(root)
+    assert ran == [["icacls", str(runtimes.GITHUB_MCP.folder(root)), "/reset", "/T", "/C", "/Q"]]
+    assert lines == [f"{runtimes.GITHUB_MCP.folder(root).name}: permissions reset"]
+    monkeypatch.setattr(runtimes.sys, "platform", "linux")
+    assert runtimes._repair_access(root) == []

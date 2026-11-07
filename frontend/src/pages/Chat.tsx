@@ -35,6 +35,8 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const alive = useRef(true);  // false once the user has moved to another chat
+  // The chat a failed first message already created: sending again reuses it instead of starting another "New chat".
+  const made = useRef<ChatDetail | null>(null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const loadList = () => api.chats().then(setList).catch(setError);
@@ -50,7 +52,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    setChat(null); setError(null); setConfirmDelete(false);
+    setChat(null); setError(null); setConfirmDelete(false); made.current = null;
     if (chatId) api.chat(chatId).then(setChat).catch(setError);
   }, [chatId]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [chat?.messages.length, pending]);
@@ -62,13 +64,16 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     setBusy("send"); setError(null); setPending(content); setText("");
     try {
       let target = chat;
-      if (!target) target = await api.startChat(agentId, dataClass);
+      const reuse = made.current;
+      if (!target && reuse && reuse.agent_id === agentId && reuse.data_class === dataClass) target = reuse;
+      if (!target) { target = await api.startChat(agentId, dataClass); made.current = target; }
       await api.sendChat(target.id, content, files.map((f) => f.id));
       if (!alive.current) return;  // the user switched chats while this one was answering: leave them where they are
       setFiles([]);
       const fresh = await api.chat(target.id);
       if (!alive.current) return;
       setChat(fresh);
+      made.current = null;
       if (!chat) go(`/chat/${target.id}`);
       loadList();
     } catch (err) { if (alive.current) { setError(err); setText(content); } } finally { if (alive.current) { setBusy(""); setPending(null); } }
@@ -98,7 +103,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   return (
     <div className="chat-layout">
       <aside className="chat-side stack-sm" aria-label="Conversations">
-        <button className="primary" onClick={() => { go("/chat"); setChat(null); }}>New chat</button>
+        <button className="primary" onClick={() => { go("/chat"); setChat(null); made.current = null; }}>New chat</button>
         <ul className="plain chat-list">
           {(list || []).map((c) => (
             <li key={c.id}>

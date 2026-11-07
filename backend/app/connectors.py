@@ -379,6 +379,8 @@ class AgentTools:
     names: list[str] = field(default_factory=list)
     lines: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    starting: list[str] = field(default_factory=list)  # names of connectors still starting (chat does not wait)
+    failed: dict[str, str] = field(default_factory=dict)  # name -> why it is unavailable
 
 
 # Environment variables a stdio connector inherits from the suite (everything else comes from its own config).
@@ -404,6 +406,7 @@ class ConnectorManager:
         self._in_process = in_process or {}  # tests: connector id -> MCPServer instance
         self.offline = offline
         self.workers: dict[str, ConnectorWorker] = {}
+        self._warming: dict[str, asyncio.Task] = {}  # background starts, so chat never waits for a connector
 
     @classmethod
     def from_file(cls, path: Path | None, offline: bool = False, presets: Path | None = None) -> ConnectorManager:
@@ -486,7 +489,10 @@ class ConnectorManager:
 
     async def restart(self, cids: list[str] | None = None) -> None:
         """Stop workers so the next use starts them with the current settings."""
-        for cid in list(cids or self.workers):
+        for cid in list(cids or [*self.workers, *self._warming]):
+            task = self._warming.pop(cid, None)
+            if task and not task.done():
+                task.cancel()
             for key in [k for k in self.workers if k == cid or k.startswith(cid + ".")]:
                 w = self.workers.pop(key, None)
                 if w:
@@ -677,6 +683,8 @@ class ConnectorManager:
             downloaded = await runtimes.ensure(tool, self.download_root)
         except runtimes.ToolError as e:
             raise ConnectorError(str(e)) from e
+        except Exception as e:  # noqa: BLE001 - a disk or permission problem: say what it was
+            raise ConnectorError(f"could not get {tool.name}: {type(e).__name__}: {e}") from e
         if downloaded and self.on_tool_download:
             self.on_tool_download(tool.name, tool.version)
 
@@ -716,7 +724,10 @@ class ConnectorManager:
             self.workers[key] = w
         if w.task is None or w.task.done():
             w.start()
-        await asyncio.wait_for(w.ready.wait(), timeout=cfg.timeout_s + 30)
+        try:
+            await asyncio.wait_for(w.ready.wait(), timeout=cfg.timeout_s + 30)
+        except TimeoutError as e:
+            raise ConnectorError(f"connector '{cfg.id}' did not start within {int(cfg.timeout_s + 30)} seconds") from e
         if w.state.status != "ready":
             raise ConnectorError(f"connector '{cfg.id}' failed to start: {w.state.error}")
         return w
@@ -753,17 +764,49 @@ class ConnectorManager:
         return _GroupView(cfg, tools, errors)
 
     async def shutdown(self) -> None:
+        for task in self._warming.values():
+            if not task.done():
+                task.cancel()
+        self._warming.clear()
         await asyncio.gather(*(w.stop() for w in self.workers.values()), return_exceptions=True)
 
     # ------------------------------------------------------------ tools
 
+    def warm(self, cids: list[str] | None = None) -> None:
+        """Start connectors that are on, in the background, so their tools are ready before anyone asks (chat
+        uses only what is ready). A failure is kept on the connector's status; nothing waits for it."""
+        for cid in cids or list(self.configs):
+            if cid not in self.configs or not self.configured(cid):
+                continue
+            task = self._warming.get(cid)
+            if task and not task.done():
+                continue
+            task = asyncio.get_running_loop().create_task(self.tools(cid), name=f"warm:{cid}")
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())  # failures are on the status
+            self._warming[cid] = task
+
+    async def _tools_now(self, cid: str, wait: float | None) -> list[ToolInfo] | None:
+        """The connector's tools; with ``wait``, None when it is still starting after that many seconds."""
+        if wait is None:
+            return await self.tools(cid)
+        task = self._warming.get(cid)
+        if task is None or task.done():
+            task = asyncio.get_running_loop().create_task(self.tools(cid), name=f"warm:{cid}")
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            self._warming[cid] = task
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=wait)
+        except TimeoutError:
+            return None
+
     async def tools_for_agent(self, first: list[str] | tuple[str, ...] = (), *, only: bool = False,
-                              room: int = MAX_AGENT_TOOLS) -> AgentTools:
+                              room: int = MAX_AGENT_TOOLS, wait: float | None = None) -> AgentTools:
         """Connector tools for one agent turn. Chat: every connector that is switched on and set up (``first`` come
         first). A playbook step: only the connectors the playbook requires (``first`` with ``only=True``). Tools stay
         read-only (blocked ones are never listed). A named connector that is off, or one that cannot start or does
         not fit in ``room`` tools, is left out with a note; the others still work."""
         out = AgentTools()
+        wanted = []
         for cid in dict.fromkeys([*first, *([] if only else self.configs)]):
             if cid not in self.configs:
                 continue
@@ -771,10 +814,19 @@ class ConnectorManager:
                 if cid in first:
                     out.notes.append(f"connector {cid} not configured (agent worked from provided inputs)")
                 continue
-            try:
-                infos = await self.tools(cid)
-            except (ConnectorError, TimeoutError) as e:
-                out.notes.append(f"connector {cid} unavailable: {e}"[:400])
+            wanted.append(cid)
+        # All at once: with ``wait`` (chat), a connector still starting is skipped for this answer, not waited for.
+        results = await asyncio.gather(*(self._tools_now(cid, wait) for cid in wanted), return_exceptions=True)
+        for cid, infos in zip(wanted, results, strict=True):
+            name = self.configs[cid].name
+            if isinstance(infos, BaseException):
+                why = str(infos) if isinstance(infos, ConnectorError) else f"{type(infos).__name__}: {infos}"
+                out.notes.append(f"connector {cid} unavailable: {why}"[:400])
+                out.failed[name] = why[:300]
+                continue
+            if infos is None:
+                out.notes.append(f"connector {cid} is still starting; it is used once ready")
+                out.starting.append(name)
                 continue
             if not infos:
                 continue
@@ -804,7 +856,10 @@ class ConnectorManager:
         if self.configs[cid].parts:  # "<part>.<tool>" goes to that part's own server
             part, name = tool.split(".", 1)
             w = self.workers[f"{cid}.{part}"]
-        res = await w.request("call", {"name": name, "arguments": arguments})
+        try:
+            res = await w.request("call", {"name": name, "arguments": arguments})
+        except Exception as e:  # noqa: BLE001 - the server refused or timed out: the agent sees why
+            return f"{cid}.{tool} failed: {type(e).__name__}: {e}"[:2000], True
         parts: list[str] = []
         for block in res.content or []:
             if getattr(block, "type", "") == "text":

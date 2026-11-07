@@ -29,12 +29,12 @@ import logging
 import os
 import platform
 import re
+import secrets
 import shutil
 import stat
 import subprocess
 import sys
 import tarfile
-import tempfile
 import urllib.request
 import zipfile
 from collections.abc import Callable
@@ -70,7 +70,12 @@ class Tool:
         return self.folder(root) / ("" if sys.platform == "win32" else self.posix_bin)
 
     def installed(self, root: Path) -> bool:
-        return (self.folder(root) / ".complete").is_file()
+        """Complete and readable by this user. A folder this user may not open (made by an older installer that
+        only SYSTEM can read) counts as absent, so the app downloads its own copy instead of failing."""
+        try:
+            return (self.folder(root) / ".complete").is_file()
+        except OSError:
+            return False
 
 
 UV = Tool(
@@ -272,8 +277,12 @@ def install(tool: Tool, root: Path, fetch: Callable[[str], bytes] = _fetch) -> P
                         f"(expected {digest[:12]}…, got {got[:12]}…). Try again later.")
     dest = tool.folder(root)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=f".{tool.key}-", dir=dest.parent))
-    staging.chmod(0o755)  # mkdtemp makes it private; installed by root or SYSTEM, everyone must be able to run it
+    # Not mkdtemp: it makes the folder private to its maker (on Windows, since Python 3.12.4, an access list for
+    # that user alone). The installer runs as SYSTEM or root and every user must be able to run these tools, so the
+    # folder keeps the default permissions of where it is (Program Files: everyone may read and run).
+    staging = dest.parent / f".{tool.key}-{secrets.token_hex(6)}"
+    staging.mkdir()
+    staging.chmod(0o755)
     try:
         if tool.whole:
             _unpack_whole(asset, data, staging)
@@ -304,7 +313,7 @@ async def ensure(tool: Tool, root: Path, fetch: Callable[[str], bytes] = _fetch)
 def install_for_app(root: Path, path: str | None = None, fetch: Callable[[str], bytes] = _fetch) -> list[str]:
     """What the installer runs: get each tool the computer lacks (or has too old) into ``root``. Never raises:
     a tool that cannot be downloaded now is downloaded by the app the first time it is needed."""
-    lines = []
+    lines = [*_repair_access(root)]
     for tool in TOOLS:
         found = on_computer(tool, path if path is not None else os.environ.get("PATH"))
         if found:
@@ -322,6 +331,24 @@ def install_for_app(root: Path, path: str | None = None, fetch: Callable[[str], 
         if ours and old.is_dir() and not any(old == t.folder(root) for t in TOOLS):
             shutil.rmtree(old, ignore_errors=True)
             lines.append(f"removed an older copy: {old.name}")
+    return lines
+
+
+def _repair_access(root: Path) -> list[str]:
+    """Windows: installers up to 0.7.2 left tool folders only SYSTEM could open (Python's mkdtemp), so the app
+    failed with "Access is denied". Give each of our folders back the permissions of the app folder."""
+    if sys.platform != "win32" or not root.is_dir():
+        return []
+    lines = []
+    for child in root.iterdir():
+        if child.is_dir() and any(child.name.startswith(f"{t.key}-") for t in TOOLS):
+            try:
+                done = subprocess.run(["icacls", str(child), "/reset", "/T", "/C", "/Q"], capture_output=True, text=True,
+                                      timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                lines.append(f"{child.name}: permissions reset" if done.returncode == 0
+                             else f"{child.name}: could not reset permissions ({(done.stderr or done.stdout).strip()[:200]})")
+            except Exception as e:  # noqa: BLE001 - never fails the install; the app falls back to its own copy
+                lines.append(f"{child.name}: could not reset permissions ({e})")
     return lines
 
 

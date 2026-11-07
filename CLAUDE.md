@@ -50,4 +50,7 @@ Passing unit tests has not been enough here: four bugs in a row reached the owne
 - **MCP clients use `mode="legacy"`** (the classic `initialize` handshake). The SDK default probes `server/discover` first, which broke GitHub's server: `duplicate "initialize" received`.
 - **The repo has an `app/tools/` package** (calculators): never add a module named `app/tools.py`.
 - **This sandbox needs proxy and CA variables** for `uvx`, `npx` and Node: stdio connectors get a minimal environment, so add `HTTPS_PROXY`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `UV_NATIVE_TLS` to a test `connectors.yaml` when running real servers here. Anonymous GitHub API calls get 403; use `github.com/.../releases/download/...` URLs.
+- **The installer runs as SYSTEM or root; the app runs as the person.** Never `tempfile.mkdtemp` for anything another user must open (on Windows it sets an owner-only access list; `chmod` does not undo it). Test file access as a different user (`su nobody`), not only as the one who installed.
+- **Nothing a connector does may escape as a 500.** Catch every exception at the connector boundary (Test, chat, playbooks) and show its type and message. Chat never waits long for, or fails because of, one connector.
+- **The real error is in `~/.productivity-suite/suite.log`** on the person's computer (`%USERPROFILE%` on Windows). Ask for its tail before guessing.
 - **Force-push is refused by the tool runner.** After a merge, reset the branch to `origin/main`; the next push is a fast-forward.

@@ -419,6 +419,8 @@ class Suite:
         self.store.set_setting("connector_values", values)
         self.apply()
         await self.connectors.restart()
+        if st.enabled:
+            self.connectors.warm([cid])  # ready before the next chat asks for it
         self.store.audit("connector_edited", None, connector=cid, enabled=st.enabled, variables_changed=sorted(set(changed)),
                          folders=len(st.folders or []), by=by)
 
@@ -638,6 +640,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         suite.engine.recover()
         for w in suite.warnings:
             log.warning(w)
+        suite.connectors.warm()  # connectors that are on start now, so chat has their tools when asked
         yield
         await suite.signin.shutdown()
         await suite.connectors.shutdown()
@@ -652,6 +655,13 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             if not hmac.compare_digest(got, f"Bearer {token}"):
                 return JSONResponse({"detail": "missing or invalid API token"}, status_code=401)
         return await call_next(request)
+
+    @app.exception_handler(Exception)
+    async def unexpected(request: Request, exc: Exception):
+        """Never a bare "Internal Server Error": the screen says what failed; the full trace goes to the log."""
+        log.error("%s %s failed", request.method, request.url.path, exc_info=exc)
+        return JSONResponse({"detail": f"Unexpected error: {type(exc).__name__}: {exc}"[:600]
+                                       + " (details are in suite.log)"}, status_code=500)
 
     eng, store = suite.engine, suite.store
 
@@ -1106,6 +1116,9 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             tools = await suite.connectors.tools(cid, allowed_only=False)
         except ConnectorError as e:
             raise HTTPException(409, str(e)) from e
+        except Exception as e:  # noqa: BLE001 - Test must say why it failed, never "Internal Server Error"
+            log.exception("connector %s test failed", cid)
+            raise HTTPException(409, f"{cid} could not start: {type(e).__name__}: {e}"[:600]) from e
         store.audit("connector_connected", None, connector=cid, tools=len(tools))
         return {"id": cid, "tools": [{"name": t.name, "allowed": t.allowed, "reason": t.reason, "description": t.description[:200]}
                                      for t in tools]}
