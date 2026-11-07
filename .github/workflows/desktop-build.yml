@@ -259,6 +259,17 @@ jobs:
           $tools = Join-Path $env:ProgramFiles "Agentic Productivity Suite\_internal\tools"
           if (-not (Test-Path (Join-Path $tools "install.log"))) { throw "the install step for uv and Node.js did not run" }
           Get-Content (Join-Path $tools "install.log")
+          # The install step runs as SYSTEM; every user must be able to open what it put there (v0.7.2 left the
+          # GitHub server's folder readable by SYSTEM only: "Access is denied" in the app). This runs after the
+          # upgrade over the last release, so it also checks the repair of folders older installers left.
+          $users = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-545")
+          foreach ($dir in Get-ChildItem $tools -Directory) {
+            $rules = (Get-Acl $dir.FullName).GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) |
+              Where-Object { $_.IdentityReference -eq $users -and $_.AccessControlType -eq "Allow" -and
+                             ($_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::ReadAndExecute) -eq [System.Security.AccessControl.FileSystemRights]::ReadAndExecute }
+            if (-not $rules) { icacls $dir.FullName; throw "users cannot open $($dir.FullName)" }
+            Write-Host "users can open $($dir.Name)"
+          }
           python desktop/smoke_test.py $exe
           if ($LASTEXITCODE -ne 0) { throw "smoke test of installed app failed" }
           $u = Start-Process msiexec.exe -ArgumentList "/x $($e[0].PSChildName) /qn" -Wait -PassThru

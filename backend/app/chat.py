@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -40,6 +41,8 @@ from .registry import Registry
 from .router import keyword_scores
 from .settings import Settings
 from .store import Store, new_id, now
+
+log = logging.getLogger("suite.chat")
 
 COORDINATOR = "chief-of-staff"
 MAX_DELEGATES = 3
@@ -74,6 +77,11 @@ NO_TOOLS_RULE = ("- You cannot reach their mail, files or other systems from her
 NO_TOOL_MODEL_RULE = ("- Connected sources ({names}) are switched on, but the model answering now cannot call tools, so "
                       "you cannot read them. Say so, and suggest choosing a model with tool calling for this agent in "
                       "Settings > Models.\n")
+DOWN_STARTING = ("- {name} is switched on but still connecting, so you cannot read it for this answer. If the question "
+                 "needs it, say so and ask them to send it again in a minute.\n")
+DOWN_FAILED = ("- {name} is switched on but could not start ({why}). If the question needs it, say so and suggest "
+               "Settings > Connectors > {name} > Test.\n")
+CHAT_CONNECTOR_WAIT = 10.0  # seconds a chat answer waits for connectors still starting; it answers without them after
 FILES_CONNECTOR = "local-files"  # offered first
 TOOL_LIMIT_NOTE = "Tool limit for this answer is used up. Finish with what you have."
 CHAT_BUDGET_NOTE = "The chat's spending limit is reached. Do not call tools. Finish now with what you have."
@@ -205,8 +213,10 @@ class Chat:
         return c
 
     def list(self) -> list[dict]:
+        """Chats with at least one answered message. One whose first message failed has none and is left out, so a
+        retry or an error never fills the list with empty "New chat" entries (it stays in the store, unlisted)."""
         return [{k: c[k] for k in ("id", "agent_id", "data_class", "title", "tokens", "cost_usd", "created_at", "updated_at")}
-                | {"messages": len(c["messages"])} for c in self.store.chats()]
+                | {"messages": len(c["messages"])} for c in self.store.chats() if c["messages"]]
 
     def delete(self, cid: str) -> None:
         if not self.store.delete_chat(cid):
@@ -265,6 +275,10 @@ class Chat:
         except ChatError:
             chat["messages"].pop()
             raise
+        except Exception as e:  # noqa: BLE001 - say what went wrong instead of "Internal Server Error"
+            chat["messages"].pop()
+            log.exception("chat answer failed")
+            raise ChatError(f"The answer failed: {type(e).__name__}: {e}"[:600]) from e
         reply["warnings"] = [f"possible prompt injection in {x}" for x in flags] + reply["warnings"]
         people = scan_people_eval(reply["content"])
         if people:
@@ -420,27 +434,39 @@ class Chat:
             return f"{tokens:,} of {b.max_chat_tokens:,} tokens"
         return None
 
-    async def _connector_tools(self) -> tuple[list[ToolSpec], dict[str, tuple[str, str]], list[str], list[str], list[str]]:
-        """The read-only tools of every connector that is switched on and set up (Local files first), what the agent
-        is told about their accounts, and warnings for connectors that could not start or did not fit.
+    async def _connector_tools(self) -> tuple[list[ToolSpec], dict[str, tuple[str, str]], list[str], list[str], list[str],
+                                              list[str]]:
+        """The read-only tools of every connector that is switched on and ready (Local files first), what the agent
+        is told about their accounts, warnings for connectors that could not start or did not fit, and what the agent
+        is told about connectors that are on but not usable now. A chat never fails or waits long because of a
+        connector: one still starting is left out of this answer (it keeps starting in the background).
         Read-only is enforced by the connector manager: blocked tools are never listed and a direct call is refused."""
         if not self.connectors:
-            return [], {}, [], [], []
-        on = [FILES_CONNECTOR] if self.connectors.configured(FILES_CONNECTOR) else []  # first when it is on
-        found = await self.connectors.tools_for_agent(on)
+            return [], {}, [], [], [], []
+        try:
+            on = [FILES_CONNECTOR] if self.connectors.configured(FILES_CONNECTOR) else []  # first when it is on
+            found = await self.connectors.tools_for_agent(on, wait=CHAT_CONNECTOR_WAIT)
+        except Exception as e:  # noqa: BLE001 - connectors are optional for a chat answer
+            log.exception("connector tools for chat failed")
+            return [], {}, [], [], [f"connectors unavailable: {type(e).__name__}: {e}"[:400]], []
         specs = [ToolSpec(t.qualified, f"[{t.connector}, read-only] {t.description}", t.input_schema or {"type": "object"})
                  for t in found.tools]
         routes = {t.qualified: (t.connector, t.name) for t in found.tools}
-        return specs, routes, found.names, found.lines, found.notes
+        down = ([DOWN_STARTING.format(name=n) for n in found.starting]
+                + [DOWN_FAILED.format(name=n, why=why[:200]) for n, why in found.failed.items()])
+        return specs, routes, found.names, found.lines, found.notes, down
 
-    def _delivery(self, names: list[str], scope: list[str], can_call: bool) -> str:
+    def _delivery(self, names: list[str], scope: list[str], can_call: bool, down: list[str] | None = None) -> str:
         on = bool(self.outputs.root)
         if names and can_call:
             tools = TOOLS_RULE.format(names=", ".join(names), scope="\n".join(scope) + ("\n" if scope else ""))
         elif names:
             tools = NO_TOOL_MODEL_RULE.format(names=", ".join(names))
+        elif down:
+            tools = ""  # connectors are on: what is said about them below, not "switch them on"
         else:
             tools = NO_TOOLS_RULE
+        tools += "".join(down or [])
         return DELIVERY_RULES.format(
             save=" and Save" if on else "",
             where=" in their Agentic-Suite-Outputs folder (Files)" if on else " for download",
@@ -457,12 +483,12 @@ class Chat:
         if not cands:
             raise ChatError(f"No model configured for {agent.name} with '{data_class}' data. Add or switch on a model in "
                             "Settings." + (" Checked: " + "; ".join(skipped) if skipped else ""))
-        all_specs, routes, names, scope, tool_warnings = (await self._connector_tools() if connector_tools and not json_only
-                                                          else ([], {}, [], [], []))
+        all_specs, routes, names, scope, tool_warnings, down = (
+            await self._connector_tools() if connector_tools and not json_only else ([], {}, [], [], [], []))
         errors: list[str] = []
         for cand in cands:
             specs = all_specs if cand.model.tools else []
-            rules = task if json_only else task + self._delivery(names, scope, bool(specs))
+            rules = task if json_only else task + self._delivery(names, scope, bool(specs), down)
             system = build_system(agent=agent, mode=None, registry=self.registry, policies=self.s.output_policies,
                                   profile=self.profile, persona=self.s.persona.chat, extra_skills=[], has_skill_tool=False,
                                   review=False) + [("chat", rules, 0)]
@@ -536,6 +562,9 @@ class Chat:
                     text, is_err = await self.connectors.call(cid, tool, call.arguments)
                 except ConnectorError as e:
                     text, is_err = str(e), True
+                except Exception as e:  # noqa: BLE001 - one failing lookup never breaks the answer
+                    log.exception("chat tool call %s.%s failed", cid, tool)
+                    text, is_err = f"{cid}.{tool} failed: {type(e).__name__}: {e}"[:2000], True
                 self.store.audit("connector_call", None, connector=cid, tool=tool, error=is_err, chat=True)
                 block, flags, _ = wrap_data(f"{cid}.{tool}", text, self.s.budgets.max_tool_result_chars)
                 warnings += [f"possible prompt injection in {cid}.{tool} result: {f}" for f in flags]

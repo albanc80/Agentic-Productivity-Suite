@@ -623,6 +623,8 @@ class Engine:
                 text, is_error = await self.connectors.call(cid, tool, args)
             except ConnectorError as e:
                 return str(e), True, []
+            except Exception as e:  # noqa: BLE001 - one failing lookup never breaks the step
+                return f"{cid}.{tool} failed: {type(e).__name__}: {e}"[:2000], True, []
             self.store.audit("connector_call", ctx.id, connector=cid, tool=tool, error=is_error)
             block, flags, _ = wrap_data(f"{cid}.{tool}", text, self.s.budgets.max_tool_result_chars)
             return block, is_error, flags

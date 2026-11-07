@@ -1,6 +1,6 @@
 # Engineering notes
 
-What we learned building connector sign-in, zero-setup installers and connectors in chat (v0.7.0 to v0.7.2), and what broke on a real install although CI was green. Read this before changing connectors, sign-in, installers or chat. The rules that follow from it are in `CLAUDE.md`.
+What we learned building connector sign-in, zero-setup installers and connectors in chat (v0.7.0 to v0.7.3), and what broke on a real install although CI was green. Read this before changing connectors, sign-in, installers or chat. The rules that follow from it are in `CLAUDE.md`.
 
 ## How the pieces fit
 
@@ -13,7 +13,7 @@ What we learned building connector sign-in, zero-setup installers and connectors
 | Google OAuth client | `client_file:` in the Google entry | `google-oauth-client.json`: uploaded in Settings (data folder, wins), next to `connectors.yaml`, or in `config/` (installers write it from the `GOOGLE_OAUTH_CLIENT_JSON` repository secret via `desktop/bundle_oauth_client.py`). |
 | Runtimes | `backend/app/runtimes.py` | uv, Node.js, GitHub's `github-mcp-server`, pinned with SHA-256. Order: the computer's copy if new enough, then `<app>/_internal/tools` (installer, `--install-tools`), then `<data>/tools` (first use). |
 | Installers | `desktop/launcher.py`, `desktop/windows/productivity-suite.wxs`, `desktop/linux/build_deb.sh`, `.github/workflows/desktop-build.yml` | `--install-tools` / `--remove-tools` run hidden at install and uninstall and never fail the install. CI installs, upgrades and uninstalls both packages and checks `install.log`. |
-| Chat tools | `backend/app/chat.py` | Every connector that is on (`ConnectorManager.tools_for_agent`), max 128 tools, accounts told to the agent. |
+| Chat tools | `backend/app/chat.py` | Every connector that is on (`ConnectorManager.tools_for_agent`), max 128 tools, accounts told to the agent. Started in the background at launch (`warm`); chat waits at most `CHAT_CONNECTOR_WAIT` (10 s) and answers without connectors still starting or failed, telling the agent. |
 | Playbook tools | `backend/app/engine.py` `_tool_specs` | Only the connectors the step lists (`tools_for_agent(..., only=True)`). |
 | UI rules | `frontend/src/connectors.ts`, `pages/SettingsPanels.tsx`, `Chat.tsx`, `Playbooks.tsx`, `RunForm.tsx` | One helper for "on", names, "used by", accounts. |
 | Releases | `scripts/version.py`, `version-bump` CI job | Every PR raises the version; a merge to `main` with a new version publishes the release. |
@@ -49,6 +49,12 @@ Each of these passed CI and reached the owner.
 - **Cause:** backend behaviour changed and the screens were not revisited.
 - **Now:** v0.7.2 shows the rules in Settings, on playbook cards, on the start form and in chat. Definition of done step 4 (walk every touched screen in a browser).
 
+### 6. GitHub Test and every chat: "Internal Server Error" (v0.7.2, Windows)
+- **Seen:** GitHub's Test, and every chat message with GitHub on, answered "Internal Server Error". Microsoft and Google worked. Each failed send also left an empty "New chat" in the list.
+- **Cause:** the installer's `--install-tools` runs as SYSTEM and unpacked into a folder made by `tempfile.mkdtemp`. Since Python 3.12.4 (CVE-2024-4030), `mkdtemp` on Windows gives the folder an access list for its maker only, so the person's account could not even check `.complete`: `PermissionError: [WinError 5] Access is denied`. `chmod` does not change Windows access lists. Microsoft and Google used Node and uv already on the computer; GitHub's server had no copy there, so it hit that folder. The `PermissionError` was not a `ConnectorError`, so Test, chat's tool gathering and the chat endpoint all let it escape. Chat also started every connector before answering, so one bad connector stopped every chat. The page then forgot the chat a failed send had made, so the next send made another.
+- **Missed because:** CI installs and smoke-tests as the same administrator that installed, and the runner has Node and uv, so only the GitHub folder was made by the install step, and nobody opened it as another user. The tests only raised `ConnectorError` from connectors.
+- **Now:** tool folders are made with plain `mkdir` (inheriting the app folder's permissions); the install step resets permissions on folders older installers left (`icacls /reset`); a folder the app cannot open counts as absent and the app downloads its own copy. Any connector failure is a readable 409 on Test, a warning in chat, and a tool error for the agent; unexpected errors anywhere show their type and message and are logged with the trace. Connectors start in the background at launch; chat waits at most 10 s, then answers without the ones still starting and tells the agent. A failed send reuses its chat, and empty chats are not listed. CI checks that the built-in Users group can open every tool folder after the upgrade over the last release. Reproduced on Linux by running the app as `nobody` with a root-only installer folder and the real `github-mcp-server`: v0.7.2 gave 500, the fix lists 22 tools and answers chats.
+
 ### Bugs caught before release by running the real thing
 These are why "run the real thing" is in the definition of done:
 - `start_google_auth` exists only in workspace-mcp's `complete` tier: "Unknown tool" until the sign-in launch added `--tool-tier complete`.
@@ -65,6 +71,7 @@ These are why "run the real thing" is in the definition of done:
 - **GitHub:** the `github-mcp-server stdio --read-only --toolsets ...` binary, reading `GITHUB_PERSONAL_ACCESS_TOKEN` and `GITHUB_HOST`. Releases carry a `github-mcp-server_<version>_checksums.txt` file.
 - **Install step limits:** it runs as SYSTEM or root, so it cannot see per-user installs (nvm, uv's own installer) and may download a duplicate. The app still prefers the user's copy.
 - **Proxies:** stdio connectors do not inherit proxy or certificate variables (open issue). Behind a TLS-inspecting proxy, add them to the connector's `env`.
+- **The log:** `~/.productivity-suite/suite.log` (`%USERPROFILE%\.productivity-suite\suite.log`), not the install folder. Windowed builds send stdout and stderr there. Ask for its tail first when a real install fails.
 
 ## How to test a connector change for real
 

@@ -98,6 +98,10 @@ Every download is a pinned release from the project's own site (uv 0.11.32 and g
 
 Limits: the install step runs as the installer (SYSTEM on Windows, root on Linux), so it sees machine-wide installs (for example the Node.js installer) but not a copy installed for one user only (nvm, uv's own installer). In that case it downloads a copy anyway; the app still prefers yours, because it checks your PATH first.
 
+**Everyone on the computer can run the installer's copies.** The install step's folders take the permissions of the app folder (in Program Files: every user may read and run). Installers up to 0.7.2 left them readable by SYSTEM only, so GitHub's Test and chats failed with "Internal Server Error"; installing 0.7.3 or newer resets those permissions, and until then the app treats a folder it cannot open as missing and downloads its own copy into the data folder.
+
+**When a connector fails,** Test shows the reason, chats still answer (the agent says the connector is unavailable), and the details are in `%USERPROFILE%\.productivity-suite\suite.log` (Windows) or `~/.productivity-suite/suite.log` (Linux).
+
 ## Adding a connector
 
 Adding a brand-new connector stays a file edit on purpose: a connector entry can start a program on your computer, so it should not be one click away in a browser. Add an entry to `connectors.yaml` (in `.productivity-suite` in your home folder for the desktop app), then fill in its values in Settings:
