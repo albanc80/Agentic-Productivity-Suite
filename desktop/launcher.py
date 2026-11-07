@@ -186,7 +186,9 @@ def _open_window(url: str) -> bool:
     try:
         # Downloads are off by default in pywebview: without this, Export and Download buttons do nothing.
         webview.settings["ALLOW_DOWNLOADS"] = True
-        window = webview.create_window("Agentic Productivity Suite", url, width=1360, height=900, min_size=(420, 640))
+        # text_select: pywebview turns text selection off by default, so answers could not be selected and copied.
+        window = webview.create_window("Agentic Productivity Suite", url, width=1360, height=900, min_size=(420, 640),
+                                       text_select=True)
         window.events.loaded += lambda window: keep_in_app(window, url)
         webview.start(icon=str(icon) if icon.is_file() else None)
         return True

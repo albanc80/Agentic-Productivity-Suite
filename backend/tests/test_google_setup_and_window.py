@@ -76,3 +76,25 @@ def test_a_page_outside_the_app_opens_in_the_browser_and_the_window_comes_back()
         assert not keep_in_app(w, app, opened.append) and w.loaded == []
     assert len(opened) == 1
 
+
+
+def test_the_desktop_window_lets_people_select_and_copy_text(monkeypatch):
+    """pywebview turns text selection off unless text_select=True: answers could not be selected and copied."""
+    import sys
+    import types
+    made = {}
+    fake = types.SimpleNamespace(settings={}, start=lambda **kw: None)
+
+    def create_window(*args, **kwargs):
+        made.update(kwargs)
+        return types.SimpleNamespace(events=types.SimpleNamespace(loaded=_Handlers()))
+    fake.create_window = create_window
+    monkeypatch.setitem(sys.modules, "webview", fake)
+    assert load_launcher()._open_window("http://127.0.0.1:1") is True
+    assert made.get("text_select") is True
+
+
+class _Handlers(list):
+    def __iadd__(self, fn):
+        self.append(fn)
+        return self
