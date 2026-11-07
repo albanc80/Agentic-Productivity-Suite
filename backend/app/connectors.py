@@ -28,9 +28,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import unquote
 
 import yaml
 from mcp import Client, StdioServerParameters
+from mcp.client.stdio import get_default_environment
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
 from pydantic import BaseModel, Field
 
@@ -367,6 +369,27 @@ class ConnectorError(Exception):
     pass
 
 
+def credential_files(folder: Path) -> dict[str, tuple[float, list[Path]]]:
+    """Accounts with a credentials file in ``folder``: address -> (newest change time, files). Names are the
+    address, URL-encoded by newer servers; files without an address in the name are not accounts."""
+    out: dict[str, tuple[float, list[Path]]] = {}
+    try:
+        entries = list(folder.glob("*.json"))
+    except OSError:
+        return out
+    for path in entries:
+        email = unquote(path.stem) if "%" in path.stem else path.stem
+        if "@" not in email or not path.is_file():
+            continue
+        try:
+            stamp = path.stat().st_mtime
+        except OSError:
+            continue
+        prev = out.get(email, (0.0, []))
+        out[email] = (max(prev[0], stamp), [*prev[1], path])
+    return out
+
+
 # Google APIs a project must have switched on before the Google connector can read anything. A new Cloud project
 # has every API off; whoever manages the OAuth client enables them once (people signing in do nothing).
 GOOGLE_API_NAMES = {
@@ -386,11 +409,24 @@ _API_OFF = [
 _API_OFF_PROJECT = re.compile(r"not enabled for your project \((?P<project>[\w-]+)\)")
 
 
+# workspace-mcp, when an account has no usable sign-in (expired, or scopes missing): it also opens a sign-in page.
+_SIGNIN_NEEDED = re.compile(r"ACTION REQUIRED: Google (?:sign-in needed|Authentication Needed) for ([^*\n]+?)\**\s*$", re.M)
+
+
 def setup_hints(text: str) -> list[str]:
-    """What the person must switch on, read from a tool result: one line per Google API that is off, with the link
-    that enables it in the right project. Empty for anything else."""
-    if not text or "googleapis.com" not in text:
+    """What the person must do, read from a tool result: one line per Google API that is off (with the link that
+    enables it in the right project), or per account whose Google sign-in has to be done again. Empty otherwise."""
+    if not text:
         return []
+    hints = []
+    for m in _SIGNIN_NEEDED.finditer(text):  # "... Needed for Google Gmail for 'me@gmail.com'"
+        who = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", m.group(1))
+        hint = (f"Google asked to sign in {who.group(0) if who else m.group(1).strip()} again (its sign-in expired or "
+                "is incomplete). Sign in again from Settings > Connectors > Google Workspace.")
+        if hint not in hints:
+            hints.append(hint)
+    if "googleapis.com" not in text:
+        return hints
     found: dict[str, str] = {}
     project_m = _API_OFF_PROJECT.search(text)
     for rx in _API_OFF:
@@ -398,7 +434,7 @@ def setup_hints(text: str) -> list[str]:
             api = m.group("api")
             project = m.groupdict().get("project") or (project_m.group("project") if project_m else "")
             found.setdefault(api, project)
-    return [f"{GOOGLE_API_NAMES.get(api, api)} is switched off in Google Cloud project {project or 'of the OAuth client'}. "
+    return hints + [f"{GOOGLE_API_NAMES.get(api, api)} is switched off in Google Cloud project {project or 'of the OAuth client'}. "
             f"Whoever manages the OAuth client enables it once, then waits 2 minutes: "
             f"https://console.cloud.google.com/apis/library/{api}" + (f"?project={project}" if project else "")
             for api, project in found.items()]
@@ -577,11 +613,15 @@ class ConnectorManager:
         if not cfg:
             return []
         lines = [f"- {cfg.name}: {line}" for line in self.context_lines(cid)]
-        accounts = self.accounts(cid)
+        accounts = self.usable_accounts(cid)
         if accounts and cfg.accounts:
             listed = ", ".join([f"{accounts[0]} (default)"] + accounts[1:])
             lines.append(f"- {cfg.name}: {listed}. Choose the account with the `{cfg.accounts.param}` argument; "
                          "calls to any other account are refused. Say which account each fact came from.")
+        unsigned = self.unsigned_accounts(cid)
+        if unsigned and cfg.accounts:
+            lines.append(f"- {cfg.name}: {', '.join(unsigned)} {'is' if len(unsigned) == 1 else 'are'} not signed in "
+                         "and cannot be read; do not call it. If asked about it, say it needs signing in from Settings.")
         return lines
 
     def accounts(self, cid: str) -> list[str]:
@@ -596,21 +636,65 @@ class ConnectorManager:
                     out.append(a)
         return out
 
+    def credentials_dir(self, cfg: ConnectorConfig) -> Path | None:
+        """Where a connector that signs in through its own tool (Google) keeps one credentials file per account;
+        None for any other connector."""
+        if cfg.transport != "stdio" or not cfg.signin or cfg.signin.kind != "tool" or not cfg.signin.credentials_dir:
+            return None
+        try:
+            _command, _args, env = self.launch(cfg)
+        except ConnectorError:
+            return None
+        raw = expand_env(cfg.signin.credentials_dir, get_default_environment() | env)
+        return Path(raw).expanduser() if raw else None
+
+    def unsigned_accounts(self, cid: str) -> list[str]:
+        """Accounts listed for a connector that are not signed in to its server. Google's server opens a sign-in
+        page in the browser for every call to such an account, so agents never get to call them."""
+        cfg = self.configs.get(cid)
+        folder = self.credentials_dir(cfg) if cfg else None
+        if folder is None:
+            return []
+        signed = {a.lower() for a in credential_files(folder)}
+        return [a for a in self.accounts(cid) if a.lower() not in signed]
+
+    def usable_accounts(self, cid: str) -> list[str]:
+        """The accounts agents may use, default first: the listed ones that are signed in when the app can tell
+        (with none listed, every signed-in account), else the listed ones."""
+        cfg = self.configs.get(cid)
+        accounts = self.accounts(cid)
+        folder = self.credentials_dir(cfg) if cfg else None
+        if folder is None:
+            return accounts
+        signed = sorted(credential_files(folder))
+        if not accounts:
+            return signed
+        lower = {a.lower() for a in signed}
+        return [a for a in accounts if a.lower() in lower]
+
     def _with_account(self, cid: str, info: ToolInfo, arguments: dict) -> dict:
-        """Refuse accounts the user did not list; name the default account when the call names none."""
+        """Refuse accounts the user did not list or that are not signed in; name the default account (the first
+        signed-in one) when the call names none."""
         cfg = self.configs[cid]
         allowed = self.accounts(cid)
-        if not cfg.accounts or not allowed:
+        if not cfg.accounts or (not allowed and self.credentials_dir(cfg) is None):
             return arguments
+        usable = self.usable_accounts(cid)
+        where = f"Settings > Connectors > {cfg.name}"
         param = cfg.accounts.param
         value = arguments.get(param)
         if value not in (None, ""):
-            if str(value).strip().lower() not in (a.lower() for a in allowed):
+            if allowed and str(value).strip().lower() not in (a.lower() for a in allowed):
                 raise ConnectorError(f"account '{value}' is not enabled for {cfg.name}; "
-                                     f"allowed: {', '.join(allowed)}")
+                                     f"allowed: {', '.join(usable or allowed)}")
+            if str(value).strip().lower() not in (a.lower() for a in usable):
+                raise ConnectorError(f"account '{value}' is listed for {cfg.name} but not signed in, so it was not "
+                                     f"read. Sign in with it in {where}, or remove it there.")
             return arguments
         if param in ((info.input_schema or {}).get("properties") or {}):
-            return {**arguments, param: allowed[0]}
+            if not usable:
+                raise ConnectorError(f"No {cfg.name} account is signed in. Sign in from {where}.")
+            return {**arguments, param: usable[0]}
         return arguments
 
     def configured(self, cid: str) -> bool:
@@ -675,6 +759,7 @@ class ConnectorManager:
                                    "ready": p in self.ready_parts(cid)} for p in cfg.parts],
                         "variables": self.variables(cid) if cfg.transport != "builtin" else [], "tools": tools,
                         "client_file": self._client_file_view(cfg),
+                        "unsigned_accounts": self.unsigned_accounts(cid),
                         "signin": ({"provider": cfg.signin.provider, "kind": cfg.signin.kind, "confirms": cfg.signin.confirms,
                                     "accounts_vars": list(cfg.accounts.vars) if cfg.accounts else []}
                                    if cfg.signin and cfg.transport == "stdio" else None)})

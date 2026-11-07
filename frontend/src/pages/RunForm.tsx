@@ -32,9 +32,14 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
 
   const allowed = ov.data_classes[dataClass] || [];
   const reachable = useMemo(() => ov.providers.filter((p) => p.available && allowed.includes(p.locality)), [ov, allowed]);
+  const chosen = (id: string) => {  // a connector the form can leave out counts only while its option is ticked
+    const w = pb?.connector_choice?.[id];
+    const v = w ? values[w.input] : undefined;
+    return !w || (Array.isArray(v) ? v.includes(w.contains) : v === w.contains);
+  };
   const missing = (pb?.connectors || []).filter((id) => {
     const c = ov.connectors.find((x) => x.id === id);
-    return !c || !isLive(c);
+    return chosen(id) && (!c || !isLive(c));
   });
 
   if (!pb) return <p>Playbook not found. <a href="#/playbooks">Back to playbooks</a></p>;

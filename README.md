@@ -55,7 +55,7 @@ Behind these, each **tier** (`router`, `specialist`, `synthesis`, `review`) is a
 
 Settings → Model providers shows each provider's state and has a **Test** button once it is ready. When **Find models** fails, the message says why: a 401 means the server wants an API key, a 404 usually means the address should end in `/v1`, and "could not reach" means nothing is listening there.
 
-**Model prices.** Enter each cloud model's price per million tokens in its Edit panel. The suite uses them to show the cost of every run and chat, and for the cost limit (below). A model with no price counts as costing nothing; check prices with the provider, they change.
+**Model prices.** Enter each cloud model's price per million tokens in its Edit panel. The suite uses them only for the optional cost limits (below). Chats and playbook runs show tokens, not cost: your provider's billing is the real record, and local models cost nothing. A model with no price counts as costing nothing; check prices with the provider, they change.
 
 ## Chat
 
@@ -67,7 +67,8 @@ Open **Chat** and pick an agent, or keep the Chief of Staff, who answers itself 
 - **Ask for a file.** Say "as an HTML file", "export to markdown", "save as notes.md" or "make it a web page", and the app saves the answer as that file in `Agentic-Suite-Outputs/Files` and shows a file card with the path and a Download button. "Save the previous answer as review.md" saves the earlier answer exactly as it is, with no model call. If you type a full path, only the file name is used: the app writes into the outputs folder only, and never overwrites a different file (it adds `-2`). The HTML is always built by the app from Markdown; HTML written by a model is never rendered.
 - **Use your connectors.** Every connector you switch on in Settings → Connectors is available to every chat agent, the Chief of Staff and the specialists it brings in: Local files (text, CSV, JSON, YAML, PDF, Word, Excel in the folders you choose), Gmail and Google Workspace, Microsoft 365, GitHub, Jira/Confluence and the rest. Tools are read-only, agents are told which accounts they may read, and each needs a model with tool calling. The chat shows which connectors its agents can read, each answer says how many lookups it made and in which connectors, and every call is in the audit log. Settings → Connectors shows, for each connector, that chat can use it and which playbooks list it, and the accounts it reads; playbook cards show each connector they need and whether it is on. Connectors never hold up or break a chat: the ones that are on start in the background when the app opens, a chat waits at most about 10 seconds for one still starting and otherwise answers without it (the agent says so, and the next message can use it), and a connector that cannot start, or a lookup that fails, is named in the answer's warnings while the agent still answers. Playbooks use only the connectors each playbook requires. You can also attach a file to one chat.
 - Agents are told what the app can do (copy, download, save, read shared folders), so they write the document instead of telling you to print or copy by hand.
-- The chat header shows the tokens and cost used so far, and the chat budget when spending limits are on.
+- The chat header shows the tokens used so far, and the token limit when spending limits are on.
+- Select any text in an answer or a playbook result and copy it as usual (Ctrl+C), or use the Copy button.
 - A message that could not be answered keeps its chat: sending again uses the same chat, and chats with no answer are not listed.
 - **Enter** sends a message (here and on Command); **Shift+Enter** starts a new line.
 - Links in answers open in your browser, never inside the app window. If a page outside the app ever opens in the window, the app sends it to the browser and returns to the page you were on.
@@ -109,7 +110,7 @@ Downloads are pinned releases checked against SHA-256 values in the repository. 
 
 **When something fails,** the screen says what and why (never a bare "Internal Server Error"), and the full details are in the app's log: `%USERPROFILE%\.productivity-suite\suite.log` on Windows, `~/.productivity-suite/suite.log` on Linux.
 
-**Several accounts.** Microsoft 365 and Google Workspace each serve every account you sign in with, for example work and personal. Agents are told which accounts are connected and say which account each fact came from; a call without an account goes to the default one (the first you signed in), and a call to an account you did not allow is refused.
+**Several accounts.** Microsoft 365 and Google Workspace each serve every account you sign in with, for example work and personal. Agents are told which accounts are connected and say which account each fact came from; a call without an account goes to the default one (the first you signed in), and a call to an account you did not allow is refused. Google: only accounts that are signed in are used; an address listed but not signed in is skipped and Settings says so, because asking Google's server about it makes it open a sign-in page every time.
 
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
@@ -120,7 +121,7 @@ Downloads are pinned releases checked against SHA-256 values in the repository. 
 | Code | Playbook | Pattern |
 |---|---|---|
 | PB-00 | Ask the Chief of Staff | single agent |
-| PB-01 | Daily Plan & Priorities | pipeline |
+| PB-01 | Daily Plan & Priorities (tick which trackers to look up: GitHub, Jira, Azure DevOps) | pipeline |
 | PB-03 | Pressure-Tested Decision Brief | fan-out → independent challenge → memo |
 | PB-04 | Audience Status Update | pipeline + evidence check + human gate |
 | PB-05 | Scope-Change Triage | fan-out → synthesis → review (revise on fail) → gate |
@@ -194,7 +195,7 @@ Cost is computed from the prices entered on each model, so a model with no price
 | Guardrail | Default | What happens at the limit |
 |---|---|---|
 | Max steps per run | 40 | A playbook with more steps is refused at the start. Steps repeated by a revision or a resume count, and a run that reaches the limit stops with a note. The longest shipped playbook has 10 steps. |
-| Tool calls per step | 8 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
+| Tool calls per step | 20 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
 | Max characters per tool result | 12,000 | Longer tool results, attachments and earlier steps' outputs are cut to this before an agent sees them. |
 | Share of the context window for the prompt | 0.75 | Prompts are shrunk (persona, skills, older context first) to fit, so a small local model is not overrun. Cuts are listed on the step. |
 

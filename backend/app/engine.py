@@ -598,7 +598,9 @@ class Engine:
         account_lines: list[str] = []
         # Only the connectors this playbook requires (chat offers every connector that is on): read-only, audited.
         room = MAX_AGENT_TOOLS - len(dict.fromkeys(step.tools + agent_tools)) - (1 if has_skills else 0)
-        found = await self.connectors.tools_for_agent(step.connectors, only=True, room=room)
+        chosen = [c for c in step.connectors if c not in step.connector_when or step.connector_when[c].holds(ctx.inputs)]
+        notes += [f"connector {c} not looked up: left out on the start form" for c in step.connectors if c not in chosen]
+        found = await self.connectors.tools_for_agent(chosen, only=True, room=room)
         notes += found.notes
         account_lines += found.lines
         for t in found.tools:
@@ -829,7 +831,7 @@ class Engine:
         models = sorted({s["model"] for s in steps if s.get("model")})
         lines = [f"# {ctx.pb.name}", "", f"**{run['title']}**", "",
                  f"> Outcome: **{outcome.value}** · Data class: {run['data_class']} · Models: {', '.join(models) or 'none'}"
-                 f" · Tokens: {run['tokens']:,} · Cost: ${run['cost_usd']:.4f}", ""]
+                 f" · Tokens: {run['tokens']:,}", ""]
         if h.get("summary"):
             lines += ["## Summary", "", h["summary"], ""]
         lines += [main.get("deliverable") or "_No deliverable was produced._", ""]

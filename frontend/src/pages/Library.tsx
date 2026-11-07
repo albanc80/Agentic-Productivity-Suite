@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Overview, type RunSummary } from "../api";
-import { Empty, ErrorNote, Pill, fmtCost, fmtTime } from "../ui";
+import { Empty, ErrorNote, Pill, fmtTime } from "../ui";
 
 export default function Library({ ov }: { ov: Overview }) {
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
@@ -51,7 +51,7 @@ export default function Library({ ov }: { ov: Overview }) {
       {shown.length > 0 && (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Run</th><th>Playbook</th><th>Status</th><th>Data</th><th className="num">Tokens</th><th className="num">Cost</th><th>Started</th><th><span className="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th>Run</th><th>Playbook</th><th>Status</th><th>Data</th><th className="num">Tokens</th><th>Started</th><th><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {shown.map((r) => (
                 <tr key={r.id}>
@@ -60,7 +60,6 @@ export default function Library({ ov }: { ov: Overview }) {
                   <td><Pill value={r.status === "completed" ? r.outcome : r.status} /></td>
                   <td>{r.data_class}</td>
                   <td className="num">{r.tokens.toLocaleString()}</td>
-                  <td className="num">{fmtCost(r.cost_usd)}</td>
                   <td className="nowrap">{fmtTime(r.created_at)}</td>
                   <td className="nowrap">
                     {confirm === r.id

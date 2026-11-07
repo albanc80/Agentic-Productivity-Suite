@@ -40,7 +40,7 @@ budgets:
   max_chat_tokens: 400000
   # Guardrails: always on.
   max_steps: 40                 # step executions per run, revisions included
-  max_tool_calls_per_step: 8
+  max_tool_calls_per_step: 20   # lookups per answer or playbook step (8 in files from before 0.7.5 is read as 20)
   max_tool_result_chars: 12000
   max_context_fraction: 0.75    # prompt may use at most this share of a model's context window
 

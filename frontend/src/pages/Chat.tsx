@@ -1,7 +1,7 @@
 import { isLive, openConnectors, shortName } from "../connectors";
 import { useEffect, useRef, useState } from "react";
 import { api, downloadAnswer, exportAnswer, type ChatDetail, type ExportResult, type ChatMsg, type ChatSummary, type Overview } from "../api";
-import { EnterHint, ErrorNote, ExportNote, Markdown, NoteText, enterSends, fmtCost, fmtTime, go } from "../ui";
+import { EnterHint, ErrorNote, ExportNote, Markdown, NoteText, enterSends, fmtTime, go } from "../ui";
 
 const COORDINATOR = "chief-of-staff";
 
@@ -122,7 +122,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
           {chat ? (
             <div className="grow stack-xs">
               <h1 className="chat-title">{chat.title}</h1>
-              <span className="muted small">{agent?.name} · data class {chat.data_class} · model {modelFor(ov, chat.agent_id)} · {chat.tokens.toLocaleString()} tokens · {fmtCost(chat.cost_usd)}{ov.budgets.enabled ? ` · budget ${fmtCost(ov.budgets.max_chat_cost_usd)} / ${ov.budgets.max_chat_tokens.toLocaleString()} tokens` : ""}</span>
+              <span className="muted small">{agent?.name} · data class {chat.data_class} · model {modelFor(ov, chat.agent_id)} · {chat.tokens.toLocaleString()} tokens{ov.budgets.enabled ? ` · limit ${ov.budgets.max_chat_tokens.toLocaleString()} tokens` : ""}</span>
             </div>
           ) : (
             <div className="grow stack-sm">

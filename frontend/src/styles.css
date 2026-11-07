@@ -539,3 +539,7 @@ fieldset.plain.is-dim .ep-grid { opacity: .6; }
 .agent-model-row:first-child { border-top: 0; padding-top: 0; }
 .agent-model-pick { width: min(100%, 340px); }
 .ep-grid > .check.field { grid-column: 1 / -1; flex-direction: row; align-items: center; }
+
+/* Answers, deliverables and every page's content can be selected and copied, also in the desktop window
+   (pywebview's default style turns selection off on <body>). */
+main, .md, .chat-main, .warn-list, pre, code { -webkit-user-select: text; user-select: text; }
