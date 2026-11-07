@@ -156,7 +156,7 @@ connectors:
     steps:
       - "OAuth client: nothing to do when it says Built into this app. Otherwise press Upload client file and choose the .json file you were given with the app (or your own: see the full setup guide)."
       - "Under Sign-in, enter your Google address and press Sign in with Google. Nothing to install: the app uses uv from this computer or its own copy. The first sign-in downloads the connector, which can take a minute."
-      - "A Google page opens in your browser on this computer. Sign in and allow read-only access. If Google says it has not verified the app, choose Advanced, then continue: it is the app's own client. If Google says access is blocked, ask the person who shared the app to add your address as a test user."
+      - "A Google page opens in your browser on this computer. Sign in and allow read-only access. If Google says it has not verified the app, choose Advanced, then continue: it is the app's own client. If Google shows an error instead (Advanced Protection, org_internal, access_denied), open 'Google showed an error' under Sign-in for what it means and who can fix it."
       - "The app notices when you are done, adds the account and switches the connector on. Press Test to see the tools."
       - "Several accounts: press Add another account and sign in with the next one. The first account is the default."
     docs_url: https://github.com/taylorwilsdon/google_workspace_mcp#readme

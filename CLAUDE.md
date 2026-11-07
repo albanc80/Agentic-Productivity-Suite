@@ -53,4 +53,5 @@ Passing unit tests has not been enough here: four bugs in a row reached the owne
 - **The installer runs as SYSTEM or root; the app runs as the person.** Never `tempfile.mkdtemp` for anything another user must open (on Windows it sets an owner-only access list; `chmod` does not undo it). Test file access as a different user (`su nobody`), not only as the one who installed.
 - **Nothing a connector does may escape as a 500.** Catch every exception at the connector boundary (Test, chat, playbooks) and show its type and message. Chat never waits long for, or fails because of, one connector.
 - **The real error is in `~/.productivity-suite/suite.log`** on the person's computer (`%USERPROFILE%` on Windows). Ask for its tail before guessing.
+- **The desktop window has no address bar or Back button.** Every link to another site must open in the browser (`target="_blank"`; pywebview sends only new-window requests there). Never navigate the app window away from the app.
 - **Force-push is refused by the tool runner.** After a merge, reset the branch to `origin/main`; the next push is a fast-forward.

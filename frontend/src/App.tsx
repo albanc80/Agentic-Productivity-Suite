@@ -25,14 +25,40 @@ function useTheme(): [Theme, (t: Theme) => void] {
   return [theme, setTheme];
 }
 
+const LAST_PAGE = "suite.lastPage";
+
 function useHash() {
-  const [hash, setHash] = useState(() => window.location.hash.slice(1) || "/");
+  const [hash, setHash] = useState(() => {
+    // Back from a page the app sent to the browser: reopen the page the person was on (this window only).
+    if (!window.location.hash) {
+      try { const last = sessionStorage.getItem(LAST_PAGE); if (last) { window.location.hash = last; return last; } } catch { /* storage unavailable */ }
+    }
+    return window.location.hash.slice(1) || "/";
+  });
   useEffect(() => {
     const on = () => { setHash(window.location.hash.slice(1) || "/"); window.scrollTo(0, 0); };
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
+  useEffect(() => { try { sessionStorage.setItem(LAST_PAGE, hash); } catch { /* storage unavailable */ } }, [hash]);
   return hash;
+}
+
+/** Every link to another site opens in the browser. The desktop window has no address bar or Back button, so a page
+ * opened inside it (a Google sign-in, a Cloud console link) would leave the person stuck. */
+function useExternalLinksInBrowser() {
+  useEffect(() => {
+    const on = (e: MouseEvent) => {
+      const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a || e.defaultPrevented || a.hasAttribute("download")) return;
+      const url = new URL(a.href, window.location.href);
+      if (!/^https?:$/.test(url.protocol) || url.origin === window.location.origin || a.target === "_blank") return;
+      e.preventDefault();
+      window.open(url.href, "_blank", "noopener,noreferrer");
+    };
+    document.addEventListener("click", on, true);
+    return () => document.removeEventListener("click", on, true);
+  }, []);
 }
 
 const NAV = [
@@ -47,6 +73,7 @@ const NAV = [
 
 export default function App() {
   const hash = useHash();
+  useExternalLinksInBrowser();
   const [theme, setTheme] = useTheme();
   const [ov, setOv] = useState<Overview | null>(null);
   const [error, setError] = useState<unknown>(null);

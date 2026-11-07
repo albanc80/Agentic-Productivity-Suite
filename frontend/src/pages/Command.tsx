@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Overview, type RouteResult, type RunSummary } from "../api";
-import { ErrorNote, Pill, fmtTime, go } from "../ui";
+import { EnterHint, ErrorNote, Pill, enterSends, fmtTime, go } from "../ui";
 import { OrchestrationMap } from "../viz";
 import { setPrefill } from "./RunForm";
 
@@ -16,8 +16,8 @@ export default function Command({ ov }: { ov: Overview }) {
   const realModels = ov.providers.filter((p) => p.available);
   const liveConnectors = ov.connectors.filter((c) => !["unconfigured", "disabled", "offline"].includes(c.status)).length;
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e?: React.FormEvent) {
+    e?.preventDefault();
     if (!text.trim()) return;
     setBusy(true); setError(null);
     try {
@@ -47,9 +47,9 @@ export default function Command({ ov }: { ov: Overview }) {
             <label htmlFor="cmd" className="sr-only">Request</label>
             <textarea id="cmd" rows={3} value={text} onChange={(e) => setText(e.target.value)}
               placeholder="e.g. Ops wants a CSV export added this sprint. It's about 40 hours. Should we take it?"
-              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit(e); }} />
+              onKeyDown={(e) => enterSends(e, () => submit())} />
             <div className="command-bar">
-              <span className="muted small"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+              <EnterHint />
               <button type="button" disabled={busy || !text.trim()} onClick={() => {
                 try { sessionStorage.setItem("suite.chatDraft", text); } catch { /* storage unavailable */ }
                 go("/chat");

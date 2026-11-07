@@ -1,7 +1,7 @@
 import { isLive, openConnectors, shortName } from "../connectors";
 import { useEffect, useRef, useState } from "react";
 import { api, downloadAnswer, exportAnswer, type ChatDetail, type ExportResult, type ChatMsg, type ChatSummary, type Overview } from "../api";
-import { ErrorNote, ExportNote, Markdown, fmtCost, fmtTime, go } from "../ui";
+import { EnterHint, ErrorNote, ExportNote, Markdown, NoteText, enterSends, fmtCost, fmtTime, go } from "../ui";
 
 const COORDINATOR = "chief-of-staff";
 
@@ -181,7 +181,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
           <label htmlFor="chat-text" className="sr-only">Message</label>
           <textarea id="chat-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} disabled={busy === "send"}
             placeholder={isCoordinator ? "Ask the Chief of Staff…" : `Ask ${agent?.name}…`}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }} />
+            onKeyDown={(e) => enterSends(e, () => { void send(); })} />
           <div className="command-bar">
             <div className="row-tight">
               <label className="file-btn">
@@ -194,7 +194,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
                   onClick={() => setFiles((x) => x.filter((y) => y.id !== f.id))}>×</button></span>
               ))}
             </div>
-            <span className="muted small"><kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+            <EnterHint />
             <button className="primary cut" type="submit" disabled={!text.trim() || !!busy}>{busy === "send" ? "Sending…" : "Send"}</button>
           </div>
         </form>
@@ -304,7 +304,7 @@ function Message({ m, ov, chatId, index, restricted }: { m: ChatMsg; ov: Overvie
           const fits = (m.warnings || []).filter((w) => w.includes("context fit"));
           const other = (m.warnings || []).filter((w) => !w.includes("context fit"));
           return <>
-            {other.length > 0 && <ul className="small warn-list">{other.map((w, i) => <li key={i}>{w}</li>)}</ul>}
+            {other.length > 0 && <ul className="small warn-list">{other.map((w, i) => <li key={i}><NoteText text={w} /></li>)}</ul>}
             {fits.length > 0 && (
               <details className="small muted fit-notes">
                 <summary>Prompt shortened to fit the model's context ({fits.length} note{fits.length > 1 ? "s" : ""})</summary>

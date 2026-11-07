@@ -69,6 +69,8 @@ Open **Chat** and pick an agent, or keep the Chief of Staff, who answers itself 
 - Agents are told what the app can do (copy, download, save, read shared folders), so they write the document instead of telling you to print or copy by hand.
 - The chat header shows the tokens and cost used so far, and the chat budget when spending limits are on.
 - A message that could not be answered keeps its chat: sending again uses the same chat, and chats with no answer are not listed.
+- **Enter** sends a message (here and on Command); **Shift+Enter** starts a new line.
+- Links in answers open in your browser, never inside the app window. If a page outside the app ever opens in the window, the app sends it to the browser and returns to the page you were on.
 
 ## Outputs folder
 
@@ -95,7 +97,7 @@ Set them up in Settings → Connectors. **Every connector starts switched off**,
 - The app notices when you are done, adds the account and switches the connector on. **Add another account**, **Sign out**, and **Use them** for accounts signed in earlier (for example from a terminal).
 - The connector's own server signs in and keeps the tokens; the app never reads, stores or logs a token or a code, and the sign-in asks for the connector's read-only permissions only.
 
-**Google OAuth client.** Google needs an OAuth client. When the app has one built in, there is nothing to do. Otherwise press **Upload client file** in Settings and choose the `.json` you were given (it is checked, saved readable only by you, and its secret is never shown or logged). To build your client into the installers, add the file's contents as the repository secret `GOOGLE_OAUTH_CLIENT_JSON`; people who install that build skip Google Cloud entirely.
+**Google OAuth client.** Google needs an OAuth client. When the app has one built in, there is nothing to do. Whoever owns the client sets it up once in Google Cloud (audience External, test users, eight APIs switched on; see [docs/CONNECTORS.md](docs/CONNECTORS.md#built-in-google-client)); if Google shows an error at sign-in, the panel explains it, and an API that is still off is named in the answer with the link that turns it on. Otherwise press **Upload client file** in Settings and choose the `.json` you were given (it is checked, saved readable only by you, and its secret is never shown or logged). To build your client into the installers, add the file's contents as the repository secret `GOOGLE_OAUTH_CLIENT_JSON`; people who install that build skip Google Cloud entirely.
 
 **Nothing to install.** uv (Google Workspace, Jira/Confluence), Node.js (Microsoft 365, Azure DevOps) and GitHub's server program (GitHub) come from, in order:
 

@@ -79,6 +79,23 @@ Where the app looks, first match wins: a file uploaded in Settings (the data fol
 
 Installers: add the file's contents as the repository secret `GOOGLE_OAUTH_CLIENT_JSON` (GitHub → Settings → Secrets and variables → Actions). The installer build writes it into `config/` before packaging (`desktop/bundle_oauth_client.py`), so everyone who installs that build signs in without any Google Cloud setup. Without the secret the build still succeeds, with no built-in client. A malformed secret fails the build.
 
+**Set up the client once (its owner only).** People who sign in through a client do nothing in Google Cloud. Whoever creates the client does these steps once, in [Google Cloud console](https://console.cloud.google.com), in the client's project (menu names as of late 2026; they move):
+
+1. **Audience: External.** Google Auth Platform → **Audience** → **Make external**, and leave it in **Testing**. An *Internal* client lets in only accounts of the Google Workspace that owns the project: everyone else gets `Error 403: org_internal`.
+2. **Test users.** Under **Audience → Test users**, add every address that will sign in (yours included; up to 100). Anyone else gets `Error 403: access_denied`.
+3. **Switch on the APIs.** A new project has every API off, and sign-in works but every lookup fails with "API is not enabled". Enable each of these once (APIs & Services → Library, or the links below while the project is selected):
+   [Gmail](https://console.cloud.google.com/apis/library/gmail.googleapis.com), [Google Calendar](https://console.cloud.google.com/apis/library/calendar-json.googleapis.com), [Google Drive](https://console.cloud.google.com/apis/library/drive.googleapis.com), [People (contacts)](https://console.cloud.google.com/apis/library/people.googleapis.com), [Google Docs](https://console.cloud.google.com/apis/library/docs.googleapis.com), [Google Sheets](https://console.cloud.google.com/apis/library/sheets.googleapis.com), [Google Slides](https://console.cloud.google.com/apis/library/slides.googleapis.com), [Tasks](https://console.cloud.google.com/apis/library/tasks.googleapis.com). Allow a few minutes after enabling. If one is still off, the chat answer (or the run notes of a playbook) names it with the link for the right project.
+4. **Credentials → Create credentials → OAuth client ID → Desktop app**, then **Download JSON**: that is the client file to upload or build in.
+
+**When Google shows an error instead of asking for access**, the sign-in panel lists what each means ("Google showed an error instead of asking for access?"). Google stops on its own page for these and never returns to the app, so the panel cannot detect them:
+
+| Google says | Meaning | Fix |
+|---|---|---|
+| Access blocked: … not approved by Advanced Protection (`Error 400: policy_enforced`) | The account is in Google's Advanced Protection Program, which allows only Google-verified apps | Sign in with another account. Nothing in the app or the client can change this short of Google verification. |
+| `Error 403: org_internal` | The client's audience is Internal | Owner: Audience → **Make external** |
+| `Error 403: access_denied`, or "has not completed the Google verification process" | The account is not a test user | Owner: add it under Audience → Test users |
+| Signed in, but answers say an API is not enabled | The API is off in the client's project | Owner: the link in the answer, once |
+
 What to know about sharing a client:
 - A Desktop app client's secret is not confidential by Google's own design for installed apps: anyone with the installer can read it. It lets them sign in to *their own* Google account through your client; it gives no access to yours.
 - Google's limits for an unverified client: in **Testing**, only the test users you list can sign in and each sign-in expires after 7 days; **In production** without verification, people see the "not verified" warning and the number of users is capped (100, at the time of writing). Check Google's current rules for both.
