@@ -3,6 +3,7 @@ import { api, type ModelEdit, type ModelEndpoint, type Overview, type ProviderIn
 import { ErrorNote } from "../ui";
 import { ChainsEditor, ConnectorsPanel, PoliciesPanel, ProfilePanel, Switch } from "./SettingsPanels";
 import { AgentModels, ModelsInUse, modelRole } from "./ModelPanels";
+import { AboutCard, AgentPackCard, UserGuide } from "./SystemPanels";
 
 const TABS = [
   { id: "models", label: "Models" },
@@ -10,12 +11,16 @@ const TABS = [
   { id: "profile", label: "Profile" },
   { id: "policies", label: "Policies & budgets" },
   { id: "system", label: "System" },
+  { id: "guide", label: "User guide" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
 export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange: () => void }) {
   const [tab, setTab] = useState<Tab>(() => {
-    try { return (sessionStorage.getItem("suite.settingsTab") as Tab) || "models"; } catch { return "models"; }
+    try {
+      const saved = sessionStorage.getItem("suite.settingsTab") as Tab | null;
+      return saved && TABS.some((t) => t.id === saved) ? saved : "models";
+    } catch { return "models"; }
   });
   useEffect(() => { try { sessionStorage.setItem("suite.settingsTab", tab); } catch { /* storage unavailable */ } }, [tab]);
   const [error, setError] = useState<unknown>(null);
@@ -64,6 +69,7 @@ export default function SettingsPage({ ov, onChange }: { ov: Overview; onChange:
         {tab === "profile" && <ProfilePanel ov={ov} onChange={onChange} />}
         {tab === "policies" && <PoliciesPanel ov={ov} onChange={onChange} />}
         {tab === "system" && <SystemPanel ov={ov} onChange={onChange} setError={setError} />}
+        {tab === "guide" && <UserGuide ov={ov} goTo={(t) => { setTab(t); window.scrollTo(0, 0); }} />}
       </div>
     </div>
   );
@@ -111,6 +117,8 @@ function SystemPanel({ ov, onChange, setError }: { ov: Overview; onChange: () =>
   }
   return (
     <>
+      <AboutCard ov={ov} />
+      <AgentPackCard ov={ov} onChange={onChange} />
       <section className="card stack kill">
         <div className="row">
           <div className="grow stack-sm">

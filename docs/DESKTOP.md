@@ -75,11 +75,16 @@ Chats and runs marked **Restricted** are not copied, because Documents may be sy
 
 ## Private agent layer
 
-The installers do not contain the agents' full instructions, personas or lineage. Copy your private
-layer folder (it holds `agents/<agent-id>.yaml`) to `~/.productivity-suite/private-registry`
-(`%USERPROFILE%\.productivity-suite\private-registry` on Windows), or set `SUITE_PRIVATE_REGISTRY`
-to its location, then restart the app. Without it the app runs, each agent works from its public
-capability summary, and Settings shows a warning.
+The installers do not contain the agents' full instructions, personas or lineage (the repository and
+its installers are public). Install them from the app: **Settings → System → Agent instructions →
+Import agent pack**, then choose the pack as a `.zip` (the private folder zipped; files under its
+`agents/` folder are used) or the agents' `.yaml` files. The app checks every file against the
+catalog before writing anything, saves them to `~/.productivity-suite/private-registry/agents`
+(`%USERPROFILE%\.productivity-suite\private-registry\agents` on Windows) readable only by you, and
+uses them at once, without a restart. Importing again replaces files with the same name and keeps
+the rest. Copying the folder there yourself, or setting `SUITE_PRIVATE_REGISTRY`, still works (then
+restart). Without it the app runs, each agent works from its public capability summary, and
+Settings shows a notice that points to the card.
 
 ## Offline mode
 

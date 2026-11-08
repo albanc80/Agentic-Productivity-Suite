@@ -87,7 +87,9 @@ export interface ChatSummary {
   created_at: string; updated_at: string; messages: number;
 }
 export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[] }
+export interface AgentPack { installed: boolean; folder: string | null; agents_total: number; agents_with_instructions: number }
 export interface Overview {
+  version: string; agent_pack: AgentPack;
   desks: Desk[]; agents: AgentCard[]; playbooks: PlaybookCard[]; providers: ProviderInfo[]; tiers: Record<string, string[]>;
   connectors: ConnectorInfo[]; data_classes: Record<string, string[]>; default_data_class: string; kill_switch: boolean; offline: boolean;
   offline_override: boolean | null; endpoints: ModelEndpoint[];
@@ -199,6 +201,10 @@ export const api = {
   uploadClientFile: (id: string, file: File) => {
     const fd = new FormData(); fd.append("file", file);
     return call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "POST", body: fd });
+  },
+  importAgentPack: (files: File[]) => {
+    const fd = new FormData(); files.forEach((f) => fd.append("files", f));
+    return call<AgentPack & { imported: string[]; skipped: string[] }>("/api/agent-pack", { method: "POST", body: fd });
   },
   removeClientFile: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "DELETE" }),
   useSignedIn: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/use`, { method: "POST" }),

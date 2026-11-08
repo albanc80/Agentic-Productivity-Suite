@@ -66,7 +66,8 @@ def test_catalog_consistency():
 
 def test_without_private_layer_agents_run_on_their_public_card(tmp_path):
     reg = Registry(ROOT / "registry", POLICIES, tmp_path / "missing")
-    assert any("Private agent layer not found" in w for w in reg.warnings)
+    assert any("Agent instructions are not installed" in w and "Settings → System" in w for w in reg.warnings)
+    assert not any("SUITE_PRIVATE_REGISTRY" in w for w in reg.warnings)  # no terminal steps in the notice
     wp = reg.agent("well-planner")
     text = wp.instructions_for(None)
     assert wp.name in text and all(c in text for c in wp.capabilities) and "advisory only" in text

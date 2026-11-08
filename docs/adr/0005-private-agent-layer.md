@@ -31,3 +31,13 @@ its public card, and a warning says so. Tests use a small fake private layer in
   (`Agent.public`), so the UI cannot leak them even when the layer is installed.
 - A test fails if a private file, the old `registry/agents/` folder or a private key appears in a
   tracked file.
+
+## Amendment (0.9.0): install from Settings
+
+The notice used to ask people to set `SUITE_PRIVATE_REGISTRY` or edit `suite.yaml`, which breaks the
+"no terminals" rule. Settings → System → Agent instructions now imports the pack (`POST /api/agent-pack`,
+a `.zip` or `.yaml` files) into the private layer folder in use, or `<data_dir>/private-registry` when none is
+set, and reloads the registry in place. Every file is parsed and matched to a catalog agent before
+anything is written; zip paths are reduced to file names; files are written `0600` with a plain
+`mkdir`. The audit records counts only, never content. Bundling the pack into the installers was
+rejected: the installers are public downloads, so anything inside them is public.
