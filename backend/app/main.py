@@ -48,7 +48,7 @@ from .local_files import FolderError, check_folder
 from .outputs import Outputs
 from .playbooks import load_playbooks
 from .providers import ModelRouter, ProviderError
-from .registry import Registry
+from .registry import Registry, read_pack_key
 from .router import route
 from .settings import Budgets, PersonaSettings, Settings, load_profile, load_settings, upgrade_budgets
 from .signin import SigninError, SigninManager
@@ -133,7 +133,10 @@ def public_endpoint(e: Endpoint) -> dict:
 class Suite:
     def __init__(self, settings: Settings, connectors: ConnectorManager | None = None, http_client=None):
         self.settings = settings
-        self.registry = Registry(settings.registry_dir, settings.policies_dir, settings.private_registry_dir)
+        # Agent instructions: the encrypted pack built into the installers (ADR 0007), then any pack imported in Settings.
+        pack_file = Path(os.environ["SUITE_AGENT_PACK"]) if os.environ.get("SUITE_AGENT_PACK") else settings.registry_dir / "agent-pack.enc"
+        self.registry = Registry(settings.registry_dir, settings.policies_dir, settings.private_registry_dir,
+                                 pack_file=pack_file, pack_key=read_pack_key(settings.home))
         self.connectors = connectors or ConnectorManager.from_file(
             settings.connectors_path, offline=settings.offline, presets=settings.home / "config" / "connectors.example.yaml")
         # The registry's notices are read live (see `warnings`), so importing the agent pack clears its notice.
@@ -193,9 +196,9 @@ class Suite:
     def import_agent_pack(self, uploads: list[tuple[str, bytes]], by: str) -> dict:
         result = self.registry.import_private(uploads, self.agent_pack_folder())
         # File names and counts only: the instructions themselves are never logged or audited.
-        self.store.audit("agent_pack_imported", None, by=by, files=len(result["imported"]),
+        self.store.audit("agent_pack_imported", None, by=by, files=len(result["imported_files"]),
                          skipped=len(result["skipped"]), agents_with_instructions=result["agents_with_instructions"])
-        log.info("Agent pack imported: %d file(s) into %s", len(result["imported"]), result["folder"])
+        log.info("Agent pack imported: %d file(s) into %s", len(result["imported_files"]), result["folder"])
         return result
 
     # ------------------------------------------------------------ runtime configuration

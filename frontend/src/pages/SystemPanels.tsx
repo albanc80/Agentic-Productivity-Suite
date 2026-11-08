@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { api, type Overview } from "../api";
+import { api, type AgentPack, type Overview } from "../api";
 import { ErrorNote } from "../ui";
 
 const REPO = "https://github.com/albanc80/Agentic-Productivity-Suite";
@@ -35,7 +35,18 @@ export function AboutCard({ ov }: { ov: Overview }) {
   );
 }
 
-/** Settings → System → Agent instructions: install the private agent layer (ADR 0005) without a terminal. */
+function packDetail(p: AgentPack): string {
+  if (!p.installed) {
+    return "This copy of the app has no agent instructions built in. If the app's owner gave you an agent pack (a .zip, or the agents' .yaml files), "
+      + "import it: it is checked, saved on this computer readable only by you, and used at once.";
+  }
+  const parts: string[] = [];
+  if (p.built_in) parts.push(`${p.built_in} built into the app`);
+  if (p.imported) parts.push(`${p.imported} from a pack imported here${p.built_in ? ", used instead of the built-in ones" : ""}`);
+  return `${p.agents_with_instructions} of ${p.agents_total} agents use their full instructions: ${parts.join("; ")}.`;
+}
+
+/** Settings → System → Agent instructions: built into the app encrypted (ADR 0007), or imported here (ADR 0005). */
 export function AgentPackCard({ ov, onChange }: { ov: Overview; onChange: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -51,7 +62,7 @@ export function AgentPackCard({ ov, onChange }: { ov: Overview; onChange: () => 
     setBusy(true); setError(null); setDone("");
     try {
       const r = await api.importAgentPack(files);
-      setDone(`Installed ${r.imported.length} agent file${r.imported.length === 1 ? "" : "s"}; ${r.agents_with_instructions} of ${r.agents_total} agents now use their full instructions.`
+      setDone(`Installed ${r.imported_files.length} agent file${r.imported_files.length === 1 ? "" : "s"}; ${r.agents_with_instructions} of ${r.agents_total} agents now use their full instructions.`
         + (r.skipped.length ? ` Skipped ${r.skipped.length} file${r.skipped.length === 1 ? "" : "s"} that name no agent in this app.` : ""));
       onChange();
     } catch (e) { setError(e); } finally { setBusy(false); }
@@ -63,30 +74,26 @@ export function AgentPackCard({ ov, onChange }: { ov: Overview; onChange: () => 
         <div className="grow stack-sm">
           <h2 id="pack-h">Agent instructions</h2>
           <p className="muted small measure">
-            Each agent's full instructions and persona are kept out of the public app and its installers, in a separate
-            <strong> agent pack</strong> from the app's owner. Without it every agent still works, from its short public description,
+            Each agent's full instructions and persona make its answers specific. They are built into this app encrypted, used only
+            by the agents, and never shown on screen. Without them every agent still works, from its short public description,
             but answers are more generic.
           </p>
         </div>
         <span className={`pill ${full ? "ok" : p.agents_with_instructions ? "warn" : "neutral"}`} data-testid="pack-state">
-          {!p.installed ? "Not installed" : full ? "Installed" : `${p.agents_with_instructions} of ${p.agents_total} agents`}
+          {!p.installed ? "Not installed" : full ? (p.imported ? "Installed" : "Built in") : `${p.agents_with_instructions} of ${p.agents_total} agents`}
         </span>
       </div>
-      <p className="small">
-        {p.installed
-          ? `${p.agents_with_instructions} of ${p.agents_total} agents use their full instructions.`
-          : "Choose the agent pack you were given (a .zip, or the agents' .yaml files). It is checked, saved on this computer readable only by you, and used at once: no restart."}
-      </p>
+      <p className="small" data-testid="pack-detail">{packDetail(p)}</p>
       <div className="row-tight">
         <input ref={input} type="file" accept=".zip,.yaml,.yml,application/zip" multiple hidden aria-hidden="true"
           data-testid="pack-input" onChange={(e) => upload(e.target.files)} />
-        <button type="button" className={p.installed ? "" : "primary"} onClick={() => input.current?.click()} disabled={busy}>
-          {busy ? "Installing…" : p.installed ? "Update agent pack" : "Import agent pack"}
+        <button type="button" className={p.installed ? "ghost" : "primary"} onClick={() => input.current?.click()} disabled={busy}>
+          {busy ? "Installing…" : p.imported ? "Update imported pack" : p.built_in ? "Import my own version" : "Import agent pack"}
         </button>
       </div>
       {done && <p className="small ok-text" role="status">{done}</p>}
       <ErrorNote error={error} />
-      {p.folder && <p className="help">Saved in <code>{p.folder}</code>. Importing again replaces files with the same name and keeps the rest.</p>}
+      {p.folder && (p.imported > 0 || !p.built_in) && <p className="help">Imported packs are saved in <code>{p.folder}</code>. Importing again replaces files with the same name and keeps the rest.</p>}
     </section>
   );
 }

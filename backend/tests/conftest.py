@@ -23,6 +23,8 @@ PRIVATE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "private-regist
 # Tests never read a real private agent layer: they use a small fake one so results are the
 # same on every machine and in CI, where the private layer does not exist.
 os.environ["SUITE_PRIVATE_REGISTRY"] = str(PRIVATE_FIXTURE)
+# Nor the agent pack built into a desktop build: no key, so registry/agent-pack.enc stays closed.
+os.environ["SUITE_AGENT_PACK_KEY"] = ""
 # Nor a real Documents folder: copies of chats and deliverables go to a throwaway folder.
 OUTPUTS_FIXTURE = Path(tempfile.mkdtemp(prefix="suite-outputs-"))
 os.environ["SUITE_OUTPUTS_DIR"] = str(OUTPUTS_FIXTURE)

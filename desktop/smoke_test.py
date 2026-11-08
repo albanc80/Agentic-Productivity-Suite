@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from pathlib import Path
 
 CASING = {"casing_size_in": 9.625, "weight_ppf": 47, "grade": "P-110", "setting_depth_ft": 10000,
           "pore_pressure_ppg": 10.5, "fracture_gradient_ppg": 15.0, "mud_weight_ppg": 11.0}
@@ -58,6 +59,12 @@ def main() -> int:
             assert b"<!doctype html>" in r.read(200).lower(), "UI not served"
         ov = call(base + "/api/overview")
         assert len(ov["playbooks"]) >= 9 and len(ov["agents"]) == 34, (len(ov["playbooks"]), len(ov["agents"]))
+        # A build made with the AGENT_PACK_KEY secret must open its built-in agent pack (ADR 0007).
+        keyed = any(Path(exe).resolve().parent.rglob("agent-pack.key"))
+        pack = ov.get("agent_pack", {})
+        if keyed:
+            assert pack.get("built_in") == 34, (pack, [w for w in ov["warnings"] if "agent" in w.lower()])
+        print(f"Agent pack: {'built in, ' + str(pack.get('built_in')) + ' agents' if keyed else 'no key in this build'}")
         rid = call(base + "/api/runs", {"playbook_id": "well-plan-review", "inputs": {
             "well": "Smoke-1", "plan_summary": "smoke test", "casing_json": json.dumps(CASING)}})["id"]
         for _ in range(120):
