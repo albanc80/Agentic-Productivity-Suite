@@ -2,11 +2,46 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import io
+import os
+import zipfile
+from pathlib import Path, PurePosixPath
 from typing import ClassVar
 
 import yaml
 from pydantic import BaseModel, Field
+
+NOT_INSTALLED = ("Agent instructions are not installed, so agents work from their short public descriptions and "
+                 "answers are more generic. To fix it, import your agent pack in Settings → System → Agent instructions.")
+MAX_PACK_FILES = 500
+MAX_PACK_FILE_BYTES = 2 * 1024 * 1024
+MAX_PACK_BYTES = 25 * 1024 * 1024
+
+
+def _safe_name(name: str) -> str:
+    """Only the file name is kept, so nothing can be written outside the agents folder."""
+    base = PurePosixPath(name.replace("\\", "/")).name
+    if not base or base.startswith("."):
+        raise ValueError(f"{name!r} is not a usable file name.")
+    return base
+
+
+def _yaml_from_zip(data: bytes) -> dict[str, bytes]:
+    """The agent files in a .zip: those under an ``agents/`` folder if there is one, else every .yaml file."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as e:
+        raise ValueError("That .zip file could not be opened.") from e
+    with zf:
+        entries = [i for i in zf.infolist() if not i.is_dir() and i.filename.lower().endswith((".yaml", ".yml"))
+                   and not PurePosixPath(i.filename).name.startswith(".") and "__MACOSX" not in i.filename]
+        under_agents = [i for i in entries if "agents" in PurePosixPath(i.filename).parts[:-1]]
+        entries = under_agents or entries
+        if len(entries) > MAX_PACK_FILES:
+            raise ValueError(f"That .zip has more than {MAX_PACK_FILES} files; it does not look like an agent pack.")
+        if sum(i.file_size for i in entries) > MAX_PACK_BYTES or any(i.file_size > MAX_PACK_FILE_BYTES for i in entries):
+            raise ValueError("That .zip is too large to be an agent pack.")
+        return {_safe_name(i.filename): zf.read(i) for i in entries}
 
 
 class Persona(BaseModel):
@@ -121,28 +156,101 @@ class Registry:
     def _load_private(self) -> None:
         d = self.private_dir / "agents" if self.private_dir else None
         if not d or not d.is_dir():
-            self.warnings.append("Private agent layer not found: agents run on their public capability summary. "
-                                 "Set SUITE_PRIVATE_REGISTRY (or private_registry in suite.yaml) to its folder.")
+            self.warnings.append(NOT_INSTALLED)
             return
         for p in sorted(d.glob("*.yaml")):
-            raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-            a = self.agents.get(raw.get("id", ""))
-            if not a:
-                self.warnings.append(f"Private agent file {p.name} matches no agent in the catalog; ignored.")
+            try:
+                raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+                if not isinstance(raw, dict):
+                    raise ValueError("it is not a YAML mapping")
+                a = self.agents.get(str(raw.get("id", "")))
+                if not a:
+                    self.warnings.append(f"Agent pack file {p.name} matches no agent in the catalog; ignored.")
+                    continue
+                persona = Persona.model_validate(raw["persona"]) if raw.get("persona") else None
+            except Exception as e:  # one bad file never stops the app from starting
+                self.warnings.append(f"Agent pack file {p.name} could not be read ({type(e).__name__}: {e}); ignored.")
                 continue
-            a.instructions = raw.get("instructions") or ""
-            a.persona = Persona.model_validate(raw["persona"]) if raw.get("persona") else None
+            a.instructions = str(raw.get("instructions") or "")
+            a.persona = persona
             a.merged_from = list(raw.get("merged_from") or [])
             a.source = list(raw.get("source") or [])
             for mname, text in (raw.get("modes") or {}).items():
                 if mname in a.modes:
                     a.modes[mname].instructions = text or ""
                 else:
-                    self.warnings.append(f"Private agent file {p.name} has mode '{mname}', which the catalog does not list; ignored.")
+                    self.warnings.append(f"Agent pack file {p.name} has mode '{mname}', which the catalog does not list; ignored.")
         missing = [a.id for a in self.agents.values() if not a.has_private]
         if missing:
-            self.warnings.append(f"{len(missing)} agent(s) have no private instructions and run on their public "
+            self.warnings.append(f"{len(missing)} agent(s) have no instructions in the agent pack and run on their public "
                                  f"capability summary: {', '.join(missing)}.")
+
+    def reload_private(self, private_dir: Path | None = None) -> None:
+        """Re-read the private layer in place (after an import in Settings), so no restart is needed.
+        Agents are updated in place because the engine and chat hold this registry."""
+        if private_dir is not None:
+            self.private_dir = private_dir
+        for a in self.agents.values():
+            a.instructions, a.persona, a.merged_from, a.source = "", None, [], []
+            for m in a.modes.values():
+                m.instructions = ""
+        self.warnings = []
+        self._load_private()
+
+    def private_status(self) -> dict:
+        """For Settings: whether the agent pack is installed and how many agents it covers. No content."""
+        d = self.private_dir / "agents" if self.private_dir else None
+        return {"installed": bool(d and d.is_dir()),
+                "folder": str(self.private_dir) if self.private_dir else None,
+                "agents_total": len(self.agents),
+                "agents_with_instructions": sum(1 for a in self.agents.values() if a.has_private)}
+
+    def import_private(self, uploads: list[tuple[str, bytes]], target: Path) -> dict:
+        """Install agent pack files (a .zip, or .yaml files) into ``target/agents`` and reload.
+
+        Every file is checked before anything is written: it must parse, be a mapping and name an agent in
+        the catalog. Files that match no agent are skipped and reported. Existing files with the same name
+        are replaced; others are kept. Raises ValueError with a readable reason when nothing usable is found.
+        """
+        found: dict[str, bytes] = {}
+        for name, data in uploads:
+            if name.lower().endswith(".zip"):
+                found.update(_yaml_from_zip(data))
+            elif name.lower().endswith((".yaml", ".yml")):
+                found[_safe_name(name)] = data
+            else:
+                raise ValueError(f"{name}: choose a .zip agent pack or the agents' .yaml files.")
+        if not found:
+            raise ValueError("No agent files (.yaml) were found in what you chose.")
+        good: dict[str, bytes] = {}
+        skipped: list[str] = []
+        for fname, data in found.items():
+            try:
+                raw = yaml.safe_load(data.decode("utf-8")) or {}
+            except (UnicodeDecodeError, yaml.YAMLError) as e:
+                raise ValueError(f"{fname} is not a readable YAML file ({type(e).__name__}).") from e
+            if not isinstance(raw, dict) or str(raw.get("id", "")) not in self.agents:
+                skipped.append(fname)
+                continue
+            if raw.get("persona"):
+                try:
+                    Persona.model_validate(raw["persona"])
+                except Exception as e:
+                    raise ValueError(f"{fname}: its persona is not valid ({e.__class__.__name__}).") from e
+            good[f"{raw['id']}.yaml"] = data
+        if not good:
+            raise ValueError("None of the files names an agent in this app's catalog, so nothing was installed. "
+                             "Check that you chose the agent pack for this app.")
+        agents_dir = target / "agents"
+        agents_dir.mkdir(parents=True, exist_ok=True)  # plain mkdir: never mkdtemp (owner-only folders on Windows)
+        for fname, data in good.items():
+            tmp = agents_dir / f".{fname}.part"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)  # the person's own design: readable by them only
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            os.replace(tmp, agents_dir / fname)
+        self.reload_private(target)
+        return {"imported": sorted(good), "skipped": sorted(skipped), **self.private_status()}
 
     def agent(self, agent_id: str) -> Agent:
         if agent_id not in self.agents:

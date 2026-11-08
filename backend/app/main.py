@@ -109,6 +109,7 @@ class Discover(BaseModel):
 
 
 MAX_CLIENT_FILE_BYTES = 64 * 1024  # a Google OAuth client file is well under 1 KB
+MAX_AGENT_PACK_UPLOAD = 25 * 1024 * 1024  # a whole agent pack (34 agents of ~15k characters) is well under 1 MB
 
 
 class SigninStart(BaseModel):
@@ -135,9 +136,9 @@ class Suite:
         self.registry = Registry(settings.registry_dir, settings.policies_dir, settings.private_registry_dir)
         self.connectors = connectors or ConnectorManager.from_file(
             settings.connectors_path, offline=settings.offline, presets=settings.home / "config" / "connectors.example.yaml")
-        self.playbooks, self.warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs),
-                                                      self.connectors.replaced_by())
-        self.warnings = self.registry.warnings + self.warnings
+        # The registry's notices are read live (see `warnings`), so importing the agent pack clears its notice.
+        self.playbooks, self._warnings = load_playbooks(settings.playbooks_dir, self.registry, set(self.connectors.configs),
+                                                       self.connectors.replaced_by())
         self.store = Store(settings.data_dir / "suite.db")
         self.models = ModelRouter(settings, http_client=http_client)
         self.file_profile = load_profile(settings)
@@ -147,7 +148,7 @@ class Suite:
         self.outputs = Outputs(self._outputs_choice(), settings.theme_dir)
         problem = self.outputs.ensure()
         if problem:
-            self.warnings.append(problem)
+            self._warnings.append(problem)
         self.engine = Engine(settings, self.registry, self.playbooks, self.models, self.connectors, self.store, self.profile,
                              outputs=self.outputs)
         self.chat = Chat(settings, self.registry, self.models, self.store, self.profile, self.playbooks, lambda: self.engine.killed,
@@ -175,9 +176,27 @@ class Suite:
         self.connectors.download_root = settings.data_dir / "tools"
         self.connectors.on_tool_download = lambda name, version: self.store.audit(
             "tool_downloaded", None, tool=name, version=version)
-        self.warnings += self.connectors.load_client_files(self.client_folders)
+        self._warnings += self.connectors.load_client_files(self.client_folders)
         self._upgrade_saved_budgets()
         self.apply()
+
+    @property
+    def warnings(self) -> list[str]:
+        return self.registry.warnings + self._warnings
+
+    # ------------------------------------------------------------ agent pack (private layer)
+
+    def agent_pack_folder(self) -> Path:
+        """Where an imported agent pack goes: the private layer folder in use, else <data>/private-registry."""
+        return self.settings.private_registry_dir or self.settings.data_dir / "private-registry"
+
+    def import_agent_pack(self, uploads: list[tuple[str, bytes]], by: str) -> dict:
+        result = self.registry.import_private(uploads, self.agent_pack_folder())
+        # File names and counts only: the instructions themselves are never logged or audited.
+        self.store.audit("agent_pack_imported", None, by=by, files=len(result["imported"]),
+                         skipped=len(result["skipped"]), agents_with_instructions=result["agents_with_instructions"])
+        log.info("Agent pack imported: %d file(s) into %s", len(result["imported"]), result["folder"])
+        return result
 
     # ------------------------------------------------------------ runtime configuration
 
@@ -686,6 +705,8 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     @app.get("/api/overview")
     def overview():
         return {
+            "version": __version__,
+            "agent_pack": suite.registry.private_status(),
             "desks": [d.model_dump() for d in suite.registry.desks.values()],
             "agents": [a.public() for a in suite.registry.agents.values()],
             "playbooks": [p.card() for p in suite.playbooks.values()],
@@ -1185,6 +1206,21 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except (ValueError, UnicodeDecodeError) as e:
             raise HTTPException(422, str(e) if isinstance(e, ValueError) else "That is not a text file.") from e
         return next(c for c in suite.connectors.describe() if c["id"] == cid)
+
+    @app.post("/api/agent-pack")
+    async def upload_agent_pack(files: list[UploadFile] = File(...)):
+        """Install the private agent layer from Settings: a .zip agent pack or the agents' .yaml files."""
+        uploads, total = [], 0
+        for f in files:
+            data = await f.read(MAX_AGENT_PACK_UPLOAD + 1)
+            total += len(data)
+            if total > MAX_AGENT_PACK_UPLOAD:
+                raise HTTPException(422, "That is too large to be an agent pack.")
+            uploads.append((f.filename or "", data))
+        try:
+            return suite.import_agent_pack(uploads, "ui")
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
 
     @app.delete("/api/connectors/{cid}/client-file")
     async def delete_client_file(cid: str):

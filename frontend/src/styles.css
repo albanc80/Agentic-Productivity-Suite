@@ -543,3 +543,12 @@ fieldset.plain.is-dim .ep-grid { opacity: .6; }
 /* Answers, deliverables and every page's content can be selected and copied, also in the desktop window
    (pywebview's default style turns selection off on <body>). */
 main, .md, .chat-main, .warn-list, pre, code { -webkit-user-select: text; user-select: text; }
+
+/* Settings → System → About and Settings → User guide */
+.about-list { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 6px; }
+.guide { margin: 0; padding: 0; list-style: none; counter-reset: guide; display: flex; flex-direction: column; }
+.guide li { counter-increment: guide; display: grid; grid-template-columns: 30px 1fr; column-gap: 10px; padding: 11px 0; border-top: 1px solid var(--border); }
+.guide li:first-child { border-top: 0; padding-top: 2px; }
+.guide li::before { content: counter(guide); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font: 600 .78rem/1 var(--f-body); }
+.guide li > * { grid-column: 2; }
+.guide li p { margin: 4px 0 0; }
