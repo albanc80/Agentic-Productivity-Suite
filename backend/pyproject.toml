@@ -1,6 +1,6 @@
 [project]
 name = "productivity-suite"
-version = "0.9.0"
+version = "0.10.0"
 license = "Apache-2.0"
 description = "Platform-agnostic orchestration of specialist agents into governed productivity playbooks."
 requires-python = ">=3.12"
@@ -17,6 +17,7 @@ dependencies = [
     "pypdf>=5.0",
     "python-docx>=1.1",
     "openpyxl>=3.1",
+    "cryptography>=44",  # AES-GCM for the agent pack built into the installers (ADR 0007)
 ]
 
 [dependency-groups]

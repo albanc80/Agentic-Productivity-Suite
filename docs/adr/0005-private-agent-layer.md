@@ -1,6 +1,6 @@
 # ADR 0005: Keep the agent design in a private layer
 
-Status: accepted · 2026-11-04
+Status: accepted · 2026-11-04 · amended by ADR 0007 (the installers now carry the pack, encrypted)
 
 ## Context
 The repository is public. Committed agent files exposed each agent's full instructions, its persona

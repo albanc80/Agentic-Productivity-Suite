@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 import os
 import zipfile
@@ -11,8 +13,9 @@ from typing import ClassVar
 import yaml
 from pydantic import BaseModel, Field
 
-NOT_INSTALLED = ("Agent instructions are not installed, so agents work from their short public descriptions and "
-                 "answers are more generic. To fix it, import your agent pack in Settings → System → Agent instructions.")
+NOT_INSTALLED = ("Agent instructions are not installed in this copy of the app, so agents work from their short public "
+                 "descriptions and answers are more generic. To fix it, install a release built with the agent pack, or import "
+                 "your agent pack in Settings → System → Agent instructions.")
 MAX_PACK_FILES = 500
 MAX_PACK_FILE_BYTES = 2 * 1024 * 1024
 MAX_PACK_BYTES = 25 * 1024 * 1024
@@ -42,6 +45,57 @@ def _yaml_from_zip(data: bytes) -> dict[str, bytes]:
         if sum(i.file_size for i in entries) > MAX_PACK_BYTES or any(i.file_size > MAX_PACK_FILE_BYTES for i in entries):
             raise ValueError("That .zip is too large to be an agent pack.")
         return {_safe_name(i.filename): zf.read(i) for i in entries}
+
+
+# ---------------------------------------------------------------- built-in agent pack (ADR 0007)
+# The pack ships inside the installers encrypted (registry/agent-pack.enc). The key is written into the build
+# from a repository secret and never committed. This keeps the text out of the public repository, the
+# installer's plain files and the UI; it does not stop someone who extracts the key from an installer.
+
+PACK_MAGIC = b"APSPACK1"
+PACK_AAD = b"agentic-productivity-suite/agent-pack/v1"
+PACK_KEY_ENV = "SUITE_AGENT_PACK_KEY"
+
+
+def parse_pack_key(raw: str) -> bytes:
+    """A key is 32 random bytes, written as URL-safe base64 (what ``scripts/agent_pack.py genkey`` makes)."""
+    try:
+        key = base64.urlsafe_b64decode(raw.strip().encode() + b"=" * (-len(raw.strip()) % 4))
+    except (ValueError, binascii.Error) as e:
+        raise ValueError("The agent pack key is not valid base64.") from e
+    if len(key) != 32:
+        raise ValueError("The agent pack key must be 32 bytes.")
+    return key
+
+
+def encrypt_pack(zip_bytes: bytes, key: bytes) -> bytes:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    nonce = os.urandom(12)
+    return PACK_MAGIC + nonce + AESGCM(key).encrypt(nonce, zip_bytes, PACK_AAD)
+
+
+def decrypt_pack(blob: bytes, key: bytes) -> bytes:
+    """The pack's .zip bytes, in memory only. ValueError when the file or the key is wrong."""
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    if not blob.startswith(PACK_MAGIC) or len(blob) < len(PACK_MAGIC) + 12 + 16:
+        raise ValueError("it is not an encrypted agent pack")
+    nonce, body = blob[len(PACK_MAGIC):len(PACK_MAGIC) + 12], blob[len(PACK_MAGIC) + 12:]
+    try:
+        return AESGCM(key).decrypt(nonce, body, PACK_AAD)
+    except InvalidTag as e:
+        raise ValueError("the key does not match this pack") from e
+
+
+def read_pack_key(home: Path) -> str | None:
+    """The key: SUITE_AGENT_PACK_KEY if set (an empty value means none), else the one the build wrote."""
+    if PACK_KEY_ENV in os.environ:
+        return os.environ[PACK_KEY_ENV].strip() or None
+    f = home / "config" / "agent-pack.key"
+    try:
+        return f.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
 
 
 class Persona(BaseModel):
@@ -133,10 +187,13 @@ class Registry:
     repository (``<private>/agents/<agent-id>.yaml``) and are merged in at load time.
     """
 
-    def __init__(self, registry_dir: Path, policies_dir: Path, private_dir: Path | None = None):
+    def __init__(self, registry_dir: Path, policies_dir: Path, private_dir: Path | None = None,
+                 pack_file: Path | None = None, pack_key: str | None = None):
         self.dir = registry_dir
         self.policies_dir = policies_dir
         self.private_dir = private_dir
+        self.pack_file, self._pack_key = pack_file, pack_key  # the key is never logged, returned or stored
+        self.layer: dict[str, str] = {}  # agent id -> "built-in" or "imported": where its instructions came from
         self.warnings: list[str] = []
         self.agents: dict[str, Agent] = {}
         catalog = yaml.safe_load((registry_dir / "catalog.yaml").read_text(encoding="utf-8"))["agents"]
@@ -153,37 +210,69 @@ class Registry:
             raise RuntimeError(f"No agents found in {registry_dir / 'catalog.yaml'}.")
         self._load_private()
 
-    def _load_private(self) -> None:
+    def _builtin_files(self) -> dict[str, bytes]:
+        """The agent files of the encrypted pack built into the app, decrypted in memory; {} when there is none."""
+        if not self.pack_file or not self.pack_file.is_file() or not self._pack_key:
+            return {}
+        try:
+            return _yaml_from_zip(decrypt_pack(self.pack_file.read_bytes(), parse_pack_key(self._pack_key)))
+        except (OSError, ValueError) as e:
+            self.warnings.append(f"The agent instructions built into this app could not be opened ({e}). "
+                                 "Agents use an imported pack if there is one, else their public descriptions.")
+            return {}
+
+    def _folder_files(self) -> dict[str, bytes] | None:
         d = self.private_dir / "agents" if self.private_dir else None
         if not d or not d.is_dir():
-            self.warnings.append(NOT_INSTALLED)
-            return
+            return None
+        out = {}
         for p in sorted(d.glob("*.yaml")):
             try:
-                raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-                if not isinstance(raw, dict):
-                    raise ValueError("it is not a YAML mapping")
-                a = self.agents.get(str(raw.get("id", "")))
-                if not a:
-                    self.warnings.append(f"Agent pack file {p.name} matches no agent in the catalog; ignored.")
-                    continue
-                persona = Persona.model_validate(raw["persona"]) if raw.get("persona") else None
-            except Exception as e:  # one bad file never stops the app from starting
+                out[p.name] = p.read_bytes()
+            except OSError as e:
                 self.warnings.append(f"Agent pack file {p.name} could not be read ({type(e).__name__}: {e}); ignored.")
-                continue
-            a.instructions = str(raw.get("instructions") or "")
-            a.persona = persona
-            a.merged_from = list(raw.get("merged_from") or [])
-            a.source = list(raw.get("source") or [])
-            for mname, text in (raw.get("modes") or {}).items():
-                if mname in a.modes:
-                    a.modes[mname].instructions = text or ""
-                else:
-                    self.warnings.append(f"Agent pack file {p.name} has mode '{mname}', which the catalog does not list; ignored.")
+        return out
+
+    def _load_private(self) -> None:
+        """Built-in pack first, then an imported pack on top: an imported file replaces that agent's built-in one."""
+        builtin, folder = self._builtin_files(), self._folder_files()
+        if not builtin and folder is None:
+            self.warnings.append(NOT_INSTALLED)
+            return
+        for label, files in (("built-in", builtin), ("imported", folder or {})):
+            for name, data in sorted(files.items()):
+                self._apply(name, data, label)
         missing = [a.id for a in self.agents.values() if not a.has_private]
         if missing:
             self.warnings.append(f"{len(missing)} agent(s) have no instructions in the agent pack and run on their public "
                                  f"capability summary: {', '.join(missing)}.")
+
+    def _apply(self, name: str, data: bytes, label: str) -> None:
+        try:
+            raw = yaml.safe_load(data.decode("utf-8")) or {}
+            if not isinstance(raw, dict):
+                raise ValueError("it is not a YAML mapping")
+            a = self.agents.get(str(raw.get("id", "")))
+            if not a:
+                self.warnings.append(f"Agent pack file {name} matches no agent in the catalog; ignored.")
+                return
+            persona = Persona.model_validate(raw["persona"]) if raw.get("persona") else None
+        except Exception as e:  # one bad file never stops the app from starting
+            self.warnings.append(f"Agent pack file {name} could not be read ({type(e).__name__}: {e}); ignored.")
+            return
+        a.instructions = str(raw.get("instructions") or "")
+        a.persona = persona
+        a.merged_from = list(raw.get("merged_from") or [])
+        a.source = list(raw.get("source") or [])
+        for m in a.modes.values():
+            m.instructions = ""
+        for mname, text in (raw.get("modes") or {}).items():
+            if mname in a.modes:
+                a.modes[mname].instructions = text or ""
+            else:
+                self.warnings.append(f"Agent pack file {name} has mode '{mname}', which the catalog does not list; ignored.")
+        if a.has_private:
+            self.layer[a.id] = label
 
     def reload_private(self, private_dir: Path | None = None) -> None:
         """Re-read the private layer in place (after an import in Settings), so no restart is needed.
@@ -194,16 +283,18 @@ class Registry:
             a.instructions, a.persona, a.merged_from, a.source = "", None, [], []
             for m in a.modes.values():
                 m.instructions = ""
-        self.warnings = []
+        self.warnings, self.layer = [], {}
         self._load_private()
 
     def private_status(self) -> dict:
         """For Settings: whether the agent pack is installed and how many agents it covers. No content."""
         d = self.private_dir / "agents" if self.private_dir else None
-        return {"installed": bool(d and d.is_dir()),
+        built_in = sum(1 for v in self.layer.values() if v == "built-in")
+        return {"installed": bool(d and d.is_dir()) or built_in > 0,
                 "folder": str(self.private_dir) if self.private_dir else None,
                 "agents_total": len(self.agents),
-                "agents_with_instructions": sum(1 for a in self.agents.values() if a.has_private)}
+                "agents_with_instructions": sum(1 for a in self.agents.values() if a.has_private),
+                "built_in": built_in, "imported": sum(1 for v in self.layer.values() if v == "imported")}
 
     def import_private(self, uploads: list[tuple[str, bytes]], target: Path) -> dict:
         """Install agent pack files (a .zip, or .yaml files) into ``target/agents`` and reload.
@@ -250,7 +341,7 @@ class Registry:
                 f.write(data)
             os.replace(tmp, agents_dir / fname)
         self.reload_private(target)
-        return {"imported": sorted(good), "skipped": sorted(skipped), **self.private_status()}
+        return {"imported_files": sorted(good), "skipped": sorted(skipped), **self.private_status()}
 
     def agent(self, agent_id: str) -> Agent:
         if agent_id not in self.agents:

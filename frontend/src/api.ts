@@ -87,7 +87,10 @@ export interface ChatSummary {
   created_at: string; updated_at: string; messages: number;
 }
 export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[] }
-export interface AgentPack { installed: boolean; folder: string | null; agents_total: number; agents_with_instructions: number }
+export interface AgentPack {
+  installed: boolean; folder: string | null; agents_total: number; agents_with_instructions: number;
+  built_in: number; imported: number;  // agents whose instructions come from the pack built into the app / one imported here
+}
 export interface Overview {
   version: string; agent_pack: AgentPack;
   desks: Desk[]; agents: AgentCard[]; playbooks: PlaybookCard[]; providers: ProviderInfo[]; tiers: Record<string, string[]>;
@@ -204,7 +207,7 @@ export const api = {
   },
   importAgentPack: (files: File[]) => {
     const fd = new FormData(); files.forEach((f) => fd.append("files", f));
-    return call<AgentPack & { imported: string[]; skipped: string[] }>("/api/agent-pack", { method: "POST", body: fd });
+    return call<AgentPack & { imported_files: string[]; skipped: string[] }>("/api/agent-pack", { method: "POST", body: fd });
   },
   removeClientFile: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "DELETE" }),
   useSignedIn: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/use`, { method: "POST" }),

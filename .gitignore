@@ -23,6 +23,10 @@ evals/reports/
 .env
 # OAuth clients built into the app (written by CI from a secret; keep your own copy out of git)
 config/google-oauth-client.json
+config/agent-pack.key
+# Agent pack keys and plain packs (only registry/agent-pack.enc, encrypted, is committed)
+*.key
+agent-pack*.zip
 client_secret*.json
 
 # Desktop builds

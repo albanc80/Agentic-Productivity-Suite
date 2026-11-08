@@ -73,18 +73,28 @@ On first start the app creates **Agentic-Suite-Outputs** in your Documents folde
 
 Chats and runs marked **Restricted** are not copied, because Documents may be synced to a cloud drive. The app's database, with your settings, keys and full history, stays in `~/.productivity-suite`. Choose the folder in **Settings → Policies & budgets → Outputs folder**: paste a full path, go back to the default, or switch it off; it applies at once, without a restart. `outputs_dir` in `suite.yaml` or `SUITE_OUTPUTS_DIR` only set the starting default. Exports from runs and chat answers are written here, and the app shows each file's location.
 
-## Private agent layer
+## Agent instructions (agent pack)
 
-The installers do not contain the agents' full instructions, personas or lineage (the repository and
-its installers are public). Install them from the app: **Settings → System → Agent instructions →
-Import agent pack**, then choose the pack as a `.zip` (the private folder zipped; files under its
-`agents/` folder are used) or the agents' `.yaml` files. The app checks every file against the
-catalog before writing anything, saves them to `~/.productivity-suite/private-registry/agents`
-(`%USERPROFILE%\.productivity-suite\private-registry\agents` on Windows) readable only by you, and
-uses them at once, without a restart. Importing again replaces files with the same name and keeps
-the rest. Copying the folder there yourself, or setting `SUITE_PRIVATE_REGISTRY`, still works (then
-restart). Without it the app runs, each agent works from its public capability summary, and
-Settings shows a notice that points to the card.
+The installers carry the agents' full instructions, personas and lineage encrypted
+(`registry/agent-pack.enc`), with the key the build took from the `AGENT_PACK_KEY` repository secret.
+The app decrypts them in memory and never shows them; **Settings → System → Agent instructions** says
+**Built in**. Nothing to do.
+
+**Your own version:** **Import my own version** on that card takes a `.zip` (files under its `agents/`
+folder are used) or the agents' `.yaml` files. Each file is checked against the catalog before anything is
+written, saved to `~/.productivity-suite/private-registry/agents`
+(`%USERPROFILE%\.productivity-suite\private-registry\agents` on Windows) readable only by you, and used at
+once. An imported file replaces the built-in instructions for that agent only.
+
+A build made without the secret (or the app run from source) has no key: agents work from their public
+capability summary and Settings shows a notice.
+
+**For the owner** (from `backend/`): `uv run python ../scripts/agent_pack.py genkey --key-file <path>` makes a
+key; `encrypt <pack.zip> --key-file <path>` rewrites `registry/agent-pack.enc` (commit it, raise the version);
+`check` and `decrypt` open it again. Put the key in the `AGENT_PACK_KEY` repository secret (Settings → Secrets
+and variables → Actions) and keep it and the plain pack backed up privately. The build fails if the secret
+does not open the committed pack. This hides the text from the public repository and the app's screens; it
+does not stop someone who unpacks an installer and extracts the key (ADR 0007).
 
 ## Offline mode
 

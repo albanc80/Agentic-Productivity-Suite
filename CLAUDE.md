@@ -55,4 +55,5 @@ Passing unit tests has not been enough here: four bugs in a row reached the owne
 - **The real error is in `~/.productivity-suite/suite.log`** on the person's computer (`%USERPROFILE%` on Windows). Ask for its tail before guessing.
 - **The desktop window has no address bar or Back button.** Every link to another site must open in the browser (`target="_blank"`; pywebview sends only new-window requests there). Never navigate the app window away from the app.
 - **Never let a call reach Google's server for an account that is not signed in**: workspace-mcp opens a browser sign-in page on every such call. Use `usable_accounts`.
+- **The agent pack is committed only encrypted** (`registry/agent-pack.enc`, ADR 0007). Never commit a plain pack (`agents/*.yaml` with instructions), a `.key` file or the `AGENT_PACK_KEY` value; never print or log them. Tests run with `SUITE_AGENT_PACK_KEY=""` so the real pack stays closed.
 - **Force-push is refused by the tool runner.** After a merge, reset the branch to `origin/main`; the next push is a fast-forward.
