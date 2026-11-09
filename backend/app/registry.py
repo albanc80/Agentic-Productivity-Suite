@@ -343,6 +343,22 @@ class Registry:
         self.reload_private(target)
         return {"imported_files": sorted(good), "skipped": sorted(skipped), **self.private_status()}
 
+    def remove_imported(self) -> dict:
+        """Delete the agent files imported in Settings (only *.yaml in ``<private>/agents``) and reload, so the
+        built-in pack (if any) is used again. Other files in the folder are left alone."""
+        d = self.private_dir / "agents" if self.private_dir else None
+        removed = 0
+        if d and d.is_dir():
+            for p in d.glob("*.yaml"):
+                p.unlink()
+                removed += 1
+            try:
+                d.rmdir()  # only when empty: the folder's existence is what "imported" means
+            except OSError:
+                pass
+        self.reload_private()
+        return {"removed": removed, **self.private_status()}
+
     def agent(self, agent_id: str) -> Agent:
         if agent_id not in self.agents:
             raise KeyError(f"unknown agent '{agent_id}'")

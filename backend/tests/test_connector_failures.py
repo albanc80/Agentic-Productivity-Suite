@@ -115,11 +115,13 @@ def test_connectors_that_are_on_start_in_the_background_when_the_app_starts(tmp_
         assert c.get("/api/health").status_code == 200
 
 
-def test_a_failed_first_message_does_not_leave_empty_new_chats_in_the_list(tmp_path, monkeypatch):
-    """Each failed send used to leave a "New chat" behind, and sending again made another."""
+def test_a_failed_message_stays_in_its_chat_with_the_reason_to_edit_and_resend(tmp_path, monkeypatch):
+    """A failed send used to vanish (and once left empty "New chat" entries). Now the message stays in its chat,
+    marked with what went wrong, so the person can edit it and send it again; no second chat is made."""
     with client(manager(tmp_path, monkeypatch, access_denied), []) as c:  # no model: every answer fails
-        for _ in range(2):
-            chat = c.post("/api/chats", json={"agent_id": "critical-mentor", "data_class": "public"}).json()
-            assert c.post(f"/api/chats/{chat['id']}/messages", json={"content": "hello"}).status_code == 409
-        assert c.get("/api/chats").json() == []
-        assert c.get(f"/api/chats/{chat['id']}").status_code == 200  # still there to retry in
+        chat = c.post("/api/chats", json={"agent_id": "critical-mentor", "data_class": "public"}).json()
+        assert c.post(f"/api/chats/{chat['id']}/messages", json={"content": "hello"}).status_code == 409
+        listed = c.get("/api/chats").json()
+        assert [x["id"] for x in listed] == [chat["id"]] and listed[0]["busy"] is False
+        m = c.get(f"/api/chats/{chat['id']}").json()["messages"]
+        assert len(m) == 1 and m[0]["content"] == "hello" and "No model configured" in m[0]["error"] and "status" not in m[0]

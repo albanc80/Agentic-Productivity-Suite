@@ -409,6 +409,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* endpoints */
 .ep-row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
 .ep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.ep-grid.align-inputs { align-items: end; } /* a label that wraps grows upward, so every input stays on one line */
 .endpoint-form .checks .check { font-size: .85rem; }
 
 /* providers: on/off switch and edit panel */
@@ -552,3 +553,9 @@ main, .md, .chat-main, .warn-list, pre, code { -webkit-user-select: text; user-s
 .guide li::before { content: counter(guide); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font: 600 .78rem/1 var(--f-body); }
 .guide li > * { grid-column: 2; }
 .guide li p { margin: 4px 0 0; }
+
+/* Chat: the person's message actions (Edit) and its queued / failed state */
+.user-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+.user-status { margin: 6px 0 0; }
+.edit-bubble { width: min(760px, 100%); }
+.edit-bubble textarea { width: 100%; }

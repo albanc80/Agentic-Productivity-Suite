@@ -170,7 +170,8 @@ def test_no_model_gives_a_clear_message(make):
         chat = c.post("/api/chats", json={"agent_id": "counselor"}).json()
         r = c.post(f"/api/chats/{chat['id']}/messages", json={"content": "hello"})
         assert r.status_code == 409 and "No model configured" in r.json()["detail"]
-        assert c.get(f"/api/chats/{chat['id']}").json()["messages"] == []
+        m = c.get(f"/api/chats/{chat['id']}").json()["messages"]
+        assert [x["content"] for x in m] == ["hello"] and "No model configured" in m[0]["error"]  # kept, to edit and resend
 
 
 def test_per_agent_models_online_and_one_local_model_offline(make):

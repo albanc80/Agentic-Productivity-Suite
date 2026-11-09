@@ -772,11 +772,11 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
           <p className="muted small measure">Always on, whatever the switch above says. They stop runaway loops and keep every prompt inside the model's context window. A run that needs more steps than allowed is refused at the start; one that reaches the limit through revisions stops with a note.</p>
         </div>
         <div className="card stack">
-          <div className="ep-grid">
+          <div className="ep-grid align-inputs">
             <div className="field"><label htmlFor="b-steps">Max steps per run</label><input id="b-steps" type="number" min={1} value={b.max_steps} onChange={(e) => num("max_steps", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-tools">Tool calls per step</label><input id="b-tools" type="number" min={0} value={b.max_tool_calls_per_step} onChange={(e) => num("max_tool_calls_per_step", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-chars">Max characters per tool result</label><input id="b-chars" type="number" min={1000} step="any" value={b.max_tool_result_chars} onChange={(e) => num("max_tool_result_chars", e.target.value)} /></div>
-            <div className="field"><label htmlFor="b-frac">Share of the context window for the prompt</label><input id="b-frac" type="number" min={0.2} max={0.95} step="any" value={b.max_context_fraction} onChange={(e) => num("max_context_fraction", e.target.value)} /></div>
+            <div className="field"><label htmlFor="b-frac" title="Share of the model's context window a prompt may fill (0.2 to 0.95)">Context window share</label><input id="b-frac" type="number" min={0.2} max={0.95} step="any" value={b.max_context_fraction} onChange={(e) => num("max_context_fraction", e.target.value)} /></div>
           </div>
           <div className="row-tight">
             <button className="primary" type="submit" disabled={busy}>Save limits</button>

@@ -84,7 +84,9 @@ The app decrypts them in memory and never shows them; **Settings → System → 
 folder are used) or the agents' `.yaml` files. Each file is checked against the catalog before anything is
 written, saved to `~/.productivity-suite/private-registry/agents`
 (`%USERPROFILE%\.productivity-suite\private-registry\agents` on Windows) readable only by you, and used at
-once. An imported file replaces the built-in instructions for that agent only.
+once. An imported file replaces the built-in instructions for that agent only. **Remove imported pack** deletes the imported
+files and goes back to the built-in instructions at once (do this after an update that ships new ones,
+or an older import keeps overriding them).
 
 A build made without the secret (or the app run from source) has no key: agents work from their public
 capability summary and Settings shows a notice.

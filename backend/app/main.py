@@ -100,6 +100,12 @@ class ChatStart(BaseModel):
 class ChatMessage(BaseModel):
     content: str = Field(max_length=40_000)
     files: list[str] = Field(default_factory=list)
+    wait: bool = True  # False: return the chat at once; the answer arrives in the background (the chat page)
+
+
+class ChatUpdate(BaseModel):
+    agent_id: str | None = None
+    data_class: str | None = None
 
 
 class Discover(BaseModel):
@@ -192,6 +198,12 @@ class Suite:
     def agent_pack_folder(self) -> Path:
         """Where an imported agent pack goes: the private layer folder in use, else <data>/private-registry."""
         return self.settings.private_registry_dir or self.settings.data_dir / "private-registry"
+
+    def remove_agent_pack(self, by: str) -> dict:
+        result = self.registry.remove_imported()
+        self.store.audit("agent_pack_removed", None, by=by, files=result["removed"], built_in=result["built_in"])
+        log.info("Imported agent pack removed: %d file(s)", result["removed"])
+        return result
 
     def import_agent_pack(self, uploads: list[tuple[str, bytes]], by: str) -> dict:
         result = self.registry.import_private(uploads, self.agent_pack_folder())
@@ -671,6 +683,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         suite.engine.recover()
+        suite.chat.recover()  # never-used chats go; messages a restart left unanswered say so
         for w in suite.warnings:
             log.warning(w)
         suite.connectors.warm()  # connectors that are on start now, so chat has their tools when asked
@@ -1073,12 +1086,31 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except ChatError as e:
             raise HTTPException(409, str(e)) from e
 
+    @app.patch("/api/chats/{cid}")
+    def chat_update(cid: str, body: ChatUpdate):
+        try:
+            return suite.chat.update(cid, body.agent_id, body.data_class)
+        except KeyError as e:
+            raise HTTPException(404, "chat not found") from e
+        except ChatError as e:
+            raise HTTPException(409, str(e)) from e
+
     @app.post("/api/chats/{cid}/messages")
     async def chat_send(cid: str, body: ChatMessage):
         try:
-            return await suite.chat.send(cid, body.content, body.files)
+            return await suite.chat.send(cid, body.content, body.files, wait=body.wait)
         except KeyError as e:
             raise HTTPException(404, "chat not found") from e
+        except ChatError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.put("/api/chats/{cid}/messages/{index}")
+    async def chat_edit(cid: str, index: int, body: ChatMessage):
+        """Edit one of the person's messages and send it again; the answers after it are replaced."""
+        try:
+            return await suite.chat.edit(cid, index, body.content, wait=body.wait)
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'") if "position" in str(e) else "chat not found") from e
         except ChatError as e:
             raise HTTPException(409, str(e)) from e
 
@@ -1224,6 +1256,11 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             return suite.import_agent_pack(uploads, "ui")
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
+
+    @app.delete("/api/agent-pack")
+    def delete_agent_pack():
+        """Remove the pack imported in Settings; agents go back to the built-in instructions (ADR 0007)."""
+        return suite.remove_agent_pack("ui")
 
     @app.delete("/api/connectors/{cid}/client-file")
     async def delete_client_file(cid: str):

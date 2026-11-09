@@ -222,3 +222,25 @@ def test_build_step_writes_only_a_key_that_opens_the_pack(tmp_path, monkeypatch,
     monkeypatch.setenv("AGENT_PACK_KEY", KEY)
     assert mod.main() == 0 and (tmp_path / "agent-pack.key").read_text().strip() == KEY
     assert KEY not in capsys.readouterr().out
+
+
+def test_remove_imported_pack_goes_back_to_the_built_in_one(tmp_path, monkeypatch):
+    monkeypatch.setenv("SUITE_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SUITE_PRIVATE_REGISTRY", str(tmp_path / "private-registry"))
+    monkeypatch.setenv("SUITE_AGENT_PACK", str(sealed(tmp_path)))
+    monkeypatch.setenv("SUITE_AGENT_PACK_KEY", KEY)
+    for k in ("SUITE_API_TOKEN", "SUITE_OFFLINE"):
+        monkeypatch.delenv(k, raising=False)
+    with TestClient(create_app(load_settings(ROOT, ROOT / "config" / "suite.example.yaml"))) as c:
+        own = b"id: chief-of-staff\ninstructions: MY OWN VERSION\n"
+        c.post("/api/agent-pack", files=[("files", ("chief-of-staff.yaml", own, "application/x-yaml"))])
+        reg = c.app.state.suite.registry
+        assert reg.agent("chief-of-staff").instructions == "MY OWN VERSION"
+        (tmp_path / "private-registry" / "notes.txt").write_text("keep me", encoding="utf-8")  # not ours: left alone
+        r = c.delete("/api/agent-pack")
+        assert r.status_code == 200 and r.json()["removed"] == 1 and r.json()["imported"] == 0 and r.json()["built_in"] == 1
+        assert reg.agent("chief-of-staff").instructions.startswith("FIXTURE INSTRUCTIONS")  # at once, no restart
+        assert not (tmp_path / "private-registry" / "agents").exists()
+        assert (tmp_path / "private-registry" / "notes.txt").exists()
+        assert c.get("/api/overview").json()["agent_pack"]["imported"] == 0
+        assert any(e.get("event") == "agent_pack_removed" for e in c.get("/api/audit").json())

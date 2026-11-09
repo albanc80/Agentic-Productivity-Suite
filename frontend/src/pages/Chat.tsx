@@ -31,13 +31,10 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   const [text, setText] = useState("");
   const [files, setFiles] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState("");
-  const [pending, setPending] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const end = useRef<HTMLDivElement>(null);
-  const alive = useRef(true);  // false once the user has moved to another chat
-  // The chat a failed first message already created: sending again reuses it instead of starting another "New chat".
-  const made = useRef<ChatDetail | null>(null);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const current = useRef(chatId);  // the chat on screen; replies for another chat are not shown here
+  useEffect(() => { current.current = chatId; }, [chatId]);
 
   const loadList = () => api.chats().then(setList).catch(setError);
   useEffect(() => { loadList(); }, []);
@@ -52,31 +49,60 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    setChat(null); setError(null); setConfirmDelete(false); made.current = null;
-    if (chatId) api.chat(chatId).then(setChat).catch(setError);
+    setChat(null); setError(null); setConfirmDelete(false);
+    if (chatId) api.chat(chatId).then((c) => { if (current.current === chatId) setChat(c); }).catch(setError);
   }, [chatId]);
-  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [chat?.messages.length, pending]);
+  useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [chat?.messages.length, chat?.messages.at(-1)?.status]);
+
+  // While a message waits for or gets its answer, refresh the chat (and the list) until the answer is in.
+  const working = !!chat?.messages.some((m) => m.status);
+  useEffect(() => {
+    if (!chat || !working) return;
+    const id = chat.id;
+    const t = setInterval(async () => {
+      try {
+        const fresh = await api.chat(id);
+        if (current.current !== id) return;
+        setChat(fresh);
+        if (!fresh.messages.some((m) => m.status)) loadList();
+      } catch { /* the next tick tries again */ }
+    }, 1200);
+    return () => clearInterval(t);
+  }, [chat?.id, working]);
+
+  /** New chat makes the chat at once (reusing one still unused) so it has its own place in the list. */
+  async function newChat() {
+    setError(null);
+    const unused = (list || []).find((c) => c.messages === 0);
+    if (unused) { go(`/chat/${unused.id}`); return; }
+    setBusy("new");
+    try {
+      const c = await api.startChat(agentId, dataClass);
+      await loadList();
+      go(`/chat/${c.id}`);
+    } catch (e) { setError(e); } finally { setBusy(""); }
+  }
 
   async function send(e?: React.FormEvent, preset?: string) {
     e?.preventDefault();
     const content = (preset ?? text).trim();
-    if (!content || busy) return;
-    setBusy("send"); setError(null); setPending(content); setText("");
+    if (!content || busy === "send" || busy === "upload") return;
+    setBusy("send"); setError(null); setText("");
+    const sentFiles = files;
     try {
       let target = chat;
-      const reuse = made.current;
-      if (!target && reuse && reuse.agent_id === agentId && reuse.data_class === dataClass) target = reuse;
-      if (!target) { target = await api.startChat(agentId, dataClass); made.current = target; }
-      await api.sendChat(target.id, content, files.map((f) => f.id));
-      if (!alive.current) return;  // the user switched chats while this one was answering: leave them where they are
+      if (!target) target = await api.startChat(agentId, dataClass);
+      const fresh = await api.sendChat(target.id, content, sentFiles.map((f) => f.id));
       setFiles([]);
-      const fresh = await api.chat(target.id);
-      if (!alive.current) return;
-      setChat(fresh);
-      made.current = null;
       if (!chat) go(`/chat/${target.id}`);
+      if (current.current === target.id || !chat) setChat(fresh);
       loadList();
-    } catch (err) { if (alive.current) { setError(err); setText(content); } } finally { if (alive.current) { setBusy(""); setPending(null); } }
+    } catch (err) { setError(err); setText(content); } finally { setBusy(""); }
+  }
+  async function resend(index: number, content: string) {
+    if (!chat) return;
+    setError(null);
+    try { setChat(await api.editChatMessage(chat.id, index, content)); loadList(); } catch (e) { setError(e); throw e; }
   }
   async function attach(fl: FileList | null) {
     if (!fl) return;
@@ -84,7 +110,6 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     try {
       for (const f of Array.from(fl)) {
         const r = await api.upload(f);
-        if (!alive.current) return;
         setFiles((x) => [...x, { id: r.id, name: r.name }]);
       }
     } catch (e) { setError(e); } finally { setBusy(""); }
@@ -93,23 +118,31 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     if (!chat) return;
     try { await api.deleteChat(chat.id); setConfirmDelete(false); go("/chat"); loadList(); } catch (e) { setError(e); }
   }
+  async function choose(body: { agent_id?: string; data_class?: string }) {
+    if (body.agent_id) setAgentId(body.agent_id);
+    if (body.data_class) setDataClass(body.data_class);
+    if (!chat) return;
+    try { setChat(await api.updateChat(chat.id, body)); loadList(); } catch (e) { setError(e); }
+  }
 
   const activeAgent = chat?.agent_id || agentId;
+  const activeClass = chat?.data_class || dataClass;
   const agent = ov.agents.find((a) => a.id === activeAgent);
   const live = ov.connectors.filter(isLive);
   const isCoordinator = activeAgent === COORDINATOR;
-  const working = isCoordinator ? "The Chief of Staff is answering or asking specialists…" : `${agent?.name} is answering…`;
+  const fresh = !chat || chat.messages.length === 0;  // who it talks to can still change
+  const workingText = isCoordinator ? "The Chief of Staff is answering or asking specialists…" : `${agent?.name} is answering…`;
 
   return (
     <div className="chat-layout">
       <aside className="chat-side stack-sm" aria-label="Conversations">
-        <button className="primary" onClick={() => { go("/chat"); setChat(null); made.current = null; }}>New chat</button>
+        <button className="primary" onClick={newChat} disabled={busy === "new"}>{busy === "new" ? "Starting…" : "New chat"}</button>
         <ul className="plain chat-list">
           {(list || []).map((c) => (
             <li key={c.id}>
               <a href={`#/chat/${c.id}`} className={c.id === chatId ? "active" : ""} aria-current={c.id === chatId ? "page" : undefined}>
                 <strong>{c.title}</strong>
-                <span className="muted small">{ov.agents.find((a) => a.id === c.agent_id)?.name} · {fmtTime(c.updated_at)}</span>
+                <span className="muted small">{ov.agents.find((a) => a.id === c.agent_id)?.name} · {c.busy ? <span className="ok-text">answering…</span> : fmtTime(c.updated_at)}</span>
               </a>
             </li>
           ))}
@@ -119,19 +152,19 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
 
       <section className="chat-main stack" aria-label="Conversation">
         <header className="chat-head">
-          {chat ? (
+          {!fresh && chat ? (
             <div className="grow stack-xs">
               <h1 className="chat-title">{chat.title}</h1>
               <span className="muted small">{agent?.name} · data class {chat.data_class} · model {modelFor(ov, chat.agent_id)} · {chat.tokens.toLocaleString()} tokens{ov.budgets.enabled ? ` · limit ${ov.budgets.max_chat_tokens.toLocaleString()} tokens` : ""}</span>
             </div>
           ) : (
             <div className="grow stack-sm">
-              <h1 className="chat-title">Chat</h1>
+              <h1 className="chat-title">{chat ? "New chat" : "Chat"}</h1>
               <p className="muted small measure">Ask anything, even if no playbook covers it. The Chief of Staff answers directly or asks up to three specialists and combines their answers. Or pick one agent to talk to.</p>
               <div className="ep-row">
                 <div className="field grow">
                   <label htmlFor="chat-agent">Talk to</label>
-                  <select id="chat-agent" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+                  <select id="chat-agent" value={activeAgent} onChange={(e) => choose({ agent_id: e.target.value })}>
                     <option value={COORDINATOR}>Chief of Staff (answers or delegates)</option>
                     {ov.desks.map((d) => (
                       <optgroup key={d.id} label={d.name}>
@@ -145,12 +178,12 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
                 </div>
                 <div className="field">
                   <label htmlFor="chat-dc">Data class</label>
-                  <select id="chat-dc" value={dataClass} onChange={(e) => setDataClass(e.target.value)}>
+                  <select id="chat-dc" value={activeClass} onChange={(e) => choose({ data_class: e.target.value })}>
                     {Object.keys(ov.data_classes).map((d) => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
               </div>
-              <span className="help">Model: {modelFor(ov, agentId)}. {dataClass === "restricted" ? "Restricted: only local models see this chat." : ""}</span>
+              <span className="help">Model: {modelFor(ov, activeAgent)}. {activeClass === "restricted" ? "Restricted: only local models see this chat." : ""}</span>
             </div>
           )}
           {chat && (confirmDelete
@@ -159,10 +192,15 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
         </header>
 
         <div className="chat-thread" aria-live="polite">
-          {chat?.messages.map((m, i) => <Message key={i} m={m} ov={ov} chatId={chat.id} index={i} restricted={chat.data_class === "restricted"} />)}
-          {pending && <div className="msg user"><div className="bubble"><p>{pending}</p></div></div>}
-          {busy === "send" && <div className="msg assistant"><div className="bubble thinking"><span className="pill live">Working</span> {working}</div></div>}
-          {!chat && !pending && (
+          {chat?.messages.map((m, i) => (
+            <div key={m.id || i} className="stack-sm">
+              {m.role === "user"
+                ? <UserMessage m={m} index={i} canEdit={!working} onResend={resend} queuedBehind={m.status === "queued" && chat.messages.some((x) => x.status === "working")} />
+                : <Message m={m} ov={ov} chatId={chat.id} index={i} restricted={chat.data_class === "restricted"} />}
+              {m.status === "working" && <div className="msg assistant"><div className="bubble thinking"><span className="pill live">Working</span> {workingText}</div></div>}
+            </div>
+          ))}
+          {fresh && (
             <div className="chat-empty muted small">
               <p>Examples: "What should I focus on this week given these notes?" · "Compare two vendors for field data capture" · "Explain the risks of moving our historian to the cloud".</p>
             </div>
@@ -179,8 +217,8 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
         </p>
         <form className="chat-compose" onSubmit={send}>
           <label htmlFor="chat-text" className="sr-only">Message</label>
-          <textarea id="chat-text" rows={3} value={text} onChange={(e) => setText(e.target.value)} disabled={busy === "send"}
-            placeholder={isCoordinator ? "Ask the Chief of Staff…" : `Ask ${agent?.name}…`}
+          <textarea id="chat-text" rows={3} value={text} onChange={(e) => setText(e.target.value)}
+            placeholder={working ? "Add a follow-up or more instructions; it is answered after the current one…" : isCoordinator ? "Ask the Chief of Staff…" : `Ask ${agent?.name}…`}
             onKeyDown={(e) => enterSends(e, () => { void send(); })} />
           <div className="command-bar">
             <div className="row-tight">
@@ -195,10 +233,56 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
               ))}
             </div>
             <EnterHint />
-            <button className="primary cut" type="submit" disabled={!text.trim() || !!busy}>{busy === "send" ? "Sending…" : "Send"}</button>
+            <button className="primary cut" type="submit" disabled={!text.trim() || busy === "send" || busy === "upload"}>{busy === "send" ? "Sending…" : "Send"}</button>
           </div>
         </form>
       </section>
+    </div>
+  );
+}
+
+/** One of the person's messages: queued, failed, or answered. Edit sends it again and replaces what followed. */
+function UserMessage({ m, index, canEdit, onResend, queuedBehind }: { m: ChatMsg; index: number; canEdit: boolean;
+  onResend: (index: number, content: string) => Promise<void>; queuedBehind: boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(m.content);
+  const [saving, setSaving] = useState(false);
+  async function save(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!draft.trim()) return;
+    setSaving(true);
+    try { await onResend(index, draft.trim()); setEditing(false); } catch { /* the page shows the error */ } finally { setSaving(false); }
+  }
+  if (editing) {
+    return (
+      <form className="msg user" onSubmit={save}>
+        <div className="bubble stack-sm edit-bubble">
+          <label htmlFor={`edit-${index}`} className="sr-only">Edit your message</label>
+          <textarea id={`edit-${index}`} rows={Math.min(10, Math.max(3, draft.split("\n").length))} value={draft}
+            onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => enterSends(e, () => { void save(); })} autoFocus />
+          <span className="help">Sending again replaces the answers after this message.</span>
+          <div className="row-tight">
+            <button className="primary" type="submit" disabled={saving || !draft.trim()}>{saving ? "Sending…" : "Save and send"}</button>
+            <button type="button" className="ghost" onClick={() => { setEditing(false); setDraft(m.content); }}>Cancel</button>
+          </div>
+        </div>
+      </form>
+    );
+  }
+  return (
+    <div className="msg user">
+      <div className="bubble">
+        <p className="pre">{m.content}</p>
+        {m.files && m.files.length > 0 && <div className="tags">{m.files.map((f) => <span key={f.id} className="tag outline">{f.name}</span>)}</div>}
+        {m.status === "queued" && <p className="small muted user-status">{queuedBehind ? "Queued: answered after the message before it." : "Queued…"}</p>}
+        {m.error && <p className="note bad small user-status">{m.error}</p>}
+        {!m.status && (
+          <div className="user-actions">
+            <button type="button" className="ghost small-btn" onClick={() => { setDraft(m.content); setEditing(true); }} disabled={!canEdit}
+              title={canEdit ? "Edit this message and send it again" : "Wait for the answer in progress to finish"}>Edit</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -270,14 +354,7 @@ function Message({ m, ov, chatId, index, restricted }: { m: ChatMsg; ov: Overvie
   const name = (id?: string) => ov.agents.find((a) => a.id === id)?.name || id;
   const body = useRef<HTMLDivElement>(null);
   if (m.role === "user") {
-    return (
-      <div className="msg user">
-        <div className="bubble">
-          <p className="pre">{m.content}</p>
-          {m.files && m.files.length > 0 && <div className="tags">{m.files.map((f) => <span key={f.id} className="tag outline">{f.name}</span>)}</div>}
-        </div>
-      </div>
-    );
+    return null;  // the person's messages are drawn by UserMessage
   }
   return (
     <div className="msg assistant">

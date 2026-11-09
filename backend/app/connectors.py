@@ -617,7 +617,7 @@ class ConnectorManager:
         if accounts and cfg.accounts:
             listed = ", ".join([f"{accounts[0]} (default)"] + accounts[1:])
             lines.append(f"- {cfg.name}: {listed}. Choose the account with the `{cfg.accounts.param}` argument; "
-                         "calls to any other account are refused. Say which account each fact came from.")
+                         "use only these accounts and do not bring up others. Say which account each fact came from.")
         unsigned = self.unsigned_accounts(cid)
         if unsigned and cfg.accounts:
             lines.append(f"- {cfg.name}: {', '.join(unsigned)} {'is' if len(unsigned) == 1 else 'are'} not signed in "

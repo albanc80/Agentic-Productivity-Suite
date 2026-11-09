@@ -59,7 +59,7 @@ Settings → Model providers shows each provider's state and has a **Test** butt
 
 ## Settings → System and User guide
 
-**System** shows **About** (the installed version, what the app does and what it can do, and a link to the release notes), **Agent instructions** (built into the app encrypted, or your own version imported; below), the **Kill switch** and **Configuration notices**. **User guide** is a short first-time path: choose a model, connect your information, fill in your profile, chat, run a playbook, answer approvals and find your work, with a Done or Not yet mark on the set-up steps.
+**System** shows **About** (the installed version, what the app does and what it can do, and a link to the release notes), **Agent instructions** (built into the app encrypted, or your own version imported, with **Remove imported pack** to go back to the built-in one; below), the **Kill switch** and **Configuration notices**. **User guide** is a short first-time path: choose a model, connect your information, fill in your profile, chat, run a playbook, answer approvals and find your work, with a Done or Not yet mark on the set-up steps.
 
 ## Chat
 
@@ -73,7 +73,10 @@ Open **Chat** and pick an agent, or keep the Chief of Staff, who answers itself 
 - Agents are told what the app can do (copy, download, save, read shared folders), so they write the document instead of telling you to print or copy by hand.
 - The chat header shows the tokens used so far, and the token limit when spending limits are on.
 - Select any text in an answer or a playbook result and copy it as usual (Ctrl+C), or use the Copy button.
-- A message that could not be answered keeps its chat: sending again uses the same chat, and chats with no answer are not listed.
+- **New chat** makes the chat at once, with its own place in the list (an unused one is reused, and unused chats are cleared when the app starts). Pick the agent and data class until the first message.
+- **Your message is saved the moment you send it** and the agent answers in the background: switch pages or chats and come back, and the message and a "Working" note are there; the list says "answering…". **Send follow-ups or more instructions while it works**: they are queued and answered in order, each knowing the answers before it.
+- **Edit** under any of your messages changes it and sends it again; the answers after it are replaced. A message that could not be answered stays in the chat with the reason, so you can edit and resend it.
+- **Agents work only with what they were given**: your messages, attachments and the connectors that are on. They do not guess at other mailboxes or accounts (for example from names in your mail), call something a gap because it is not connected, or ask you to connect, forward or paste more, unless you ask what they can see.
 - **Enter** sends a message (here and on Command); **Shift+Enter** starts a new line.
 - Links in answers open in your browser, never inside the app window. If a page outside the app ever opens in the window, the app sends it to the browser and returns to the page you were on.
 
@@ -201,7 +204,7 @@ Cost is computed from the prices entered on each model, so a model with no price
 | Max steps per run | 40 | A playbook with more steps is refused at the start. Steps repeated by a revision or a resume count, and a run that reaches the limit stops with a note. The longest shipped playbook has 10 steps. |
 | Tool calls per step | 20 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
 | Max characters per tool result | 12,000 | Longer tool results, attachments and earlier steps' outputs are cut to this before an agent sees them. |
-| Share of the context window for the prompt | 0.75 | Prompts are shrunk (persona, skills, older context first) to fit, so a small local model is not overrun. Cuts are listed on the step. |
+| Context window share (of the model's context a prompt may fill) | 0.75 | Prompts are shrunk (persona, skills, older context first) to fit, so a small local model is not overrun. Cuts are listed on the step. |
 
 The kill switch (Settings) stops every run and chat at once, whatever the limits.
 

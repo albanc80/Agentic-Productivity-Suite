@@ -81,10 +81,12 @@ export interface ChatMsg {
   // set when the person asked for the answer as a file; saved_to is where the app wrote it (null: not saved)
   file?: { format: "md" | "html"; name: string; saved_to?: string | null; source?: number };
   tool_calls?: { connector?: string; tool: string; arguments: Record<string, unknown>; error: boolean }[];
+  // the person's messages: queued or being answered (status), or why the answer failed (error)
+  id?: string; status?: "queued" | "working"; error?: string; reply_to?: string;
 }
 export interface ChatSummary {
   id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;
-  created_at: string; updated_at: string; messages: number;
+  created_at: string; updated_at: string; messages: number; busy?: boolean;
 }
 export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[] }
 export interface AgentPack {
@@ -209,6 +211,7 @@ export const api = {
     const fd = new FormData(); files.forEach((f) => fd.append("files", f));
     return call<AgentPack & { imported_files: string[]; skipped: string[] }>("/api/agent-pack", { method: "POST", body: fd });
   },
+  removeAgentPack: () => call<AgentPack & { removed: number }>("/api/agent-pack", { method: "DELETE" }),
   removeClientFile: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "DELETE" }),
   useSignedIn: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/use`, { method: "POST" }),
   signinCancel: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "DELETE" }),
@@ -226,8 +229,13 @@ export const api = {
   chats: () => call<ChatSummary[]>("/api/chats"),
   chat: (id: string) => call<ChatDetail>(`/api/chats/${id}`),
   startChat: (agent_id: string, data_class?: string) => call<ChatDetail>("/api/chats", { method: "POST", body: JSON.stringify({ agent_id, data_class }) }),
+  // The message is saved and queued at once; the answer arrives in the background (poll the chat).
   sendChat: (id: string, content: string, files: string[] = []) =>
-    call<ChatMsg>(`/api/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content, files }) }),
+    call<ChatDetail>(`/api/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content, files, wait: false }) }),
+  editChatMessage: (id: string, index: number, content: string) =>
+    call<ChatDetail>(`/api/chats/${id}/messages/${index}`, { method: "PUT", body: JSON.stringify({ content, wait: false }) }),
+  updateChat: (id: string, body: { agent_id?: string; data_class?: string }) =>
+    call<ChatDetail>(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteChat: (id: string) => call<{ deleted: number }>(`/api/chats/${id}`, { method: "DELETE" }),
   killSwitch: (on: boolean) => call<{ on: boolean }>("/api/admin/kill-switch", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),
   exportUrl: (id: string, format: "md" | "html") => `/api/runs/${id}/export?format=${format}`,
