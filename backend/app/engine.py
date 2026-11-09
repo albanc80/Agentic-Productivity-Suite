@@ -29,6 +29,7 @@ from .providers.base import complete_reply
 from .registry import Registry
 from .settings import Settings
 from .store import Store
+from .toolmenu import FIND_TOOL, ON_DEMAND_RESERVE, ToolMenu
 from .tools import TOOLS, run_tool
 
 log = logging.getLogger("suite.engine")
@@ -614,7 +615,9 @@ class Engine:
         room = MAX_AGENT_TOOLS - len(dict.fromkeys(step.tools + agent_tools)) - (1 if has_skills else 0)
         chosen = [c for c in step.connectors if c not in step.connector_when or step.connector_when[c].holds(ctx.inputs)]
         notes += [f"connector {c} not looked up: left out on the start form" for c in step.connectors if c not in chosen]
-        found = await self.connectors.tools_for_agent(chosen, only=True, room=room)
+        mode = self.s.tool_mode
+        found = await self.connectors.tools_for_agent(chosen, only=True, room=10_000 if mode == "on_demand" else room,
+                                                      core=mode == "core")
         notes += found.notes
         account_lines += found.lines
         for t in found.tools:
@@ -715,7 +718,13 @@ class Engine:
             task = task.rstrip() + "\n\nConnected accounts and scope:\n" + "\n".join(account_lines)
         user = build_user(handoff=handoff, task=task, priors=priors, data_blocks=data_blocks,
                           review_target=step.target if review else None, feedback=feedback)
-        tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3
+        menu = ToolMenu(specs, {q: r[1][0] for q, r in routes.items() if r[0] == "mcp"}, self.s.tool_mode,
+                        {c: self.connectors.configs[c].name for q, (k, v) in routes.items() if k == "mcp" for c in [v[0]]})
+        if menu.deferred:
+            user = [*user[:-1], ("tools", "## Connector tools\n" + menu.note(), 0), user[-1]]
+        tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in menu.offered()) // 3
+        if menu.deferred:
+            tool_tokens += ON_DEMAND_RESERVE  # room for the tools the agent loads during the step
         # The whole prompt or the next model (PromptTooLarge is a ProviderError: _agent tries the next candidate).
         parts = fit_or_refuse(system, user, ref=cand.ref, context_tokens=cand.model.context_tokens,
                               share=self.s.budgets.max_context_fraction, out_tokens=cand.model.max_output_tokens,
@@ -734,7 +743,7 @@ class Engine:
         for _round in range(max_calls + 2):
             if self.killed:
                 raise RunStopped("kill switch")
-            offer = specs if (specs and calls_made < max_calls and not out_of_budget) else None
+            offer = menu.offered() if (menu.offered() and calls_made < max_calls and not out_of_budget) else None
             result = await provider.chat(conv, model=cand.model.model, tools=offer,
                                          max_tokens=cand.model.max_output_tokens, effort=cand.model.effort)
             usage += result.usage
@@ -753,6 +762,10 @@ class Engine:
                 continue
             outputs = []
             for call in result.tool_calls[: max_calls - calls_made]:
+                if call.name == FIND_TOOL:  # on demand: load the matching connector tools for the next round
+                    calls_made += 1
+                    outputs.append((call.id, menu.find(call.arguments or {}), False))
+                    continue
                 content, is_err, flags = await self._exec_tool(ctx, routes, call.name, call.arguments, agent.skills)
                 calls_made += 1
                 warnings += [f"possible prompt injection in {call.name} result: {f}" for f in flags]

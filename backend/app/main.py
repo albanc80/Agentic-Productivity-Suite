@@ -304,6 +304,7 @@ class Suite:
         s.persona = PersonaSettings(chat=b["persona"].chat if g.persona_chat is None else g.persona_chat,
                                     exports=b["persona"].exports if g.persona_exports is None else g.persona_exports)
         s.store_prompts = b["store_prompts"] if g.store_prompts is None else g.store_prompts
+        s.tool_mode = g.tool_mode or "core"
         s.default_data_class = g.default_data_class or b["default_data_class"]
         dc = {k: list(v) for k, v in b["data_classes"].items()}
         for k, allowed in (g.cloud_allowed or {}).items():
@@ -334,7 +335,7 @@ class Suite:
         g = self.general()
         if edit.budgets is not None:
             g.budgets = edit.budgets
-        for f in ("persona_chat", "persona_exports", "store_prompts", "default_data_class"):
+        for f in ("persona_chat", "persona_exports", "store_prompts", "default_data_class", "tool_mode"):
             v = getattr(edit, f)
             if v is not None:
                 setattr(g, f, v)
@@ -771,6 +772,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
                         for k in ProfileEdit.model_fields},
             "profile_saved_in_app": suite.saved_profile() is not None,
             "store_prompts": settings.store_prompts,
+            "tool_mode": settings.tool_mode,
             "outputs_dir": str(suite.outputs.root) if suite.outputs.root else None,
             "outputs": suite.outputs_info(),
             "model_refs": [m.ref for m in settings.models],

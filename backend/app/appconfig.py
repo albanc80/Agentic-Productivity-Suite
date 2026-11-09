@@ -39,6 +39,7 @@ class GeneralSettings(BaseModel):
     persona_chat: bool | None = None
     persona_exports: bool | None = None
     store_prompts: bool | None = None
+    tool_mode: Literal["core", "all", "on_demand"] | None = None  # how agents get connector tools (None: core)
     default_data_class: Literal["public", "internal", "confidential", "restricted"] | None = None
     cloud_allowed: dict[Literal["public", "internal", "confidential"], bool] | None = None
     tiers: dict[Literal["router", "specialist", "synthesis", "review"], TierPref] | None = None
@@ -55,6 +56,7 @@ class GeneralEdit(BaseModel):
     persona_chat: bool | None = None
     persona_exports: bool | None = None
     store_prompts: bool | None = None
+    tool_mode: Literal["core", "all", "on_demand"] | None = None
     default_data_class: Literal["public", "internal", "confidential", "restricted"] | None = None
     cloud_allowed: dict[Literal["public", "internal", "confidential"], bool] | None = None
     tiers: dict[Literal["router", "specialist", "synthesis", "review"], list[str]] | None = None  # desired order

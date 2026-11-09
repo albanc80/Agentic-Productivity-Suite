@@ -59,10 +59,10 @@ class OpenAICompatibleProvider:
             except json.JSONDecodeError:
                 args = {"_invalid_json": raw}
             calls.append(ToolCall(id=tc.id, name=tc.function.name, arguments=args, raw_arguments=raw))
-        usage = Usage(
-            input_tokens=getattr(resp.usage, "prompt_tokens", 0) or 0,
-            output_tokens=getattr(resp.usage, "completion_tokens", 0) or 0,
-        )
+        prompt = getattr(resp.usage, "prompt_tokens", 0) or 0
+        cached = cached_prompt_tokens(resp.usage)
+        usage = Usage(input_tokens=max(prompt - cached, 0), output_tokens=getattr(resp.usage, "completion_tokens", 0) or 0,
+                      cache_read_tokens=cached)
         native = {"role": "assistant", "content": msg.content or ""}
         if msg.tool_calls:
             native["tool_calls"] = [
@@ -83,3 +83,23 @@ class OpenAICompatibleProvider:
 
     def add_user(self, conv: Conversation, text: str) -> None:
         conv.messages.append({"role": "user", "content": text})
+
+
+def cached_prompt_tokens(u) -> int:
+    """Prompt tokens the provider served from its cache: ``prompt_tokens_details.cached_tokens`` (OpenAI, OpenRouter)
+    or ``prompt_cache_hit_tokens`` (DeepSeek). 0 when the provider does not say."""
+    if u is None:
+        return 0
+    details = getattr(u, "prompt_tokens_details", None)
+    if isinstance(details, dict):
+        n = details.get("cached_tokens")
+    else:
+        n = getattr(details, "cached_tokens", None) if details is not None else None
+    if not n:
+        n = getattr(u, "prompt_cache_hit_tokens", None)
+        if n is None and hasattr(u, "model_extra") and isinstance(u.model_extra, dict):
+            n = u.model_extra.get("prompt_cache_hit_tokens")
+    try:
+        return max(int(n or 0), 0)
+    except (TypeError, ValueError):
+        return 0

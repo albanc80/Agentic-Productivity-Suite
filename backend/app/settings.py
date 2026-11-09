@@ -95,6 +95,9 @@ class ModelConfig(BaseModel):
     tools: bool = False
     price_in_per_mtok: float = 0.0
     price_out_per_mtok: float = 0.0
+    # Input read from the provider's prompt cache. None: Anthropic's documented 0.1x of the input price for anthropic
+    # providers, the full input price elsewhere (conservative: set it from the provider's price list).
+    price_cached_per_mtok: float | None = None
     effort: str | None = None  # anthropic output_config.effort
     note: str = ""
 
@@ -156,6 +159,7 @@ class Settings(BaseModel):
     data_dir: Path
     profile_path: Path | None = None
     store_prompts: bool = False
+    tool_mode: str = "core"  # connector tools for agents: core (default), all, on_demand (app/toolmenu.py)
     offline: bool = False  # true: no cloud providers, no network connectors
     persona: PersonaSettings = PersonaSettings()
     output_policies: list[str] = Field(default_factory=lambda: ["plain-voice", "action-first"])

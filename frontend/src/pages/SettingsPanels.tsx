@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Budgets, type ConnectorInfo, type ConnectorVariable, type Overview, type Profile, type SignedInAccount,
   type SigninState } from "../api";
+import type { ToolMode } from "../api";
 import { connectorAccounts, playbooksUsing } from "../connectors";
 import { ErrorNote } from "../ui";
 
@@ -152,6 +153,7 @@ export function ConnectorsPanel({ ov, onChange }: { ov: Overview; onChange: () =
         </ul>
         <p className="muted small measure">Every connector starts switched off: use <strong>Edit</strong> to sign in or enter what it needs, then switch it on. Values you type are saved on this computer; an environment variable with the same name takes precedence.</p>
       </div>
+      <ToolModeCard ov={ov} onChange={onChange} />
       <div className="stack-sm">
         {[...ov.connectors].sort((a, b) => Number(b.builtin) - Number(a.builtin)).map((c) => <ConnectorRow key={c.id} c={c} ov={ov} onChange={onChange} />)}
       </div>
@@ -809,6 +811,37 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
         </button>
       )}
       <p className="help">Fixed in the app: restricted data stays local, connectors stay read-only, and nothing is sent or changed without a named approval.</p>
+    </div>
+  );
+}
+
+const TOOL_MODES: { id: ToolMode; label: string; help: string }[] = [
+  { id: "core", label: "Core tools (recommended)", help: "Each connector's everyday tools are offered directly. Microsoft 365 offers 19 of its 69 tools (mail, calendar, OneDrive, contacts, To Do), about half the tokens of all tools. Works with every model that calls tools." },
+  { id: "on_demand", label: "On demand (fewest tokens)", help: "Agents start with one small tool and load the tools they need (\"search mail\", \"calendar this week\") while they answer. Every tool stays reachable, and each call carries a few hundred tokens of tools instead of tens of thousands. Best with strong tool-calling models; small models may not search well." },
+  { id: "all", label: "All tools", help: "Every read-only tool of every connector that is on is offered on every call. Uses the most tokens and context." },
+];
+
+/** Settings > Connectors: how agents get connector tools (app/toolmenu.py). */
+function ToolModeCard({ ov, onChange }: { ov: Overview; onChange: () => void }) {
+  const [error, setError] = useState<unknown>(null);
+  const [mode, setMode] = useState<ToolMode>(ov.tool_mode);
+  useEffect(() => { setMode(ov.tool_mode); }, [ov.tool_mode]);
+  async function choose(next: ToolMode) {
+    const before = mode;
+    setMode(next); setError(null);  // shown at once; saved in the background
+    try { await api.saveGeneral({ tool_mode: next }); onChange(); } catch (e) { setMode(before); setError(e); }
+  }
+  return (
+    <div className="card stack-sm" role="radiogroup" aria-labelledby="toolmode-h">
+      <strong id="toolmode-h">Connector tools for agents</strong>
+      <p className="muted small measure">Tool descriptions are sent with every model call, before any reasoning. Choose how many agents get, in chat and in playbooks.</p>
+      {TOOL_MODES.map((m) => (
+        <label key={m.id} className="check tool-mode">
+          <input type="radio" name="tool-mode" value={m.id} checked={mode === m.id} onChange={() => choose(m.id)} />
+          <span><strong>{m.label}</strong><span className="help block-help">{m.help}</span></span>
+        </label>
+      ))}
+      <ErrorNote error={error} />
     </div>
   );
 }

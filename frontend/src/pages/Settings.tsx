@@ -361,7 +361,7 @@ function ProviderRow({ p, ov, onChange }: { p: ProviderInfo; ov: Overview; onCha
 function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () => void; onChange: () => void }) {
   const toEdit = (m: ProviderInfo["models"][number]): ModelEdit => ({
     model: m.ref.split("/").slice(1).join("/"), context_tokens: m.context_tokens, max_output_tokens: m.max_output_tokens, tools: m.tools,
-    price_in_per_mtok: m.price_in_per_mtok, price_out_per_mtok: m.price_out_per_mtok,
+    price_in_per_mtok: m.price_in_per_mtok, price_out_per_mtok: m.price_out_per_mtok, price_cached_per_mtok: m.price_cached_per_mtok ?? null,
   });
   const [baseUrl, setBaseUrl] = useState(p.base_url || "");
   const [key, setKey] = useState("");
@@ -450,6 +450,10 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
             {!local && <>
               <label className="field-inline">$ in
                 <input type="number" min={0} step="any" value={m.price_in_per_mtok ?? 0} onChange={(e) => upd(i, "price_in_per_mtok", Number(e.target.value))} aria-label={`${m.model} input price, US dollars per million tokens`} />
+              </label>
+              <label className="field-inline" title="Price of input the provider serves from its prompt cache. Empty: a tenth of $ in for Anthropic, the full $ in elsewhere.">$ cached
+                <input type="number" min={0} step="any" value={m.price_cached_per_mtok ?? ""} placeholder="auto"
+                  onChange={(e) => upd(i, "price_cached_per_mtok", e.target.value === "" ? null : Number(e.target.value))} aria-label={`${m.model} cached input price, US dollars per million tokens`} />
               </label>
               <label className="field-inline">$ out
                 <input type="number" min={0} step="any" value={m.price_out_per_mtok ?? 0} onChange={(e) => upd(i, "price_out_per_mtok", Number(e.target.value))} aria-label={`${m.model} output price, US dollars per million tokens`} />

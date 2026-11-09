@@ -32,7 +32,7 @@ import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from .connectors import ConnectorError, ConnectorManager, model_tool, setup_hints
+from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager, model_tool, setup_hints
 from .contracts import strip_reasoning
 from .guards import redact, scan_people_eval, wrap_data
 from .outputs import Outputs
@@ -43,6 +43,7 @@ from .registry import Registry
 from .router import keyword_scores
 from .settings import Settings
 from .store import Store, new_id, now
+from .toolmenu import FIND_TOOL, ON_DEMAND_RESERVE, ToolMenu
 
 log = logging.getLogger("suite.chat")
 
@@ -170,6 +171,8 @@ class BudgetReached(ChatError):
 
 
 BUDGET_HELP = "Start a new chat, or raise the chat budget in Settings > Policies & budgets."
+ROUTER_ROLE = ("You decide how the Chief of Staff handles the person's message: answer it directly, or ask up to three "
+               "specialists from the roster below. Answer only with the JSON the task asks for.")
 RESTART_NOTE = "The app closed before this was answered. Edit it to send it again."
 
 
@@ -394,7 +397,7 @@ class Chat:
         over = self._over(chat["tokens"], chat["cost_usd"])
         if over:
             raise BudgetReached(f"This chat has used its budget ({over}). {BUDGET_HELP}")
-        spend = {"tokens": chat["tokens"], "cost": chat["cost_usd"]}  # updated after every model call this turn
+        spend = {"tokens": chat["tokens"], "cost": chat["cost_usd"], "cached": 0}  # updated after every model call this turn
         files = [f for f in (self.store.file(x["id"]) for x in user_msg.get("files") or []) if f]
         # What came before this message, without messages that failed or are still waiting.
         before = [m for m in chat["messages"][:idx]
@@ -433,7 +436,8 @@ class Chat:
         cost = spend["cost"] - spent_before["cost"]
         msg = {"role": "assistant", "agent": chat["agent_id"], "content": reply["content"], "model": reply["model"],
                "delegations": reply["delegations"], "warnings": reply["warnings"], "suggested_playbook": sugg,
-               "tokens": tokens, "cost_usd": round(cost, 6), "tool_calls": reply.get("tool_calls", []),
+               "tokens": tokens, "cached_tokens": spend.get("cached", 0), "cost_usd": round(cost, 6),
+               "tool_calls": reply.get("tool_calls", []),
                "seconds": round(time.monotonic() - start, 1), "at": now(), "reply_to": mid}
         if fmt:
             body = previous[1] if previous is not None else reply["content"]
@@ -594,7 +598,9 @@ class Chat:
         try:
             off = _CHAT_OFF.get()
             on = [FILES_CONNECTOR] if self.connectors.configured(FILES_CONNECTOR) and FILES_CONNECTOR not in off else []
-            found = await self.connectors.tools_for_agent(on, wait=CHAT_CONNECTOR_WAIT, skip=off)
+            mode = self.s.tool_mode
+            found = await self.connectors.tools_for_agent(on, wait=CHAT_CONNECTOR_WAIT, skip=off, core=mode == "core",
+                                                          room=10_000 if mode == "on_demand" else MAX_AGENT_TOOLS)
         except Exception as e:  # noqa: BLE001 - connectors are optional for a chat answer
             log.exception("connector tools for chat failed")
             return [], {}, [], [], [f"connectors unavailable: {type(e).__name__}: {e}"[:400]], []
@@ -636,11 +642,15 @@ class Chat:
             await self._connector_tools() if connector_tools and not json_only else ([], {}, [], [], [], []))
         errors: list[str] = []
         for cand in cands:
-            specs = all_specs if cand.model.tools else []
-            rules = task if json_only else task + self._delivery(names, scope, bool(specs), down)
+            menu = ToolMenu(all_specs if cand.model.tools else [], {q: r[0] for q, r in routes.items()}, self.s.tool_mode,
+                            {c: self.connectors.configs[c].name for c in {r[0] for r in routes.values()}} if self.connectors else {})
+            specs = menu.offered()
+            rules = task if json_only else task + self._delivery(names, scope, bool(specs), down) + menu.note()
+            # Routing ("answer or ask specialists?") needs the roster, not the whole Chief of Staff: a lean prompt.
             system = build_system(agent=agent, mode=None, registry=self.registry, policies=self.s.output_policies,
                                   profile=self.profile, persona=self.s.persona.chat, extra_skills=[], has_skill_tool=False,
-                                  review=False) + [("chat", rules, 0)]
+                                  review=False, lean=json_only,
+                                  instructions_override=ROUTER_ROLE if json_only else None) + [("chat", rules, 0)]
             user = []
             if history:
                 user.append(("history", "## Conversation so far\n\n" + history + "\n", 3))
@@ -649,6 +659,8 @@ class Chat:
             user.append(("message", "## The person's message\n\n" + content + "\n", 0))
             out_tokens = min(max_tokens or cand.model.max_output_tokens, cand.model.max_output_tokens)
             tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3
+            if menu.deferred:
+                tool_tokens += ON_DEMAND_RESERVE  # room for the tools the agent loads during the answer
             try:
                 parts = fit_or_refuse(system, user, ref=cand.ref, context_tokens=cand.model.context_tokens,
                                       share=self.s.budgets.max_context_fraction, out_tokens=out_tokens,
@@ -665,7 +677,7 @@ class Chat:
                     raise BudgetReached(f"This message would take the chat past its budget ({over}). {BUDGET_HELP}")
             warnings = [f"{x}" for x in errors] + tool_warnings + list(parts.cuts)
             try:
-                r, usage, tool_log = await self._converse(cand, parts, specs, routes, out_tokens, json_only, spend, warnings)
+                r, usage, tool_log = await self._converse(cand, parts, menu, routes, out_tokens, json_only, spend, warnings)
             except ProviderError as e:
                 errors.append(f"{cand.ref}: {e}")
                 continue
@@ -677,7 +689,7 @@ class Chat:
                         tool_calls=tool_log)
         raise ChatError(f"Every model for {agent.name} failed: " + "; ".join(errors)[:600])
 
-    async def _converse(self, cand, parts, specs: list[ToolSpec], routes: dict[str, tuple[str, str]], out_tokens: int,
+    async def _converse(self, cand, parts, menu: ToolMenu, routes: dict[str, tuple[str, str]], out_tokens: int,
                         json_only: bool, spend: dict | None, warnings: list[str]):
         """One answer, with up to max_tool_calls_per_step connector calls before it. Spend is counted per model call."""
         provider = cand.provider
@@ -689,11 +701,12 @@ class Chat:
         for _round in range(max_calls + 2):
             if self.killed():
                 raise ChatError("The kill switch is on.")
-            offer = specs if (specs and calls < max_calls and not stop) else None
+            offer = menu.offered() if (menu.offered() and calls < max_calls and not stop) else None
             r = await provider.chat(conv, model=cand.model.model, tools=offer, max_tokens=out_tokens, effort=effort)
             usage += r.usage
             if spend is not None:
-                spend["tokens"] += r.usage.input_tokens + r.usage.output_tokens
+                spend["tokens"] += r.usage.input_tokens + r.usage.cache_read_tokens + r.usage.output_tokens
+                spend["cached"] = spend.get("cached", 0) + r.usage.cache_read_tokens
                 spend["cost"] += cand.cost(r.usage)
             if not r.tool_calls or not offer:
                 break
@@ -706,6 +719,9 @@ class Chat:
             outputs = []
             for call in r.tool_calls[: max_calls - calls]:
                 calls += 1
+                if call.name == FIND_TOOL:  # on demand: load the matching connector tools for the next round
+                    outputs.append((call.id, menu.find(call.arguments or {}), False))
+                    continue
                 route = routes.get(call.name)
                 if route is None:
                     outputs.append((call.id, f"unknown tool '{call.name}'", True))
@@ -735,7 +751,8 @@ class Chat:
             nonlocal usage
             usage += u
             if spend is not None:
-                spend["tokens"] += u.input_tokens + u.output_tokens
+                spend["tokens"] += u.input_tokens + u.cache_read_tokens + u.output_tokens
+                spend["cached"] = spend.get("cached", 0) + u.cache_read_tokens
                 spend["cost"] += cand.cost(u)
         r, more, cut = await complete_reply(provider, conv, r, model=cand.model.model, max_tokens=out_tokens,
                                             effort=effort, on_usage=count)

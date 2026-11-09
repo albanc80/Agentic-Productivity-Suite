@@ -172,6 +172,9 @@ class ConnectorConfig(BaseModel):
     parts: list[ConnectorPart] = Field(default_factory=list)  # grouped connector: one endpoint per part
     replaces: list[str] = Field(default_factory=list)  # older connector ids this one supersedes
     legacy: list[Launch] = Field(default_factory=list)  # launches earlier versions shipped (upgraded on load)
+    # The tools offered when "Connector tools" is Core (the default): the ones most answers need. Empty: all of them.
+    # On demand, the others can still be found and loaded by the agent (app/toolmenu.py).
+    core_tools: list[str] = Field(default_factory=list)
 
     def _sources(self) -> list:
         return [self.args, self.env, self.url or "", self.headers, self.command or ""]
@@ -972,7 +975,7 @@ class ConnectorManager:
 
     async def tools_for_agent(self, first: list[str] | tuple[str, ...] = (), *, only: bool = False,
                               room: int = MAX_AGENT_TOOLS, wait: float | None = None,
-                              skip: frozenset[str] | set[str] = frozenset()) -> AgentTools:
+                              skip: frozenset[str] | set[str] = frozenset(), core: bool = False) -> AgentTools:
         """Connector tools for one agent turn. Chat: every connector that is switched on and set up (``first`` come
         first). A playbook step: only the connectors the playbook requires (``first`` with ``only=True``). Tools stay
         read-only (blocked ones are never listed). A named connector that is off, or one that cannot start or does
@@ -1000,6 +1003,9 @@ class ConnectorManager:
                 out.notes.append(f"connector {cid} is still starting; it is used once ready")
                 out.starting.append(name)
                 continue
+            if core and self.configs[cid].core_tools:
+                keep = set(self.configs[cid].core_tools)
+                infos = [t for t in infos if t.name in keep]
             if not infos:
                 continue
             if len(out.tools) + len(infos) > room:
@@ -1076,11 +1082,13 @@ def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) 
         return shipped.model_copy()
     if cfg.command != shipped.command or cfg.args != shipped.args:
         return cfg
-    # Same launch as today: the setup text is today's (it is display text, written for this version), and a sign-in
-    # or built-in client the file predates is added. Anything else in the entry (allow or deny lists) is kept.
+    # Same launch as today: the setup text is today's (it is display text, written for this version), and a sign-in,
+    # built-in client or core tool list the file predates is added. Anything else (allow or deny lists) is kept.
     update = {k: getattr(shipped, k) for k in SHIPPED_TEXT}
     if not cfg.signin:
         update.update(signin=shipped.signin, client_file=shipped.client_file)
+    if not cfg.core_tools:
+        update["core_tools"] = list(shipped.core_tools)
     return cfg.model_copy(update=update)
 
 

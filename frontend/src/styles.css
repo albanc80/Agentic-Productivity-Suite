@@ -578,3 +578,8 @@ a.button-link.ghost:hover { background: var(--accent-soft); }
 .chip-toggle.off { background: transparent; color: var(--muted); border-color: var(--border-strong); text-decoration: line-through; }
 .chip-toggle .chip-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .chip-toggle.off .chip-dot { background: transparent; border: 1px solid currentColor; }
+
+/* Settings > Connectors: connector tools mode */
+.tool-mode { align-items: flex-start; gap: 10px; }
+.tool-mode input { margin-top: 3px; }
+.block-help { display: block; margin-top: 2px; }

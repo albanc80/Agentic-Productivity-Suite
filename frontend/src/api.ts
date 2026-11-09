@@ -24,7 +24,7 @@ export interface ModelEndpoint {
 }
 export interface ModelEdit {
   model: string; context_tokens: number; max_output_tokens: number; tools: boolean;
-  price_in_per_mtok?: number | null; price_out_per_mtok?: number | null;
+  price_in_per_mtok?: number | null; price_out_per_mtok?: number | null; price_cached_per_mtok?: number | null;
 }
 export interface ProviderEdit {
   enabled?: boolean; base_url?: string; api_key?: string; clear_api_key?: boolean; models?: ModelEdit[];
@@ -34,7 +34,7 @@ export interface ProviderInfo {
   name: string; type: string; locality: "local" | "cloud"; base_url: string | null; available: boolean; reason: string;
   enabled: boolean; offline_paused: boolean; api_key_env: string | null; api_key_source: "env" | "app" | "config" | null; edited_in_app: boolean;
   endpoint: boolean; note: string;
-  models: { ref: string; context_tokens: number; max_output_tokens: number; tools: boolean; price_in_per_mtok: number; price_out_per_mtok: number; note: string }[];
+  models: { ref: string; context_tokens: number; max_output_tokens: number; tools: boolean; price_in_per_mtok: number; price_out_per_mtok: number; price_cached_per_mtok?: number | null; note: string }[];
 }
 export interface ConnectorVariable {
   name: string; secret: boolean; flag: boolean; optional: boolean; default: string; set: boolean;
@@ -72,12 +72,14 @@ export interface GeneralEdit {
   budgets?: Budgets; persona_chat?: boolean; persona_exports?: boolean; store_prompts?: boolean;
   default_data_class?: string; cloud_allowed?: Record<string, boolean>; tiers?: Record<string, string[]>;
   agent_models?: Record<string, string | null>; offline_model?: string; default_model?: string; fallback_model?: string;
+  tool_mode?: ToolMode;
 }
+export type ToolMode = "core" | "all" | "on_demand";
 export interface ChatDelegation { agent: string; question: string; answer: string; model: string | null; error?: string | null }
 export interface ChatMsg {
   role: "user" | "assistant"; content: string; at: string; agent?: string; model?: string;
   files?: { id: string; name: string }[]; delegations?: ChatDelegation[]; warnings?: string[];
-  suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cost_usd?: number; seconds?: number;
+  suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cached_tokens?: number; cost_usd?: number; seconds?: number;
   // set when the person asked for the answer as a file; saved_to is where the app wrote it (null: not saved)
   file?: { format: "md" | "html"; name: string; saved_to?: string | null; source?: number };
   tool_calls?: { connector?: string; tool: string; arguments: Record<string, unknown>; error: boolean }[];
@@ -99,7 +101,7 @@ export interface Overview {
   connectors: ConnectorInfo[]; data_classes: Record<string, string[]>; default_data_class: string; kill_switch: boolean; offline: boolean;
   offline_override: boolean | null; endpoints: ModelEndpoint[];
   budgets: Budgets; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
-  profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; model_refs: string[]; general_edited: string[];
+  profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; tool_mode: ToolMode; model_refs: string[]; general_edited: string[];
   outputs_dir: string | null;
   outputs: { path: string | null; source: "app" | "file" | "default"; default: string; shared_with_local_files: string[] };  // readable copies of chats and deliverables; null when switched off
   agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;

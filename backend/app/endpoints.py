@@ -71,6 +71,7 @@ class ModelEdit(BaseModel):
     max_output_tokens: int = Field(default=2048, ge=128, le=128_000)
     tools: bool = False
     price_in_per_mtok: float | None = Field(default=None, ge=0, le=10_000)  # USD per million tokens
+    price_cached_per_mtok: float | None = Field(default=None, ge=0, le=10_000)  # cached input; None: see ModelConfig
     price_out_per_mtok: float | None = Field(default=None, ge=0, le=10_000)
 
     @field_validator("model")
@@ -156,6 +157,8 @@ def _apply_override(name: str, ov: ProviderOverride, providers: dict, models: li
                                    else (prev.price_in_per_mtok if prev else 0.0),
                                    price_out_per_mtok=m.price_out_per_mtok if m.price_out_per_mtok is not None
                                    else (prev.price_out_per_mtok if prev else 0.0),
+                                   price_cached_per_mtok=m.price_cached_per_mtok if m.price_cached_per_mtok is not None
+                                   else (prev.price_cached_per_mtok if prev else None),
                                    effort=prev.effort if prev else None, note="edited in the app"))
         models = [m for m in models if m.provider != name] + new
         keep = {m.ref for m in new}

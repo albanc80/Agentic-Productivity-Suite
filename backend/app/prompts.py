@@ -1,8 +1,8 @@
 """Prompt assembly.
 
 System prompt order is fixed so providers with prompt caching reuse the
-prefix across steps: suite rules -> output policies -> agent instructions ->
-core skills -> skill index -> persona -> user profile. Everything specific to
+prefix across steps and agents: suite rules -> output policies -> user profile ->
+agent instructions -> core skills -> skill index -> persona. Everything specific to
 the run goes in the user message.
 
 ``fit()`` keeps a prompt inside a model's context budget. Small local models
@@ -108,12 +108,19 @@ def _profile_block(profile: dict) -> str:
 
 def build_system(*, agent: Agent, mode: str | None, registry: Registry, policies: list[str], profile: dict,
                  persona: bool, extra_skills: list[str], has_skill_tool: bool, review: bool,
-                 instructions_override: str | None = None) -> list[tuple[str, str, int]]:
-    """Return system sections as (name, text, shrink_priority). Higher priority shrinks first; 0 = never."""
+                 instructions_override: str | None = None, lean: bool = False) -> list[tuple[str, str, int]]:
+    """Return system sections as (name, text, shrink_priority). Higher priority shrinks first; 0 = never.
+
+    Order is for prompt caching: what every agent shares (rules, policies, the person's profile) comes first, so a
+    provider's cache of that opening serves every agent; what is agent-specific follows. ``lean`` (routing calls)
+    keeps only the rules, the profile and the given role: no policies, skills or persona."""
     sections: list[tuple[str, str, int]] = [("rules", SUITE_RULES, 0)]
-    pol = "\n\n".join(registry.policy_text(p) for p in policies)
+    pol = "" if lean else "\n\n".join(registry.policy_text(p) for p in policies)
     if pol:
         sections.append(("policies", "# Output policies\n\n" + pol, 3))
+    prof = _profile_block(profile)
+    if prof:
+        sections.append(("profile", prof, 2))
     if agent.safety_critical:
         sections.append(("safety", SAFETY_RULES, 0))
     if review:
@@ -121,6 +128,8 @@ def build_system(*, agent: Agent, mode: str | None, registry: Registry, policies
     instructions = instructions_override or agent.instructions_for(mode)
     head = f"You are acting as: {agent.name}\n{agent.summary}\n"
     sections.append(("agent", "# Your role\n\n" + head + "\n" + instructions, 1))
+    if lean:
+        return sections
     skills = list(dict.fromkeys(agent.core_skills + extra_skills))
     for sid in skills:
         sections.append((f"skill:{sid}", f"# Skill: {sid}\n\n" + registry.skill_text(sid), 4))
@@ -131,9 +140,6 @@ def build_system(*, agent: Agent, mode: str | None, registry: Registry, policies
     if persona and agent.persona:
         sections.append(("persona", "# Voice\n\nKeep the voice below, but accuracy and the operating rules always win.\n\n"
                          + agent.persona.text, 6))
-    prof = _profile_block(profile)
-    if prof:
-        sections.append(("profile", prof, 2))
     return sections
 
 

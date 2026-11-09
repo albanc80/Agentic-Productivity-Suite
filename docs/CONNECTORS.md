@@ -16,6 +16,18 @@ Launch commands come from each project's documentation and change between releas
 | Jira / Confluence | `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` (+ optional Confluence variables) | Community server `mcp-atlassian` from PyPI via `uvx` with `--read-only` (no Docker; uv comes from the computer or the app) | Package name and variables in the sooperset/mcp-atlassian README; whether `CONFLUENCE_URL` needs `/wiki` |
 | Local files | One or more folders, chosen in Settings | Built into the suite (no Node.js or other install). Used by playbook steps and by chat agents (on models with tool calling). Tools: list, search, read and file info, all read-only. Paths are resolved, symlinks included, and must stay inside the chosen folders. Reads text, CSV, JSON, YAML, PDF, DOCX and XLSX. Works offline | Nothing external |
 
+## Connector tools for agents: Core, On demand or All
+
+Tool descriptions are sent with every model call, before any reasoning, so Settings → Connectors → **Connector tools for agents** sets how many agents get (chat and playbooks alike):
+
+| Choice | What a model is sent | Measured (Microsoft 365, Google Workspace, GitHub) |
+|---|---|---|
+| **Core tools** (default) | Each connector's everyday tools. Microsoft 365 offers 19 of its 69 (`core_tools:` in its entry: mail, calendar, OneDrive, contacts, To Do, accounts); others offer all theirs. | 58 tools, about 25,000 tokens per call |
+| **On demand** | One small tool, `suite__find_tools`, and a line per connected source. The agent asks for what it needs ("search mail", "calendar this week"), the matching tools load for the rest of the answer, and it calls them. Every tool stays reachable. | about 200 tokens at the start; about 12,000 after three searches |
+| **All tools** | Every read-only tool of every connector that is on. | 108 tools, about 55,000 tokens per call |
+
+Matching on demand is deterministic (the request's words against tool names and descriptions; a request naming a subject such as mail only matches mail tools), cheap and repeatable. Read-only enforcement is unchanged. Small models may not search well; use Core with them. A `connectors.yaml` copied by an earlier version gets the shipped `core_tools` list when it is loaded.
+
 ## Several accounts (Microsoft 365 and Google Workspace)
 
 One connector serves every account you sign in with, for example a work and a personal mailbox. You decide which accounts agents may use:

@@ -23,6 +23,9 @@ __all__ = [
 ]
 
 
+ANTHROPIC_CACHE_READ = 0.1  # cache reads cost a tenth of the input price (Anthropic's pricing; verify there)
+
+
 class NoModelAvailable(Exception):
     pass
 
@@ -35,9 +38,14 @@ class Resolved:
     config: ProviderConfig
 
     def cost(self, usage: Usage) -> float:
-        # Conservative: cache reads are billed at the full input rate here.
-        return (usage.input_tokens + usage.cache_read_tokens) * self.model.price_in_per_mtok / 1e6 + \
-            usage.output_tokens * self.model.price_out_per_mtok / 1e6
+        """Input, cached input and output at their own prices. Cached input without a price of its own: Anthropic's
+        documented 0.1x of the input price on anthropic providers; elsewhere the full input price (conservative)."""
+        m = self.model
+        cached = m.price_cached_per_mtok
+        if cached is None:
+            cached = m.price_in_per_mtok * (ANTHROPIC_CACHE_READ if self.config.type == "anthropic" else 1.0)
+        return (usage.input_tokens * m.price_in_per_mtok + usage.cache_read_tokens * cached
+                + usage.output_tokens * m.price_out_per_mtok) / 1e6
 
 
 class ModelRouter:
