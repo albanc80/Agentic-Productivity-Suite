@@ -1,6 +1,6 @@
 import { isLive, openConnectors, shortName } from "../connectors";
-import { useMemo, useState } from "react";
-import { api, type Overview, type PlaybookInput } from "../api";
+import { useEffect, useMemo, useState } from "react";
+import { api, type Overview, type PlaybookInput, type RunDetail } from "../api";
 import { ErrorNote, go } from "../ui";
 
 const prefills: Record<string, Record<string, unknown>> = {};
@@ -19,14 +19,44 @@ function initial(inp: PlaybookInput, pre: Record<string, unknown>) {
   return inp.type === "multiselect" || inp.type === "documents" ? [] : "";
 }
 
-export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: string }) {
+type FileRef = { id: string; name: string; chars: number };
+
+/** Library → Edit and run as new: the start form filled in from an earlier run, with corrections. */
+export function ReviseForm({ ov, runId }: { ov: Overview; runId: string }) {
+  const [from, setFrom] = useState<{ run: RunDetail; files: Record<string, FileRef[]> } | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const run = await api.run(runId);
+        const pb = ov.playbooks.find((p) => p.id === run.playbook_id);
+        const files: Record<string, FileRef[]> = {};
+        for (const inp of pb?.inputs || []) {
+          if (inp.type !== "documents") continue;
+          const ids = (run.inputs[inp.id] as string[] | undefined) || [];
+          files[inp.id] = (await Promise.all(ids.map((id) => api.fileInfo(id).catch(() => null)))).filter((f): f is FileRef => !!f);
+        }
+        setFrom({ run, files });
+      } catch (e) { setError(e); }
+    })();
+  }, [runId]);
+  if (error) return <ErrorNote error={error} />;
+  if (!from) return <p className="muted">Loading the earlier run…</p>;
+  return <RunForm ov={ov} playbookId={from.run.playbook_id} from={from} />;
+}
+
+export default function RunForm({ ov, playbookId, from }: { ov: Overview; playbookId: string;
+  from?: { run: RunDetail; files: Record<string, FileRef[]> } }) {
   const pb = ov.playbooks.find((p) => p.id === playbookId);
-  const pre = prefills[playbookId] || {};
+  const pre = from ? from.run.inputs : prefills[playbookId] || {};
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     Object.fromEntries((pb?.inputs || []).map((i) => [i.id, initial(i, pre)])));
-  const [files, setFiles] = useState<Record<string, { id: string; name: string; chars: number }[]>>({});
-  const [dataClass, setDataClass] = useState(ov.default_data_class);
-  const [persona, setPersona] = useState(pb?.style === "chat" ? ov.persona.chat : ov.persona.exports);
+  const [files, setFiles] = useState<Record<string, FileRef[]>>(from?.files || {});
+  const [dataClass, setDataClass] = useState(from?.run.data_class || ov.default_data_class);
+  const [persona, setPersona] = useState(typeof from?.run.options.persona === "boolean" ? from.run.options.persona as boolean
+    : pb?.style === "chat" ? ov.persona.chat : ov.persona.exports);
+  const [corrections, setCorrections] = useState("");
+  const [withPrevious, setWithPrevious] = useState(!!from?.run.deliverable);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -62,7 +92,9 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
     const inputs: Record<string, unknown> = { ...values };
     for (const inp of pb!.inputs) if (inp.type === "documents") inputs[inp.id] = (files[inp.id] || []).map((f) => f.id);
     try {
-      const { id } = await api.startRun(pb!.id, inputs, dataClass, { persona });
+      const { id } = from
+        ? await api.rerun(from.run.id, { inputs, data_class: dataClass, persona, corrections, include_previous: withPrevious })
+        : await api.startRun(pb!.id, inputs, dataClass, { persona });
       delete prefills[pb!.id];
       go(`/runs/${id}`);
     } catch (err) { setError(err); setBusy(false); }
@@ -71,10 +103,12 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
   return (
     <form className="stack-lg form" onSubmit={submit}>
       <header className="stack-sm">
-        <a href="#/playbooks" className="small">← Playbooks</a>
+        {from ? <a href={`#/runs/${from.run.id}`} className="small">← Back to the earlier run</a> : <a href="#/playbooks" className="small">← Playbooks</a>}
         <span className="code">{pb.code} · {pb.area}</span>
-        <h1>{pb.name}</h1>
-        <p className="muted measure">{pb.summary}</p>
+        <h1>{from ? `Revise: ${from.run.title}` : pb.name}</h1>
+        <p className="muted measure">{from
+          ? "Filled in from the earlier run. Change any input, remove or add files, and say what to correct. It runs as a new run; the earlier one stays in the Library."
+          : pb.summary}</p>
       </header>
 
       <div className="form-grid">
@@ -117,12 +151,31 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
                 <div className="stack-sm">
                   <input id={`f-${inp.id}`} type="file" multiple accept=".txt,.md,.csv,.json,.yaml,.yml,.log,.pdf,.docx,.xlsx"
                     onChange={(e) => addFiles(inp.id, e.target.files)} />
-                  {(files[inp.id] || []).map((f) => <span key={f.id} className="small muted">{f.name} · {f.chars.toLocaleString()} characters</span>)}
+                  {(files[inp.id] || []).map((f) => (
+                    <span key={f.id} className="small muted file-row">{f.name} · {f.chars.toLocaleString()} characters{" "}
+                      <button type="button" className="link-btn" aria-label={`Remove ${f.name}`}
+                        onClick={() => setFiles((s) => ({ ...s, [inp.id]: (s[inp.id] || []).filter((x) => x.id !== f.id) }))}>Remove</button>
+                    </span>
+                  ))}
                 </div>
               )}
               {inp.help && <span className="help">{inp.help}</span>}
             </div>
           ))}
+          {from && (
+            <div className="field card revise-box">
+              <label htmlFor="f-corrections">What to correct</label>
+              <textarea id="f-corrections" rows={5} value={corrections} onChange={(e) => setCorrections(e.target.value)}
+                placeholder="e.g. The launch date is March, not May. Use the attached v2 budget. Shorter executive summary." />
+              <label className="check">
+                <input type="checkbox" checked={withPrevious} disabled={!from.run.deliverable} onChange={(e) => setWithPrevious(e.target.checked)} />
+                Give the agents the earlier result to correct
+              </label>
+              <span className="help">{from.run.deliverable
+                ? "They keep what is right and fix what your corrections and changed inputs say. Your corrections override the earlier result."
+                : "The earlier run has no result to correct, so it starts from your inputs and corrections."}</span>
+            </div>
+          )}
         </div>
 
         <aside className="card stack side">
@@ -154,7 +207,7 @@ export default function RunForm({ ov, playbookId }: { ov: Overview; playbookId: 
           </label>
           <p className="help">Nothing is sent, published or written by this run. Outbound drafts wait for approval.</p>
           <ErrorNote error={error} />
-          <button className="primary block" type="submit" disabled={busy}>{busy ? "Starting…" : "Start run"}</button>
+          <button className="primary block" type="submit" disabled={busy}>{busy ? "Starting…" : from ? "Run as new" : "Start run"}</button>
         </aside>
       </div>
     </form>

@@ -66,10 +66,21 @@ def test_phone_endpoint_discover_add_and_run_restricted(app_factory):
         # Restricted data may only reach local models: the phone qualifies.
         rid = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "Summarise my notes"},
                                         "data_class": "restricted"}).json()["id"]
+        wait(c, rid)
+        step = c.get(f"/api/runs/{rid}").json()["steps"][0]
+        # 1.0.0: nothing is cut by default. A 4k phone model cannot take an agent's whole prompt, so the step stops
+        # and says which model and how much room the whole prompt needs.
+        assert step["status"] == "BLOCKED" and "cannot take the whole prompt without cutting it" in (step["error"] or "")
+        assert "4,096" in step["error"] and "larger context window" in step["error"]
+        # Opt in to shortening for small models (Settings > Policies & budgets): the old trimming, said so on the step.
+        b = {**c.get("/api/overview").json()["budgets"], "shorten_to_fit": True}
+        assert c.put("/api/settings/general", json={"budgets": b}).status_code == 200
+        rid = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "Summarise my notes"},
+                                        "data_class": "restricted"}).json()["id"]
         run = wait(c, rid)
         step = c.get(f"/api/runs/{rid}").json()["steps"][0]
         assert run["status"] == "completed" and step["model"] == "ep-pixel-9/qwen2.5-3b-instruct"
-        assert any(w.startswith("context fit") for w in step["warnings"]), "4k context must trim the prompt and say so"
+        assert any(w.startswith("context fit") for w in step["warnings"]), "opted in: 4k context trims and says so"
         assert c.post("/api/providers/ep-pixel-9/test").json()["ok"]
         assert c.delete("/api/endpoints/pixel-9").status_code == 200
         assert all("ep-pixel-9/qwen2.5-3b-instruct" not in ch for ch in c.get("/api/overview").json()["tiers"].values())

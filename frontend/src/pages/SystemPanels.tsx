@@ -67,6 +67,17 @@ export function AgentPackCard({ ov, onChange }: { ov: Overview; onChange: () => 
       onChange();
     } catch (e) { setError(e); } finally { setBusy(false); }
   }
+  const [confirm, setConfirm] = useState(false);
+  async function removeImported() {
+    setBusy(true); setError(null); setDone(""); setConfirm(false);
+    try {
+      const r = await api.removeAgentPack();
+      setDone(`Removed ${r.removed} imported file${r.removed === 1 ? "" : "s"}. `
+        + (r.built_in ? `Agents now use the instructions built into the app (${r.built_in} of ${r.agents_total}).`
+          : "This copy of the app has none built in, so agents now use their public descriptions."));
+      onChange();
+    } catch (e) { setError(e); } finally { setBusy(false); }
+  }
 
   return (
     <section className="card stack" aria-labelledby="pack-h">
@@ -88,9 +99,18 @@ export function AgentPackCard({ ov, onChange }: { ov: Overview; onChange: () => 
         <input ref={input} type="file" accept=".zip,.yaml,.yml,application/zip" multiple hidden aria-hidden="true"
           data-testid="pack-input" onChange={(e) => upload(e.target.files)} />
         <button type="button" className={p.installed ? "ghost" : "primary"} onClick={() => input.current?.click()} disabled={busy}>
-          {busy ? "Installing…" : p.imported ? "Update imported pack" : p.built_in ? "Import my own version" : "Import agent pack"}
+          {busy ? "Working…" : p.imported ? "Update imported pack" : p.built_in ? "Import my own version" : "Import agent pack"}
         </button>
+        {p.imported > 0 && (confirm
+          ? <>
+              <button type="button" className="danger" onClick={removeImported} disabled={busy}>Remove {p.imported} imported file{p.imported === 1 ? "" : "s"}</button>
+              <button type="button" className="ghost" onClick={() => setConfirm(false)}>Keep</button>
+            </>
+          : <button type="button" className="ghost" onClick={() => setConfirm(true)} disabled={busy}>Remove imported pack</button>)}
       </div>
+      {confirm && <p className="help">{p.built_in
+        ? "The imported files are deleted from this computer and agents go back to the instructions built into the app, at once."
+        : "The imported files are deleted from this computer. This copy of the app has no instructions built in, so agents will use their public descriptions."}</p>}
       {done && <p className="small ok-text" role="status">{done}</p>}
       <ErrorNote error={error} />
       {p.folder && (p.imported > 0 || !p.built_in) && <p className="help">Imported packs are saved in <code>{p.folder}</code>. Importing again replaces files with the same name and keeps the rest.</p>}
@@ -119,8 +139,8 @@ const STEPS: { title: string; body: React.ReactNode }[] = [
   {
     title: "Ask in Chat",
     body: <>Open <a href="#/chat">Chat</a>. Keep the <strong>Chief of Staff</strong>, who brings in specialists when needed, or pick one agent.
-      <strong> Enter</strong> sends, <strong>Shift+Enter</strong> starts a new line. Attach a file, copy or download an answer, or ask
-      "as an HTML file" to get a saved file.</>,
+      <strong> Enter</strong> sends, <strong>Shift+Enter</strong> starts a new line. Send follow-ups while it works; they are answered
+      in order. <strong>Edit</strong> a message to send it again. Attach a file, copy or download an answer, or ask "as an HTML file".</>,
   },
   {
     title: "Run a playbook for bigger work",

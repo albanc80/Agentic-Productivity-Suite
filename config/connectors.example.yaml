@@ -64,6 +64,12 @@ connectors:
       MS365_MCP_ORG_MODE: ${MS365_MCP_ORG_MODE:-}
     requires: [MS365_MCP_ENABLED]
     accounts: {param: account, vars: [MS365_ACCOUNTS]}
+    # Offered when Settings > Connectors > Connector tools is Core (the default): 19 of the server's 69 read-only
+    # tools, about a quarter of the room. On demand, an agent can still find and load the others (OneNote, Excel...).
+    core_tools: [list-accounts, list-mail-messages, get-mail-message, read-mail-text, list-mail-folders,
+                 list-mail-folder-messages, list-mail-attachments, get-mail-attachment-content, get-calendar-view,
+                 list-calendar-events, get-calendar-event, list-calendars, search-onedrive-files, list-folder-files,
+                 get-drive-item, get-drive-root-item, list-outlook-contacts, list-todo-task-lists, list-todo-tasks]
     legacy:  # the first release launched it in org mode; a connectors.yaml still doing so is upgraded when loaded
       - command: npx
         args: [-y, "@softeria/ms-365-mcp-server", --read-only, --org-mode]

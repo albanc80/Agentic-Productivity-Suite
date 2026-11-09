@@ -275,7 +275,7 @@ function EndpointsPanel({ ov, onChange }: { ov: Overview; onChange: () => void }
               <input type="checkbox" checked={draft.tools} onChange={(e) => set("tools", e.target.checked)} />
               The model supports tool calling (lets agents use connectors and calculators directly)
             </label>
-            <p className="help">Small models give shorter, less reliable answers on long playbooks. Prompts are trimmed to fit their context, and the run notes say what was cut.</p>
+            <p className="help">Small models give shorter, less reliable answers on long playbooks. Nothing is cut by default, so a model too small for an agent's whole prompt is skipped; switch on Shorten prompts for small models in Policies & budgets to use it anyway.</p>
             <button className="primary" type="submit" disabled={!draft.model || busy === "save"}>{busy === "save" ? "Saving…" : "Add endpoint"}</button>
           </>
         )}
@@ -361,7 +361,7 @@ function ProviderRow({ p, ov, onChange }: { p: ProviderInfo; ov: Overview; onCha
 function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () => void; onChange: () => void }) {
   const toEdit = (m: ProviderInfo["models"][number]): ModelEdit => ({
     model: m.ref.split("/").slice(1).join("/"), context_tokens: m.context_tokens, max_output_tokens: m.max_output_tokens, tools: m.tools,
-    price_in_per_mtok: m.price_in_per_mtok, price_out_per_mtok: m.price_out_per_mtok,
+    price_in_per_mtok: m.price_in_per_mtok, price_out_per_mtok: m.price_out_per_mtok, price_cached_per_mtok: m.price_cached_per_mtok ?? null,
   });
   const [baseUrl, setBaseUrl] = useState(p.base_url || "");
   const [key, setKey] = useState("");
@@ -378,7 +378,7 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
   const has = (m: string) => models.some((x) => x.model === m);
   const add = (m: string) => {
     const name = m.trim();
-    if (name && !has(name)) setModels((ms) => [...ms, { model: name, context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8000, tools: false }]);
+    if (name && !has(name)) setModels((ms) => [...ms, { model: name, context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8192, tools: false }]);
   };
   const upd = (i: number, k: keyof ModelEdit, v: unknown) => setModels((ms) => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
 
@@ -389,7 +389,7 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
       setFound(r.models); setBaseUrl(r.base_url);
       if (r.models.length && !models.some((m) => r.models.includes(m.model))) {
         // Replace placeholders that the server does not have with the first model it reports.
-        setModels([{ model: r.models[0], context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8000, tools: false }]);
+        setModels([{ model: r.models[0], context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8192, tools: false }]);
       }
     } catch (e) { setError(e); } finally { setBusy(""); }
   }
@@ -450,6 +450,10 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
             {!local && <>
               <label className="field-inline">$ in
                 <input type="number" min={0} step="any" value={m.price_in_per_mtok ?? 0} onChange={(e) => upd(i, "price_in_per_mtok", Number(e.target.value))} aria-label={`${m.model} input price, US dollars per million tokens`} />
+              </label>
+              <label className="field-inline" title="Price of input the provider serves from its prompt cache. Empty: a tenth of $ in for Anthropic, the full $ in elsewhere.">$ cached
+                <input type="number" min={0} step="any" value={m.price_cached_per_mtok ?? ""} placeholder="auto"
+                  onChange={(e) => upd(i, "price_cached_per_mtok", e.target.value === "" ? null : Number(e.target.value))} aria-label={`${m.model} cached input price, US dollars per million tokens`} />
               </label>
               <label className="field-inline">$ out
                 <input type="number" min={0} step="any" value={m.price_out_per_mtok ?? 0} onChange={(e) => upd(i, "price_out_per_mtok", Number(e.target.value))} aria-label={`${m.model} output price, US dollars per million tokens`} />

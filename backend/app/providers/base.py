@@ -89,3 +89,28 @@ class Timer:
 
     def __exit__(self, *exc):
         self.ms = int((time.perf_counter() - self.t0) * 1000)
+
+
+# ---------------------------------------------------------------- replies cut off by the answer length
+
+LENGTH_STOPS = frozenset({"length", "max_tokens"})  # OpenAI-compatible finish_reason / Anthropic stop_reason
+MAX_CONTINUATIONS = 3
+CONTINUE_PROMPT = ("Your reply was cut off by the length limit. Continue exactly where you stopped: no repetition, "
+                   "no preamble, and finish with everything the response format asks for.")
+
+
+async def complete_reply(provider, conv, result: ChatResult, *, model: str, max_tokens: int, effort: str | None,
+                         on_usage=None) -> tuple[ChatResult, int, bool]:
+    """A final reply that stopped at the answer length is continued (up to MAX_CONTINUATIONS times) and the parts are
+    joined, so nothing is cut. Returns (joined reply, continuations made, still cut off)."""
+    import dataclasses
+    texts, n = [result.text], 0
+    while result.stop_reason in LENGTH_STOPS and not result.tool_calls and n < MAX_CONTINUATIONS:
+        provider.add_assistant(conv, result)
+        provider.add_user(conv, CONTINUE_PROMPT)
+        result = await provider.chat(conv, model=model, tools=None, max_tokens=max_tokens, effort=effort)
+        if on_usage:
+            on_usage(result.usage)
+        texts.append(result.text)
+        n += 1
+    return dataclasses.replace(result, text="".join(texts)), n, result.stop_reason in LENGTH_STOPS

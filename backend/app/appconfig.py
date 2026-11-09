@@ -26,6 +26,7 @@ class BudgetsEdit(BaseModel):
     max_tool_calls_per_step: int = Field(ge=0, le=100)
     max_tool_result_chars: int = Field(ge=1_000, le=1_000_000)
     max_context_fraction: float = Field(ge=0.2, le=0.95)
+    shorten_to_fit: bool = False  # settings saved before 1.0.0 load as off: nothing is cut
 
 
 class TierPref(BaseModel):
@@ -38,6 +39,7 @@ class GeneralSettings(BaseModel):
     persona_chat: bool | None = None
     persona_exports: bool | None = None
     store_prompts: bool | None = None
+    tool_mode: Literal["core", "all", "on_demand"] | None = None  # how agents get connector tools (None: core)
     default_data_class: Literal["public", "internal", "confidential", "restricted"] | None = None
     cloud_allowed: dict[Literal["public", "internal", "confidential"], bool] | None = None
     tiers: dict[Literal["router", "specialist", "synthesis", "review"], TierPref] | None = None
@@ -54,6 +56,7 @@ class GeneralEdit(BaseModel):
     persona_chat: bool | None = None
     persona_exports: bool | None = None
     store_prompts: bool | None = None
+    tool_mode: Literal["core", "all", "on_demand"] | None = None
     default_data_class: Literal["public", "internal", "confidential", "restricted"] | None = None
     cloud_allowed: dict[Literal["public", "internal", "confidential"], bool] | None = None
     tiers: dict[Literal["router", "specialist", "synthesis", "review"], list[str]] | None = None  # desired order

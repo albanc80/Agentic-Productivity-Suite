@@ -409,6 +409,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* endpoints */
 .ep-row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
 .ep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.ep-grid.align-inputs { align-items: end; } /* a label that wraps grows upward, so every input stays on one line */
 .endpoint-form .checks .check { font-size: .85rem; }
 
 /* providers: on/off switch and edit panel */
@@ -552,3 +553,33 @@ main, .md, .chat-main, .warn-list, pre, code { -webkit-user-select: text; user-s
 .guide li::before { content: counter(guide); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font: 600 .78rem/1 var(--f-body); }
 .guide li > * { grid-column: 2; }
 .guide li p { margin: 4px 0 0; }
+
+/* Chat: the person's message actions (Edit) and its queued / failed state */
+.user-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+.user-status { margin: 6px 0 0; }
+.edit-bubble { width: min(760px, 100%); }
+.edit-bubble textarea { width: 100%; }
+
+/* A link that looks like a button (Edit and run as new) */
+a.button-link { display: inline-flex; align-items: center; font: 600 .9rem/1.2 var(--f-body); padding: 9px 15px; border-radius: var(--r-control);
+  border: 1px solid var(--border-strong); color: var(--text); text-decoration: none; background: var(--surface); }
+a.button-link:hover { border-color: var(--accent); }
+a.button-link.ghost { border-color: transparent; background: transparent; color: var(--accent); }
+a.button-link.ghost:hover { background: var(--accent-soft); }
+.run-actions { display: inline-flex; margin-right: 4px; }
+.revise-box { gap: 8px; }
+.file-row { display: inline-flex; gap: 6px; align-items: center; }
+
+/* Chat: connector switches for this chat only */
+.chat-connectors { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chip-toggle { display: inline-flex; align-items: center; gap: 6px; font: 500 .74rem/1.4 var(--f-mono); padding: 3px 9px; border-radius: 6px;
+  border: 1px solid transparent; cursor: pointer; }
+.chip-toggle.on { background: var(--ok-soft); color: var(--ok); }
+.chip-toggle.off { background: transparent; color: var(--muted); border-color: var(--border-strong); text-decoration: line-through; }
+.chip-toggle .chip-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.chip-toggle.off .chip-dot { background: transparent; border: 1px solid currentColor; }
+
+/* Settings > Connectors: connector tools mode */
+.tool-mode { align-items: flex-start; gap: 10px; }
+.tool-mode input { margin-top: 3px; }
+.block-help { display: block; margin-top: 2px; }

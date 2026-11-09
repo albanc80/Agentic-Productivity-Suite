@@ -172,6 +172,9 @@ class ConnectorConfig(BaseModel):
     parts: list[ConnectorPart] = Field(default_factory=list)  # grouped connector: one endpoint per part
     replaces: list[str] = Field(default_factory=list)  # older connector ids this one supersedes
     legacy: list[Launch] = Field(default_factory=list)  # launches earlier versions shipped (upgraded on load)
+    # The tools offered when "Connector tools" is Core (the default): the ones most answers need. Empty: all of them.
+    # On demand, the others can still be found and loaded by the agent (app/toolmenu.py).
+    core_tools: list[str] = Field(default_factory=list)
 
     def _sources(self) -> list:
         return [self.args, self.env, self.url or "", self.headers, self.command or ""]
@@ -442,6 +445,55 @@ def setup_hints(text: str) -> list[str]:
 
 MAX_AGENT_TOOLS = 128  # the most tools some model APIs accept in one request
 
+# What a model is sent for each connector tool. Servers write long help into every parameter (Microsoft 365's
+# 69 read-only tools came to about 195,000 characters, about 65,000 tokens by the suite's estimate), which left
+# almost no room for the conversation and was billed on every call. The model gets the first sentence of each
+# description; names, types, enums and required fields are kept, so calls stay valid.
+TOOL_DESC_MAX = 400
+PARAM_DESC_MAX = 120
+_SCHEMA_DROP = frozenset({"$schema", "examples", "example", "$comment"})
+
+
+def short_text(text: str, limit: int) -> str:
+    """Whitespace collapsed; cut at a sentence end if one is in the second half of the limit, else at a word."""
+    t = " ".join(str(text).split())
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    end = max(cut.rfind(". "), cut.rfind("; "))
+    if end >= limit // 2:
+        return cut[:end + 1]
+    return cut.rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+def compact_schema(schema: object, *, _names: bool = False) -> object:
+    """A tool's input schema for a model: descriptions shortened, examples dropped. Keys inside ``properties``
+    are parameter names, never schema keywords, so a parameter called ``description`` or ``examples`` is kept."""
+    if isinstance(schema, list):
+        return [compact_schema(x) for x in schema]
+    if not isinstance(schema, dict):
+        return schema
+    if _names:
+        return {k: compact_schema(v) for k, v in schema.items()}
+    out = {}
+    for k, v in schema.items():
+        if k in _SCHEMA_DROP:
+            continue
+        if k == "description" and isinstance(v, str):
+            out[k] = short_text(v, PARAM_DESC_MAX)
+        elif k in ("properties", "patternProperties", "$defs", "definitions") and isinstance(v, dict):
+            out[k] = compact_schema(v, _names=True)
+        else:
+            out[k] = compact_schema(v)
+    return out
+
+
+def model_tool(connector: str, description: str, schema: dict | None) -> tuple[str, dict]:
+    """(description, input schema) as offered to a model for one read-only connector tool."""
+    return (f"[{connector}, read-only] {short_text(description or '', TOOL_DESC_MAX)}",
+            compact_schema(schema or {"type": "object"}))  # type: ignore[return-value]
+
+
 
 @dataclass
 class AgentTools:
@@ -617,7 +669,7 @@ class ConnectorManager:
         if accounts and cfg.accounts:
             listed = ", ".join([f"{accounts[0]} (default)"] + accounts[1:])
             lines.append(f"- {cfg.name}: {listed}. Choose the account with the `{cfg.accounts.param}` argument; "
-                         "calls to any other account are refused. Say which account each fact came from.")
+                         "use only these accounts and do not bring up others. Say which account each fact came from.")
         unsigned = self.unsigned_accounts(cid)
         if unsigned and cfg.accounts:
             lines.append(f"- {cfg.name}: {', '.join(unsigned)} {'is' if len(unsigned) == 1 else 'are'} not signed in "
@@ -922,7 +974,8 @@ class ConnectorManager:
             return None
 
     async def tools_for_agent(self, first: list[str] | tuple[str, ...] = (), *, only: bool = False,
-                              room: int = MAX_AGENT_TOOLS, wait: float | None = None) -> AgentTools:
+                              room: int = MAX_AGENT_TOOLS, wait: float | None = None,
+                              skip: frozenset[str] | set[str] = frozenset(), core: bool = False) -> AgentTools:
         """Connector tools for one agent turn. Chat: every connector that is switched on and set up (``first`` come
         first). A playbook step: only the connectors the playbook requires (``first`` with ``only=True``). Tools stay
         read-only (blocked ones are never listed). A named connector that is off, or one that cannot start or does
@@ -930,7 +983,7 @@ class ConnectorManager:
         out = AgentTools()
         wanted = []
         for cid in dict.fromkeys([*first, *([] if only else self.configs)]):
-            if cid not in self.configs:
+            if cid not in self.configs or cid in skip:  # skip: switched off for this chat only
                 continue
             if not self.configured(cid):
                 if cid in first:
@@ -950,6 +1003,9 @@ class ConnectorManager:
                 out.notes.append(f"connector {cid} is still starting; it is used once ready")
                 out.starting.append(name)
                 continue
+            if core and self.configs[cid].core_tools:
+                keep = set(self.configs[cid].core_tools)
+                infos = [t for t in infos if t.name in keep]
             if not infos:
                 continue
             if len(out.tools) + len(infos) > room:
@@ -1026,11 +1082,13 @@ def _with_shipped_signin(cfg: ConnectorConfig, shipped: ConnectorConfig | None) 
         return shipped.model_copy()
     if cfg.command != shipped.command or cfg.args != shipped.args:
         return cfg
-    # Same launch as today: the setup text is today's (it is display text, written for this version), and a sign-in
-    # or built-in client the file predates is added. Anything else in the entry (allow or deny lists) is kept.
+    # Same launch as today: the setup text is today's (it is display text, written for this version), and a sign-in,
+    # built-in client or core tool list the file predates is added. Anything else (allow or deny lists) is kept.
     update = {k: getattr(shipped, k) for k in SHIPPED_TEXT}
     if not cfg.signin:
         update.update(signin=shipped.signin, client_file=shipped.client_file)
+    if not cfg.core_tools:
+        update["core_tools"] = list(shipped.core_tools)
     return cfg.model_copy(update=update)
 
 

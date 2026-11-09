@@ -18,16 +18,18 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager, setup_hints
+from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager, model_tool, setup_hints
 from .contracts import HandoffIn, HandoffOut, Label, Status, parse_handoff, worst
 from .guards import redact, scan_people_eval, wrap_data
 from .outputs import Outputs
 from .playbooks import Playbook, Step, render, render_args, resolve_window
-from .prompts import build_system, build_user, fit
+from .prompts import build_system, build_user, fit_or_refuse
 from .providers import ModelRouter, ProviderError, Resolved, ToolSpec, Usage
+from .providers.base import complete_reply
 from .registry import Registry
 from .settings import Settings
 from .store import Store
+from .toolmenu import FIND_TOOL, ON_DEMAND_RESERVE, ToolMenu
 from .tools import TOOLS, run_tool
 
 log = logging.getLogger("suite.engine")
@@ -363,6 +365,14 @@ class Engine:
         if answers:
             out += ("\n\n" if out else "") + "The person answered these questions during the run (use them; they override assumptions):\n" + \
                 "\n".join(f"- Q: {x['question']}\n  A: {x['answer']}" for x in answers)
+        rev = ctx.run["options"].get("revision") or {}
+        if rev.get("notes"):
+            out += ("\n\n" if out else "") + ("This run revises an earlier run of this playbook. The person's corrections "
+                                               "(apply every one; they override the earlier result and any assumption):\n"
+                                               + str(rev["notes"])[:20_000])
+        if rev.get("previous"):
+            out += ("\n\n" if out else "") + ("The earlier run's result is attached as data (previous-run). Keep what is "
+                                               "right, fix what the corrections and the current inputs change, and say what changed.")
         return out
 
     def _record_skip(self, ctx: RunCtx, step: Step, reason: str, parent: str | None = None) -> None:
@@ -563,6 +573,11 @@ class Engine:
                 extra = f"\nReview verdict: {h['verdict']}\nFindings:\n" + "\n".join(f"- {f}" for f in h.get("findings", []))
             priors.append((sid, f"Agent: {o.get('agent')} | status: {o.get('status')}\n\n{o.get('deliverable', '')}"
                                 f"\n\nKey claims:\n{claims or '- none'}{extra}"))
+        previous = (ctx.run["options"].get("revision") or {}).get("previous")
+        if previous:  # a revision run: the earlier result, to correct (untrusted data like any other)
+            block, fl, _ = wrap_data(f"previous-run:{ctx.run['options']['revision'].get('of', '')}", str(previous), 60_000)
+            data_blocks.append(block)
+            flags += [f"previous run: {x}" for x in fl]
         for inp in ctx.pb.inputs:
             v = ctx.inputs.get(inp.id)
             if not inp.is_data or v in (None, "", []):
@@ -600,11 +615,13 @@ class Engine:
         room = MAX_AGENT_TOOLS - len(dict.fromkeys(step.tools + agent_tools)) - (1 if has_skills else 0)
         chosen = [c for c in step.connectors if c not in step.connector_when or step.connector_when[c].holds(ctx.inputs)]
         notes += [f"connector {c} not looked up: left out on the start form" for c in step.connectors if c not in chosen]
-        found = await self.connectors.tools_for_agent(chosen, only=True, room=room)
+        mode = self.s.tool_mode
+        found = await self.connectors.tools_for_agent(chosen, only=True, room=10_000 if mode == "on_demand" else room,
+                                                      core=mode == "core")
         notes += found.notes
         account_lines += found.lines
         for t in found.tools:
-            specs.append(ToolSpec(t.qualified, f"[{t.connector}, read-only] {t.description}", t.input_schema or {"type": "object"}))
+            specs.append(ToolSpec(t.qualified, *model_tool(t.connector, t.description, t.input_schema)))
             routes[t.qualified] = ("mcp", (t.connector, t.name))
         for name in dict.fromkeys(step.tools + agent_tools):
             t = TOOLS[name]
@@ -701,10 +718,18 @@ class Engine:
             task = task.rstrip() + "\n\nConnected accounts and scope:\n" + "\n".join(account_lines)
         user = build_user(handoff=handoff, task=task, priors=priors, data_blocks=data_blocks,
                           review_target=step.target if review else None, feedback=feedback)
-        tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3
-        budget = int(cand.model.context_tokens * self.s.budgets.max_context_fraction) - cand.model.max_output_tokens - tool_tokens
-        parts = fit(system, user, budget_tokens=max(budget, 1500))
-        warnings = list(pre_warnings) + list(tool_notes) + [f"context fit for {cand.ref}: {c}" for c in parts.cuts]
+        menu = ToolMenu(specs, {q: r[1][0] for q, r in routes.items() if r[0] == "mcp"}, self.s.tool_mode,
+                        {c: self.connectors.configs[c].name for q, (k, v) in routes.items() if k == "mcp" for c in [v[0]]})
+        if menu.deferred:
+            user = [*user[:-1], ("tools", "## Connector tools\n" + menu.note(), 0), user[-1]]
+        tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in menu.offered()) // 3
+        if menu.deferred:
+            tool_tokens += ON_DEMAND_RESERVE  # room for the tools the agent loads during the step
+        # The whole prompt or the next model (PromptTooLarge is a ProviderError: _agent tries the next candidate).
+        parts = fit_or_refuse(system, user, ref=cand.ref, context_tokens=cand.model.context_tokens,
+                              share=self.s.budgets.max_context_fraction, out_tokens=cand.model.max_output_tokens,
+                              tool_tokens=tool_tokens, shorten=self.s.budgets.shorten_to_fit, chat=False)
+        warnings = list(pre_warnings) + list(tool_notes) + list(parts.cuts)
 
         provider = cand.provider
         conv = provider.start(parts.system, parts.user)
@@ -718,7 +743,7 @@ class Engine:
         for _round in range(max_calls + 2):
             if self.killed:
                 raise RunStopped("kill switch")
-            offer = specs if (specs and calls_made < max_calls and not out_of_budget) else None
+            offer = menu.offered() if (menu.offered() and calls_made < max_calls and not out_of_budget) else None
             result = await provider.chat(conv, model=cand.model.model, tools=offer,
                                          max_tokens=cand.model.max_output_tokens, effort=cand.model.effort)
             usage += result.usage
@@ -737,6 +762,10 @@ class Engine:
                 continue
             outputs = []
             for call in result.tool_calls[: max_calls - calls_made]:
+                if call.name == FIND_TOOL:  # on demand: load the matching connector tools for the next round
+                    calls_made += 1
+                    outputs.append((call.id, menu.find(call.arguments or {}), False))
+                    continue
                 content, is_err, flags = await self._exec_tool(ctx, routes, call.name, call.arguments, agent.skills)
                 calls_made += 1
                 warnings += [f"possible prompt injection in {call.name} result: {f}" for f in flags]
@@ -749,13 +778,28 @@ class Engine:
             if calls_made >= max_calls:
                 warnings.append(f"tool-call limit ({max_calls}) reached")
 
+        if result is not None:
+            def count(u: Usage) -> None:
+                nonlocal usage
+                usage += u
+            result, more, cut = await complete_reply(provider, conv, result, model=cand.model.model,
+                                                     max_tokens=cand.model.max_output_tokens, effort=cand.model.effort,
+                                                     on_usage=count)
+            if more:
+                warnings.append(f"the answer reached the max answer length ({cand.model.max_output_tokens:,} tokens) and "
+                                f"was continued {more} time{'s' if more > 1 else ''}, so nothing was cut")
+            if cut:
+                warnings.append(f"the answer is still cut off after {more} continuations; raise Max answer for "
+                                f"{cand.ref} in Settings > Models")
         text = result.text if result else ""
         h, deliverable = parse_handoff(text)
         if h is None:
             warnings.append("response had no valid contract block; asked the model to repair it")
             provider.add_assistant(conv, result)
             provider.add_user(conv, REPAIR_PROMPT)
-            fix = await provider.chat(conv, model=cand.model.model, tools=None, max_tokens=2000, effort=cand.model.effort)
+            # The model's whole answer length: a thinking model spends part of it reasoning before the JSON.
+            fix = await provider.chat(conv, model=cand.model.model, tools=None, max_tokens=cand.model.max_output_tokens,
+                                      effort=cand.model.effort)
             usage += fix.usage
             h2, _ = parse_handoff(fix.text)
             h = h2 or HandoffIn(status=Status.PARTIAL, summary="The model did not return a structured contract.")

@@ -1,8 +1,8 @@
 """Prompt assembly.
 
 System prompt order is fixed so providers with prompt caching reuse the
-prefix across steps: suite rules -> output policies -> agent instructions ->
-core skills -> skill index -> persona -> user profile. Everything specific to
+prefix across steps and agents: suite rules -> output policies -> user profile ->
+agent instructions -> core skills -> skill index -> persona. Everything specific to
 the run goes in the user message.
 
 ``fit()`` keeps a prompt inside a model's context budget. Small local models
@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import yaml
 
 from .contracts import CONTRACT_INSTRUCTIONS, HandoffOut
+from .providers.base import ProviderError
 from .registry import Agent, Registry
 
 SUITE_RULES = """\
@@ -39,6 +40,13 @@ bounded task; other specialists and a human approver handle the rest.
    otherwise proceed and state the assumption.
 7. Never fabricate executed tests, tool results, approvals, citations or data. Say "not executed" when
    something was only proposed.
+8. Work only with the sources you were given: the person's messages, attached data, prior steps and the
+   read-only connectors offered to you here. Treat them as the whole picture and answer fully from them.
+   Do not infer other mailboxes, accounts or systems the person may have (for example from names, domains
+   or invitations in what you read), do not call anything a gap or blind spot because it is not connected,
+   and do not suggest connecting, forwarding or pasting from other sources. Only if the person asks what you
+   can or cannot see, list the connected sources. Do not assume an employer or company; mention an
+   organisation only as it appears in the content you are reporting on.
 """
 
 SAFETY_RULES = """\
@@ -74,6 +82,19 @@ class PromptParts:
         return len(self.system) + len(self.user)
 
 
+TOOL_SHARE_WARN = 0.3  # connector tool definitions above this share of the context get a note saying so
+
+
+def tool_share_note(ref: str, tool_tokens: int, context_tokens: int, chat: bool) -> str | None:
+    """Say when connector tool definitions, not the conversation, are what squeezes the prompt."""
+    if tool_tokens <= context_tokens * TOOL_SHARE_WARN:
+        return None
+    fix = ("switch off connectors this chat does not need (the switches under the chat)" if chat
+           else "this playbook's connectors take that room; a model with a larger context helps")
+    return (f"context fit for {ref}: connector tools take about {tool_tokens:,} of the model's {context_tokens:,}-token "
+            f"context window, leaving less room for instructions and history; {fix}")
+
+
 def est_tokens(chars: int) -> int:
     return chars // 3 + 1  # conservative for mixed prose, tables and JSON
 
@@ -87,12 +108,19 @@ def _profile_block(profile: dict) -> str:
 
 def build_system(*, agent: Agent, mode: str | None, registry: Registry, policies: list[str], profile: dict,
                  persona: bool, extra_skills: list[str], has_skill_tool: bool, review: bool,
-                 instructions_override: str | None = None) -> list[tuple[str, str, int]]:
-    """Return system sections as (name, text, shrink_priority). Higher priority shrinks first; 0 = never."""
+                 instructions_override: str | None = None, lean: bool = False) -> list[tuple[str, str, int]]:
+    """Return system sections as (name, text, shrink_priority). Higher priority shrinks first; 0 = never.
+
+    Order is for prompt caching: what every agent shares (rules, policies, the person's profile) comes first, so a
+    provider's cache of that opening serves every agent; what is agent-specific follows. ``lean`` (routing calls)
+    keeps only the rules, the profile and the given role: no policies, skills or persona."""
     sections: list[tuple[str, str, int]] = [("rules", SUITE_RULES, 0)]
-    pol = "\n\n".join(registry.policy_text(p) for p in policies)
+    pol = "" if lean else "\n\n".join(registry.policy_text(p) for p in policies)
     if pol:
         sections.append(("policies", "# Output policies\n\n" + pol, 3))
+    prof = _profile_block(profile)
+    if prof:
+        sections.append(("profile", prof, 2))
     if agent.safety_critical:
         sections.append(("safety", SAFETY_RULES, 0))
     if review:
@@ -100,6 +128,8 @@ def build_system(*, agent: Agent, mode: str | None, registry: Registry, policies
     instructions = instructions_override or agent.instructions_for(mode)
     head = f"You are acting as: {agent.name}\n{agent.summary}\n"
     sections.append(("agent", "# Your role\n\n" + head + "\n" + instructions, 1))
+    if lean:
+        return sections
     skills = list(dict.fromkeys(agent.core_skills + extra_skills))
     for sid in skills:
         sections.append((f"skill:{sid}", f"# Skill: {sid}\n\n" + registry.skill_text(sid), 4))
@@ -110,9 +140,6 @@ def build_system(*, agent: Agent, mode: str | None, registry: Registry, policies
     if persona and agent.persona:
         sections.append(("persona", "# Voice\n\nKeep the voice below, but accuracy and the operating rules always win.\n\n"
                          + agent.persona.text, 6))
-    prof = _profile_block(profile)
-    if prof:
-        sections.append(("profile", prof, 2))
     return sections
 
 
@@ -163,3 +190,34 @@ def fit(system: list[tuple[str, str, int]], user: list[tuple[str, str, int]], *,
     sys_text = "\n\n".join(x[2] for x in allsec if x[0] == "s" and x[2])
     user_text = "\n".join(x[2] for x in allsec if x[0] == "u" and x[2])
     return PromptParts(system=sys_text, user=user_text, cuts=cuts)
+
+
+class PromptTooLarge(ProviderError):
+    """The full prompt does not fit this model. Nothing is cut: the next model in the chain is tried."""
+
+
+def fit_or_refuse(system: list[tuple[str, str, int]], user: list[tuple[str, str, int]], *, ref: str, context_tokens: int,
+                  share: float, out_tokens: int, tool_tokens: int, shorten: bool, chat: bool) -> PromptParts:
+    """Every agent gets its whole prompt: instructions, persona, policies, profile, history and data, never cut.
+    Within the context window share it is sent as is; up to the full window it is still sent whole. A prompt larger
+    than the model's whole context raises PromptTooLarge (the caller tries the next model) unless the person chose
+    to shorten prompts for small models (Settings > Policies & budgets), which is the old trimming."""
+    parts = fit(system, user, budget_tokens=10**12)  # no cuts
+    need = est_tokens(parts.chars)
+    soft = int(context_tokens * share) - out_tokens - tool_tokens
+    if need <= max(soft, 0):
+        return parts
+    if shorten:
+        cut = fit(system, user, budget_tokens=max(soft, 1500))
+        note = tool_share_note(ref, tool_tokens, context_tokens, chat)
+        cut.cuts = ([note] if note else []) + [f"context fit for {ref}: {c}" for c in cut.cuts]
+        return cut
+    if need <= context_tokens - out_tokens - tool_tokens:
+        return parts
+    tools = f", {tool_tokens:,} of them for connector tools" if tool_tokens else ""
+    hint = (" or switch off connectors this chat does not need (the switches under the chat)" if chat and tool_tokens
+            else "")
+    raise PromptTooLarge(f"{ref} cannot take the whole prompt without cutting it: it needs about "
+                         f"{need + tool_tokens + out_tokens:,} tokens ({out_tokens:,} kept for the answer{tools}) and the "
+                         f"model's context window is {context_tokens:,}. Choose a model with a larger context window for "
+                         f"this agent in Settings > Models{hint}.")

@@ -91,10 +91,13 @@ class ModelConfig(BaseModel):
 
     ref: str
     context_tokens: int = 8192
-    max_output_tokens: int = 8000
+    max_output_tokens: int = 8192
     tools: bool = False
     price_in_per_mtok: float = 0.0
     price_out_per_mtok: float = 0.0
+    # Input read from the provider's prompt cache. None: Anthropic's documented 0.1x of the input price for anthropic
+    # providers, the full input price elsewhere (conservative: set it from the provider's price list).
+    price_cached_per_mtok: float | None = None
     effort: str | None = None  # anthropic output_config.effort
     note: str = ""
 
@@ -132,6 +135,8 @@ class Budgets(BaseModel):
     max_tool_calls_per_step: int = 20
     max_tool_result_chars: int = 12_000
     max_context_fraction: float = 0.75
+    # Off: every agent gets its whole prompt, or the next model that fits. On: prompts are shortened for small models.
+    shorten_to_fit: bool = False
 
 
 OLD_TOOL_CALLS_DEFAULT = 8  # shipped until 0.7.4; one Gmail answer (a search, then one call per message) used it up
@@ -154,6 +159,7 @@ class Settings(BaseModel):
     data_dir: Path
     profile_path: Path | None = None
     store_prompts: bool = False
+    tool_mode: str = "core"  # connector tools for agents: core (default), all, on_demand (app/toolmenu.py)
     offline: bool = False  # true: no cloud providers, no network connectors
     persona: PersonaSettings = PersonaSettings()
     output_policies: list[str] = Field(default_factory=lambda: ["plain-voice", "action-first"])

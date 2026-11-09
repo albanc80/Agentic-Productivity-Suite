@@ -3,7 +3,7 @@ import { api, ApiError, setToken, type Overview } from "./api";
 import { ErrorNote } from "./ui";
 import Command from "./pages/Command";
 import Playbooks from "./pages/Playbooks";
-import RunForm from "./pages/RunForm";
+import RunForm, { ReviseForm } from "./pages/RunForm";
 import RunView from "./pages/RunView";
 import Approvals from "./pages/Approvals";
 import Library from "./pages/Library";
@@ -109,6 +109,7 @@ export default function App() {
   else if (section === "chat") page = <ChatPage key={arg || "new"} ov={ov} chatId={arg} />;
   else if (section === "playbooks") page = <Playbooks ov={ov} />;
   else if (section === "start") page = <RunForm ov={ov} playbookId={arg} />;
+  else if (section === "revise") page = <ReviseForm key={arg} ov={ov} runId={arg} />;
   else if (section === "runs") page = <RunView ov={ov} runId={arg} onChange={refresh} />;
   else if (section === "approvals") page = <Approvals onChange={refresh} />;
   else if (section === "library") page = <Library ov={ov} />;

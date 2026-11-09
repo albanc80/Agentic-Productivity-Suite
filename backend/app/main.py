@@ -57,6 +57,16 @@ from .store import Store
 log = logging.getLogger("suite")
 
 
+class RerunRequest(BaseModel):
+    """Run a playbook again from an earlier run. No fields: the same inputs. With inputs and/or corrections: a
+    revision, saved as a new run; the earlier one is kept."""
+    inputs: dict[str, Any] | None = None
+    data_class: str | None = None
+    corrections: str = Field("", max_length=20_000)
+    include_previous: bool = True  # give the agents the earlier result to correct (revisions only)
+    persona: bool | None = None
+
+
 class RunRequest(BaseModel):
     playbook_id: str
     inputs: dict[str, Any] = Field(default_factory=dict)
@@ -100,6 +110,13 @@ class ChatStart(BaseModel):
 class ChatMessage(BaseModel):
     content: str = Field(max_length=40_000)
     files: list[str] = Field(default_factory=list)
+    wait: bool = True  # False: return the chat at once; the answer arrives in the background (the chat page)
+
+
+class ChatUpdate(BaseModel):
+    agent_id: str | None = None
+    data_class: str | None = None
+    connectors_off: list[str] | None = None  # switched off for this chat only; Settings are unchanged
 
 
 class Discover(BaseModel):
@@ -109,6 +126,7 @@ class Discover(BaseModel):
 
 
 MAX_CLIENT_FILE_BYTES = 64 * 1024  # a Google OAuth client file is well under 1 KB
+OLD_MAX_ANSWER, MAX_ANSWER_DEFAULT = 8000, 8192  # cloud model answer length: before and from 1.0.0
 MAX_AGENT_PACK_UPLOAD = 25 * 1024 * 1024  # a whole agent pack (34 agents of ~15k characters) is well under 1 MB
 
 
@@ -181,6 +199,7 @@ class Suite:
             "tool_downloaded", None, tool=name, version=version)
         self._warnings += self.connectors.load_client_files(self.client_folders)
         self._upgrade_saved_budgets()
+        self._upgrade_saved_max_answer()
         self.apply()
 
     @property
@@ -192,6 +211,12 @@ class Suite:
     def agent_pack_folder(self) -> Path:
         """Where an imported agent pack goes: the private layer folder in use, else <data>/private-registry."""
         return self.settings.private_registry_dir or self.settings.data_dir / "private-registry"
+
+    def remove_agent_pack(self, by: str) -> dict:
+        result = self.registry.remove_imported()
+        self.store.audit("agent_pack_removed", None, by=by, files=result["removed"], built_in=result["built_in"])
+        log.info("Imported agent pack removed: %d file(s)", result["removed"])
+        return result
 
     def import_agent_pack(self, uploads: list[tuple[str, bytes]], by: str) -> dict:
         result = self.registry.import_private(uploads, self.agent_pack_folder())
@@ -221,6 +246,22 @@ class Suite:
         if upgrade_budgets(saved.get("budgets")) is not None:
             self.store.set_setting("general", saved)
         self.store.set_setting("upgraded_tool_calls_default", True)
+
+    def _upgrade_saved_max_answer(self) -> None:
+        """Once (1.0.0): models saved in the app with the old default answer length of 8,000 tokens get the new
+        default of 8,192. Any other value the person chose is kept."""
+        if self.store.get_setting("upgraded_max_answer_default", False):
+            return
+        saved = self.store.get_setting("provider_overrides", {})
+        changed = False
+        for ov in saved.values():
+            for m in (ov or {}).get("models") or []:
+                if m.get("max_output_tokens") == OLD_MAX_ANSWER:
+                    m["max_output_tokens"] = MAX_ANSWER_DEFAULT
+                    changed = True
+        if changed:
+            self.store.set_setting("provider_overrides", saved)
+        self.store.set_setting("upgraded_max_answer_default", True)
 
     def general(self) -> GeneralSettings:
         return GeneralSettings.model_validate(self.store.get_setting("general", {}))
@@ -263,6 +304,7 @@ class Suite:
         s.persona = PersonaSettings(chat=b["persona"].chat if g.persona_chat is None else g.persona_chat,
                                     exports=b["persona"].exports if g.persona_exports is None else g.persona_exports)
         s.store_prompts = b["store_prompts"] if g.store_prompts is None else g.store_prompts
+        s.tool_mode = g.tool_mode or "core"
         s.default_data_class = g.default_data_class or b["default_data_class"]
         dc = {k: list(v) for k, v in b["data_classes"].items()}
         for k, allowed in (g.cloud_allowed or {}).items():
@@ -293,7 +335,7 @@ class Suite:
         g = self.general()
         if edit.budgets is not None:
             g.budgets = edit.budgets
-        for f in ("persona_chat", "persona_exports", "store_prompts", "default_data_class"):
+        for f in ("persona_chat", "persona_exports", "store_prompts", "default_data_class", "tool_mode"):
             v = getattr(edit, f)
             if v is not None:
                 setattr(g, f, v)
@@ -671,6 +713,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         suite.engine.recover()
+        suite.chat.recover()  # never-used chats go; messages a restart left unanswered say so
         for w in suite.warnings:
             log.warning(w)
         suite.connectors.warm()  # connectors that are on start now, so chat has their tools when asked
@@ -729,6 +772,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
                         for k in ProfileEdit.model_fields},
             "profile_saved_in_app": suite.saved_profile() is not None,
             "store_prompts": settings.store_prompts,
+            "tool_mode": settings.tool_mode,
             "outputs_dir": str(suite.outputs.root) if suite.outputs.root else None,
             "outputs": suite.outputs_info(),
             "model_refs": [m.ref for m in settings.models],
@@ -771,6 +815,14 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
 
     # ---------------------------------------------------------------- files
 
+    @app.get("/api/files/{fid}")
+    def file_info(fid: str):
+        """A file's name and size, to list it again on a revised run's form. Never its text."""
+        f = store.file(fid)
+        if not f:
+            raise HTTPException(404, "file not found")
+        return {"id": f["id"], "name": f["name"], "chars": len(f.get("text") or "")}
+
     @app.post("/api/files")
     async def upload(file: UploadFile = File(...)):
         data = await file.read()
@@ -797,6 +849,34 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
         return {"id": rid}
+
+    @app.post("/api/runs/{rid}/rerun", status_code=201)
+    async def rerun(rid: str, body: RerunRequest):
+        old = store.run(rid)
+        if not old:
+            raise HTTPException(404, "run not found")
+        if old["playbook_id"] not in suite.playbooks:
+            raise HTTPException(409, "That playbook is no longer in this app, so the run cannot be repeated.")
+        revise = body.inputs is not None or bool(body.corrections.strip())
+        opts = {k: v for k, v in (old.get("options") or {}).items() if k in ("persona", "answers")}
+        if body.persona is not None:
+            opts["persona"] = body.persona
+        opts["rerun_of"] = rid
+        if revise:
+            rev = {"of": rid, "notes": body.corrections.strip()}
+            if body.include_previous and old.get("deliverable"):
+                rev["previous"] = old["deliverable"][:60_000]
+            opts["revision"] = rev
+        try:
+            new = await eng.start(old["playbook_id"], body.inputs if body.inputs is not None else old["inputs"],
+                                  body.data_class or old["data_class"], opts)
+        except RunStopped as e:
+            raise HTTPException(423, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        store.audit("run_repeated", new, of=rid, revision=revise, corrections=bool(body.corrections.strip()),
+                    previous_included=bool(revise and body.include_previous and old.get("deliverable")))
+        return {"id": new}
 
     @app.get("/api/runs")
     def runs(limit: int = 100):
@@ -1073,12 +1153,31 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except ChatError as e:
             raise HTTPException(409, str(e)) from e
 
+    @app.patch("/api/chats/{cid}")
+    def chat_update(cid: str, body: ChatUpdate):
+        try:
+            return suite.chat.update(cid, body.agent_id, body.data_class, body.connectors_off)
+        except KeyError as e:
+            raise HTTPException(404, "chat not found") from e
+        except ChatError as e:
+            raise HTTPException(409, str(e)) from e
+
     @app.post("/api/chats/{cid}/messages")
     async def chat_send(cid: str, body: ChatMessage):
         try:
-            return await suite.chat.send(cid, body.content, body.files)
+            return await suite.chat.send(cid, body.content, body.files, wait=body.wait)
         except KeyError as e:
             raise HTTPException(404, "chat not found") from e
+        except ChatError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.put("/api/chats/{cid}/messages/{index}")
+    async def chat_edit(cid: str, index: int, body: ChatMessage):
+        """Edit one of the person's messages and send it again; the answers after it are replaced."""
+        try:
+            return await suite.chat.edit(cid, index, body.content, wait=body.wait)
+        except KeyError as e:
+            raise HTTPException(404, str(e).strip("'") if "position" in str(e) else "chat not found") from e
         except ChatError as e:
             raise HTTPException(409, str(e)) from e
 
@@ -1224,6 +1323,11 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
             return suite.import_agent_pack(uploads, "ui")
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
+
+    @app.delete("/api/agent-pack")
+    def delete_agent_pack():
+        """Remove the pack imported in Settings; agents go back to the built-in instructions (ADR 0007)."""
+        return suite.remove_agent_pack("ui")
 
     @app.delete("/api/connectors/{cid}/client-file")
     async def delete_client_file(cid: str):

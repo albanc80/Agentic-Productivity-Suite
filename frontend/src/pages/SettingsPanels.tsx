@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Budgets, type ConnectorInfo, type ConnectorVariable, type Overview, type Profile, type SignedInAccount,
   type SigninState } from "../api";
+import type { ToolMode } from "../api";
 import { connectorAccounts, playbooksUsing } from "../connectors";
 import { ErrorNote } from "../ui";
 
@@ -152,6 +153,7 @@ export function ConnectorsPanel({ ov, onChange }: { ov: Overview; onChange: () =
         </ul>
         <p className="muted small measure">Every connector starts switched off: use <strong>Edit</strong> to sign in or enter what it needs, then switch it on. Values you type are saved on this computer; an environment variable with the same name takes precedence.</p>
       </div>
+      <ToolModeCard ov={ov} onChange={onChange} />
       <div className="stack-sm">
         {[...ov.connectors].sort((a, b) => Number(b.builtin) - Number(a.builtin)).map((c) => <ConnectorRow key={c.id} c={c} ov={ov} onChange={onChange} />)}
       </div>
@@ -772,12 +774,17 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
           <p className="muted small measure">Always on, whatever the switch above says. They stop runaway loops and keep every prompt inside the model's context window. A run that needs more steps than allowed is refused at the start; one that reaches the limit through revisions stops with a note.</p>
         </div>
         <div className="card stack">
-          <div className="ep-grid">
+          <div className="ep-grid align-inputs">
             <div className="field"><label htmlFor="b-steps">Max steps per run</label><input id="b-steps" type="number" min={1} value={b.max_steps} onChange={(e) => num("max_steps", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-tools">Tool calls per step</label><input id="b-tools" type="number" min={0} value={b.max_tool_calls_per_step} onChange={(e) => num("max_tool_calls_per_step", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-chars">Max characters per tool result</label><input id="b-chars" type="number" min={1000} step="any" value={b.max_tool_result_chars} onChange={(e) => num("max_tool_result_chars", e.target.value)} /></div>
-            <div className="field"><label htmlFor="b-frac">Share of the context window for the prompt</label><input id="b-frac" type="number" min={0.2} max={0.95} step="any" value={b.max_context_fraction} onChange={(e) => num("max_context_fraction", e.target.value)} /></div>
+            <div className="field"><label htmlFor="b-frac" title="Share of the model's context window a prompt may fill (0.2 to 0.95)">Context window share</label><input id="b-frac" type="number" min={0.2} max={0.95} step="any" value={b.max_context_fraction} onChange={(e) => num("max_context_fraction", e.target.value)} /></div>
           </div>
+          <label className="check">
+            <input type="checkbox" checked={!!b.shorten_to_fit} onChange={(e) => setB((x) => ({ ...x, shorten_to_fit: e.target.checked }))} />
+            Shorten prompts for small models
+          </label>
+          <p className="help">Off (default): every agent gets its whole prompt (instructions, persona, profile, history and data), never cut. If it does not fit a model, the next model in the fallback order that fits is used; if none fits, the step or chat says which model and how much room it needs. On: prompts are shortened to fit small local models, such as a model on a phone, and each answer lists what was cut. Answers that reach Max answer are always continued, never cut.</p>
           <div className="row-tight">
             <button className="primary" type="submit" disabled={busy}>Save limits</button>
             {ov.general_edited.includes("budgets") && <button type="button" className="ghost grow-left" disabled={busy}
@@ -804,6 +811,37 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
         </button>
       )}
       <p className="help">Fixed in the app: restricted data stays local, connectors stay read-only, and nothing is sent or changed without a named approval.</p>
+    </div>
+  );
+}
+
+const TOOL_MODES: { id: ToolMode; label: string; help: string }[] = [
+  { id: "core", label: "Core tools (recommended)", help: "Each connector's everyday tools are offered directly. Microsoft 365 offers 19 of its 69 tools (mail, calendar, OneDrive, contacts, To Do), about half the tokens of all tools. Works with every model that calls tools." },
+  { id: "on_demand", label: "On demand (fewest tokens)", help: "Agents start with one small tool and load the tools they need (\"search mail\", \"calendar this week\") while they answer. Every tool stays reachable, and each call carries a few hundred tokens of tools instead of tens of thousands. Best with strong tool-calling models; small models may not search well." },
+  { id: "all", label: "All tools", help: "Every read-only tool of every connector that is on is offered on every call. Uses the most tokens and context." },
+];
+
+/** Settings > Connectors: how agents get connector tools (app/toolmenu.py). */
+function ToolModeCard({ ov, onChange }: { ov: Overview; onChange: () => void }) {
+  const [error, setError] = useState<unknown>(null);
+  const [mode, setMode] = useState<ToolMode>(ov.tool_mode);
+  useEffect(() => { setMode(ov.tool_mode); }, [ov.tool_mode]);
+  async function choose(next: ToolMode) {
+    const before = mode;
+    setMode(next); setError(null);  // shown at once; saved in the background
+    try { await api.saveGeneral({ tool_mode: next }); onChange(); } catch (e) { setMode(before); setError(e); }
+  }
+  return (
+    <div className="card stack-sm" role="radiogroup" aria-labelledby="toolmode-h">
+      <strong id="toolmode-h">Connector tools for agents</strong>
+      <p className="muted small measure">Tool descriptions are sent with every model call, before any reasoning. Choose how many agents get, in chat and in playbooks.</p>
+      {TOOL_MODES.map((m) => (
+        <label key={m.id} className="check tool-mode">
+          <input type="radio" name="tool-mode" value={m.id} checked={mode === m.id} onChange={() => choose(m.id)} />
+          <span><strong>{m.label}</strong><span className="help block-help">{m.help}</span></span>
+        </label>
+      ))}
+      <ErrorNote error={error} />
     </div>
   );
 }

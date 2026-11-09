@@ -55,11 +55,15 @@ Behind these, each **tier** (`router`, `specialist`, `synthesis`, `review`) is a
 
 Settings → Model providers shows each provider's state and has a **Test** button once it is ready. When **Find models** fails, the message says why: a 401 means the server wants an API key, a 404 usually means the address should end in `/v1`, and "could not reach" means nothing is listening there.
 
+**Fewer tokens before any reasoning.** Settings → Connectors → **Connector tools for agents**: **Core tools** (default) offers each connector's everyday tools (Microsoft 365: 19 of 69), **On demand** gives agents one small tool to find and load the tools they need while they answer, and **All tools** offers everything (see [docs/CONNECTORS.md](docs/CONNECTORS.md)). Measured with the real Microsoft 365, Google and GitHub servers: about 55,000 tokens of tools per call with All, 25,000 with Core, and a few hundred at the start On demand. The Chief of Staff's routing call (answer or ask specialists) uses a short prompt of about 800 tokens instead of its full 6,700. **Prompt caching:** prompts are ordered so what every agent shares comes first (rules, policies, your profile), Anthropic models cache the tools, system prompt and conversation, and tokens a provider serves from its cache (OpenAI, OpenRouter, DeepSeek report them) are counted and shown under each chat answer as "from cache". Set each model's **$ cached** price in its Edit panel; left empty, cached input costs a tenth of the input price on Anthropic and the full input price elsewhere.
+
+**Nothing an agent is given is cut.** Every agent, in chat and in playbooks, gets its whole prompt: instructions, persona, policies, your profile, the conversation and the data. Room in a model call is the model's context window minus the **Max answer** kept for the reply (8,192 tokens by default for cloud models) and the connector tools offered; connector tools are sent in a compact form (names, types and required fields kept, long help shortened), which took the same 108 tools from about 83,000 to 55,000 tokens. If the whole prompt does not fit a model, the next model in the fallback order that fits is used; if none fits, the answer or step says which model and how much room it needs: choose a model with a larger context for that agent, or switch off connectors a chat does not need with the switches under the chat. **Answers are never cut either:** one that reaches Max answer is continued (up to three times) and joined, so a playbook step's status block arrives and a step that needs your input still pauses to ask. Set each model's real context window and max answer in Settings → Models → the provider's **Edit**. For very small local models (a phone), switch on **Shorten prompts for small models** in Settings → Policies & budgets → Guardrails: prompts are then shortened to fit, and each answer lists what was cut.
+
 **Model prices.** Enter each cloud model's price per million tokens in its Edit panel. The suite uses them only for the optional cost limits (below). Chats and playbook runs show tokens, not cost: your provider's billing is the real record, and local models cost nothing. A model with no price counts as costing nothing; check prices with the provider, they change.
 
 ## Settings → System and User guide
 
-**System** shows **About** (the installed version, what the app does and what it can do, and a link to the release notes), **Agent instructions** (built into the app encrypted, or your own version imported; below), the **Kill switch** and **Configuration notices**. **User guide** is a short first-time path: choose a model, connect your information, fill in your profile, chat, run a playbook, answer approvals and find your work, with a Done or Not yet mark on the set-up steps.
+**System** shows **About** (the installed version, what the app does and what it can do, and a link to the release notes), **Agent instructions** (built into the app encrypted, or your own version imported, with **Remove imported pack** to go back to the built-in one; below), the **Kill switch** and **Configuration notices**. **User guide** is a short first-time path: choose a model, connect your information, fill in your profile, chat, run a playbook, answer approvals and find your work, with a Done or Not yet mark on the set-up steps.
 
 ## Chat
 
@@ -73,7 +77,11 @@ Open **Chat** and pick an agent, or keep the Chief of Staff, who answers itself 
 - Agents are told what the app can do (copy, download, save, read shared folders), so they write the document instead of telling you to print or copy by hand.
 - The chat header shows the tokens used so far, and the token limit when spending limits are on.
 - Select any text in an answer or a playbook result and copy it as usual (Ctrl+C), or use the Copy button.
-- A message that could not be answered keeps its chat: sending again uses the same chat, and chats with no answer are not listed.
+- **New chat** makes the chat at once, with its own place in the list (an unused one is reused, and unused chats are cleared when the app starts). Pick the agent and data class until the first message.
+- **Your message is saved the moment you send it** and the agent answers in the background: switch pages or chats and come back, and the message and a "Working" note are there; the list says "answering…". **Send follow-ups or more instructions while it works**: they are queued and answered in order, each knowing the answers before it.
+- **Edit** under any of your messages changes it and sends it again; the answers after it are replaced. A message that could not be answered stays in the chat with the reason, so you can edit and resend it.
+- **Switch connectors off or on for one chat**: the connector chips under the chat are switches. A connector switched off there is not offered to that chat's agents (the Chief of Staff and the specialists it asks); other chats and Settings are unchanged, and it can be switched back on at any time.
+- **Agents work only with what they were given**: your messages, attachments and the connectors that are on. They do not guess at other mailboxes or accounts (for example from names in your mail), call something a gap because it is not connected, or ask you to connect, forward or paste more, unless you ask what they can see.
 - **Enter** sends a message (here and on Command); **Shift+Enter** starts a new line.
 - Links in answers open in your browser, never inside the app window. If a page outside the app ever opens in the window, the app sends it to the browser and returns to the page you were on.
 
@@ -119,6 +127,8 @@ Downloads are pinned releases checked against SHA-256 values in the repository. 
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
 ## Playbooks
+
+**Run again or revise from the Library.** Every run in the Library (and on its page) has **Run again**, which starts a new run with the same inputs, files and answers, and **Edit** (**Edit and run as new** on the run page), which opens the start form filled in from that run: change any input, remove or add files, write **What to correct**, and choose whether the agents get the earlier result to correct (on by default). It runs as a new run; the earlier one is never changed.
 
 **When an agent needs your input, the run asks you.** Every input you fill in on the run form reaches every agent step. If a step cannot be done well without information only you can give, the agent asks up to five specific questions and the run pauses: the run page and **Approvals** (with a count in the top bar) show "Your input is needed" with a box per question. Send your answers and the step runs again with them, and every later step sees them too; or continue without answering. A step asks at most twice; after that the run goes on with what it has and says so. Nothing more is spent while the run waits.
 
@@ -201,7 +211,8 @@ Cost is computed from the prices entered on each model, so a model with no price
 | Max steps per run | 40 | A playbook with more steps is refused at the start. Steps repeated by a revision or a resume count, and a run that reaches the limit stops with a note. The longest shipped playbook has 10 steps. |
 | Tool calls per step | 20 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
 | Max characters per tool result | 12,000 | Longer tool results, attachments and earlier steps' outputs are cut to this before an agent sees them. |
-| Share of the context window for the prompt | 0.75 | Prompts are shrunk (persona, skills, older context first) to fit, so a small local model is not overrun. Cuts are listed on the step. |
+| Context window share (of the model's context a prompt should fill) | 0.75 | A prompt within it is sent as is; up to the whole window it is still sent whole. With **Shorten prompts for small models** on, prompts over the share are shortened (persona, skills, older context first) and the cuts are listed. |
+| Shorten prompts for small models | off | Off: nothing is cut; a model too small for the whole prompt is skipped for the next one in the chain. |
 
 The kill switch (Settings) stops every run and chat at once, whatever the limits.
 

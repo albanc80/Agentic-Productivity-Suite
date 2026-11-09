@@ -37,7 +37,9 @@ class AnthropicProvider:
             "model": model,
             "max_tokens": max_tokens,
             "system": [{"type": "text", "text": conv.system, "cache_control": {"type": "ephemeral"}}],
-            "messages": conv.messages,
+            # A second cache breakpoint on the newest message: each tool round reads the conversation so far from the
+            # cache instead of paying for it again (tools and system are cached by the breakpoint above).
+            "messages": _with_cache_breakpoint(conv.messages),
         }
         if tools:
             kwargs["tools"] = [{"name": t.name, "description": t.description[:1024], "input_schema": t.parameters}
@@ -87,3 +89,22 @@ class AnthropicProvider:
 
     def add_user(self, conv: Conversation, text: str) -> None:
         conv.messages.append({"role": "user", "content": text})
+
+
+def _with_cache_breakpoint(messages: list) -> list:
+    """A copy of the messages with ``cache_control`` on the last block of the last message (the conversation itself is
+    not changed, so only one such breakpoint is ever sent)."""
+    if not messages:
+        return messages
+    last = dict(messages[-1])
+    content = last.get("content")
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+    elif isinstance(content, list) and content:
+        content = [dict(b) if isinstance(b, dict) else b for b in content]
+    else:
+        return messages
+    if isinstance(content[-1], dict) and content[-1].get("type") in ("text", "tool_result", "image", "document"):
+        content[-1] = {**content[-1], "cache_control": {"type": "ephemeral"}}
+    last["content"] = content
+    return [*messages[:-1], last]

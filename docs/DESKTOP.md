@@ -84,7 +84,9 @@ The app decrypts them in memory and never shows them; **Settings → System → 
 folder are used) or the agents' `.yaml` files. Each file is checked against the catalog before anything is
 written, saved to `~/.productivity-suite/private-registry/agents`
 (`%USERPROFILE%\.productivity-suite\private-registry\agents` on Windows) readable only by you, and used at
-once. An imported file replaces the built-in instructions for that agent only.
+once. An imported file replaces the built-in instructions for that agent only. **Remove imported pack** deletes the imported
+files and goes back to the built-in instructions at once (do this after an update that ships new ones,
+or an older import keeps overriding them).
 
 A build made without the secret (or the app run from source) has no key: agents work from their public
 capability summary and Settings shows a notice.
@@ -121,7 +123,7 @@ Some phones can serve a small model (roughly 2B–4B parameters) through an app 
 The same works for a laptop or workstation running Ollama, LM Studio or vLLM on your network.
 
 - **Locality is decided by the address.** Only localhost, private-network ranges (10.x, 172.16–31.x, 192.168.x, link-local, IPv6 unique-local) and `.local` names count as local. Only local endpoints can receive `restricted` data, or be used in offline mode. Any other address is treated as cloud.
-- **Small models are weak on long playbooks.** Prompts are trimmed to fit their context (the run notes list every cut), and tool calling is off unless you tick it. Use them for quick asks, routing and short steps, and check quality with `scripts/run_evals.py`.
+- **Small models are weak on long playbooks.** By default nothing is cut, so a model too small for an agent's whole prompt is skipped (the step says why); switch on **Shorten prompts for small models** in Settings → Policies & budgets to trim prompts to fit them (the run notes list every cut). Tool calling is off unless you tick it. Use them for quick asks, routing and short steps, and check quality with `scripts/run_evals.py`.
 
 ## Mobile
 

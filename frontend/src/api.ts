@@ -24,7 +24,7 @@ export interface ModelEndpoint {
 }
 export interface ModelEdit {
   model: string; context_tokens: number; max_output_tokens: number; tools: boolean;
-  price_in_per_mtok?: number | null; price_out_per_mtok?: number | null;
+  price_in_per_mtok?: number | null; price_out_per_mtok?: number | null; price_cached_per_mtok?: number | null;
 }
 export interface ProviderEdit {
   enabled?: boolean; base_url?: string; api_key?: string; clear_api_key?: boolean; models?: ModelEdit[];
@@ -34,7 +34,7 @@ export interface ProviderInfo {
   name: string; type: string; locality: "local" | "cloud"; base_url: string | null; available: boolean; reason: string;
   enabled: boolean; offline_paused: boolean; api_key_env: string | null; api_key_source: "env" | "app" | "config" | null; edited_in_app: boolean;
   endpoint: boolean; note: string;
-  models: { ref: string; context_tokens: number; max_output_tokens: number; tools: boolean; price_in_per_mtok: number; price_out_per_mtok: number; note: string }[];
+  models: { ref: string; context_tokens: number; max_output_tokens: number; tools: boolean; price_in_per_mtok: number; price_out_per_mtok: number; price_cached_per_mtok?: number | null; note: string }[];
 }
 export interface ConnectorVariable {
   name: string; secret: boolean; flag: boolean; optional: boolean; default: string; set: boolean;
@@ -66,27 +66,31 @@ export interface Profile {
 export interface Budgets {
   enabled: boolean; max_run_cost_usd: number; max_run_tokens: number; max_chat_cost_usd: number; max_chat_tokens: number;
   max_steps: number; max_tool_calls_per_step: number;
-  max_tool_result_chars: number; max_context_fraction: number;
+  max_tool_result_chars: number; max_context_fraction: number; shorten_to_fit?: boolean;
 }
 export interface GeneralEdit {
   budgets?: Budgets; persona_chat?: boolean; persona_exports?: boolean; store_prompts?: boolean;
   default_data_class?: string; cloud_allowed?: Record<string, boolean>; tiers?: Record<string, string[]>;
   agent_models?: Record<string, string | null>; offline_model?: string; default_model?: string; fallback_model?: string;
+  tool_mode?: ToolMode;
 }
+export type ToolMode = "core" | "all" | "on_demand";
 export interface ChatDelegation { agent: string; question: string; answer: string; model: string | null; error?: string | null }
 export interface ChatMsg {
   role: "user" | "assistant"; content: string; at: string; agent?: string; model?: string;
   files?: { id: string; name: string }[]; delegations?: ChatDelegation[]; warnings?: string[];
-  suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cost_usd?: number; seconds?: number;
+  suggested_playbook?: { id: string; code: string; name: string } | null; tokens?: number; cached_tokens?: number; cost_usd?: number; seconds?: number;
   // set when the person asked for the answer as a file; saved_to is where the app wrote it (null: not saved)
   file?: { format: "md" | "html"; name: string; saved_to?: string | null; source?: number };
   tool_calls?: { connector?: string; tool: string; arguments: Record<string, unknown>; error: boolean }[];
+  // the person's messages: queued or being answered (status), or why the answer failed (error)
+  id?: string; status?: "queued" | "working"; error?: string; reply_to?: string;
 }
 export interface ChatSummary {
   id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;
-  created_at: string; updated_at: string; messages: number;
+  created_at: string; updated_at: string; messages: number; busy?: boolean;
 }
-export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[] }
+export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[]; connectors_off?: string[] }  // off for this chat only
 export interface AgentPack {
   installed: boolean; folder: string | null; agents_total: number; agents_with_instructions: number;
   built_in: number; imported: number;  // agents whose instructions come from the pack built into the app / one imported here
@@ -97,7 +101,7 @@ export interface Overview {
   connectors: ConnectorInfo[]; data_classes: Record<string, string[]>; default_data_class: string; kill_switch: boolean; offline: boolean;
   offline_override: boolean | null; endpoints: ModelEndpoint[];
   budgets: Budgets; persona: { chat: boolean; exports: boolean }; profile_configured: boolean;
-  profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; model_refs: string[]; general_edited: string[];
+  profile: Profile; profile_saved_in_app: boolean; store_prompts: boolean; tool_mode: ToolMode; model_refs: string[]; general_edited: string[];
   outputs_dir: string | null;
   outputs: { path: string | null; source: "app" | "file" | "default"; default: string; shared_with_local_files: string[] };  // readable copies of chats and deliverables; null when switched off
   agent_models: Record<string, string>; offline_model: string | null; offline_default: string | null;
@@ -175,6 +179,11 @@ export const api = {
   startRun: (playbook_id: string, inputs: Record<string, unknown>, data_class: string, options: Record<string, unknown>) =>
     call<{ id: string }>("/api/runs", { method: "POST", body: JSON.stringify({ playbook_id, inputs, data_class, options }) }),
   runs: () => call<RunSummary[]>("/api/runs"),
+  // Run again (no body) or revise: new inputs and/or corrections, saved as a new run; the earlier one is kept.
+  rerun: (id: string, body: { inputs?: Record<string, unknown>; data_class?: string; corrections?: string;
+    include_previous?: boolean; persona?: boolean } = {}) =>
+    call<{ id: string }>(`/api/runs/${id}/rerun`, { method: "POST", body: JSON.stringify(body) }),
+  fileInfo: (id: string) => call<{ id: string; name: string; chars: number }>(`/api/files/${id}`),
   run: (id: string) => call<RunDetail>(`/api/runs/${id}`),
   cancel: (id: string) => call<RunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
   resume: (id: string) => call<{ id: string }>(`/api/runs/${id}/resume`, { method: "POST" }),
@@ -209,6 +218,7 @@ export const api = {
     const fd = new FormData(); files.forEach((f) => fd.append("files", f));
     return call<AgentPack & { imported_files: string[]; skipped: string[] }>("/api/agent-pack", { method: "POST", body: fd });
   },
+  removeAgentPack: () => call<AgentPack & { removed: number }>("/api/agent-pack", { method: "DELETE" }),
   removeClientFile: (id: string) => call<ConnectorInfo>(`/api/connectors/${encodeURIComponent(id)}/client-file`, { method: "DELETE" }),
   useSignedIn: (id: string) => call<{ accounts: SignedInAccount[] }>(`/api/connectors/${encodeURIComponent(id)}/accounts/use`, { method: "POST" }),
   signinCancel: (id: string) => call<SigninState>(`/api/connectors/${encodeURIComponent(id)}/signin`, { method: "DELETE" }),
@@ -226,8 +236,13 @@ export const api = {
   chats: () => call<ChatSummary[]>("/api/chats"),
   chat: (id: string) => call<ChatDetail>(`/api/chats/${id}`),
   startChat: (agent_id: string, data_class?: string) => call<ChatDetail>("/api/chats", { method: "POST", body: JSON.stringify({ agent_id, data_class }) }),
+  // The message is saved and queued at once; the answer arrives in the background (poll the chat).
   sendChat: (id: string, content: string, files: string[] = []) =>
-    call<ChatMsg>(`/api/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content, files }) }),
+    call<ChatDetail>(`/api/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content, files, wait: false }) }),
+  editChatMessage: (id: string, index: number, content: string) =>
+    call<ChatDetail>(`/api/chats/${id}/messages/${index}`, { method: "PUT", body: JSON.stringify({ content, wait: false }) }),
+  updateChat: (id: string, body: { agent_id?: string; data_class?: string; connectors_off?: string[] }) =>
+    call<ChatDetail>(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteChat: (id: string) => call<{ deleted: number }>(`/api/chats/${id}`, { method: "DELETE" }),
   killSwitch: (on: boolean) => call<{ on: boolean }>("/api/admin/kill-switch", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),
   exportUrl: (id: string, format: "md" | "html") => `/api/runs/${id}/export?format=${format}`,
