@@ -91,7 +91,7 @@ class ModelConfig(BaseModel):
 
     ref: str
     context_tokens: int = 8192
-    max_output_tokens: int = 8000
+    max_output_tokens: int = 8192
     tools: bool = False
     price_in_per_mtok: float = 0.0
     price_out_per_mtok: float = 0.0
@@ -132,6 +132,8 @@ class Budgets(BaseModel):
     max_tool_calls_per_step: int = 20
     max_tool_result_chars: int = 12_000
     max_context_fraction: float = 0.75
+    # Off: every agent gets its whole prompt, or the next model that fits. On: prompts are shortened for small models.
+    shorten_to_fit: bool = False
 
 
 OLD_TOOL_CALLS_DEFAULT = 8  # shipped until 0.7.4; one Gmail answer (a search, then one call per message) used it up

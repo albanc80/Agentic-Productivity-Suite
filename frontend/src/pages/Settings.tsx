@@ -275,7 +275,7 @@ function EndpointsPanel({ ov, onChange }: { ov: Overview; onChange: () => void }
               <input type="checkbox" checked={draft.tools} onChange={(e) => set("tools", e.target.checked)} />
               The model supports tool calling (lets agents use connectors and calculators directly)
             </label>
-            <p className="help">Small models give shorter, less reliable answers on long playbooks. Prompts are trimmed to fit their context, and the run notes say what was cut.</p>
+            <p className="help">Small models give shorter, less reliable answers on long playbooks. Nothing is cut by default, so a model too small for an agent's whole prompt is skipped; switch on Shorten prompts for small models in Policies & budgets to use it anyway.</p>
             <button className="primary" type="submit" disabled={!draft.model || busy === "save"}>{busy === "save" ? "Saving…" : "Add endpoint"}</button>
           </>
         )}
@@ -378,7 +378,7 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
   const has = (m: string) => models.some((x) => x.model === m);
   const add = (m: string) => {
     const name = m.trim();
-    if (name && !has(name)) setModels((ms) => [...ms, { model: name, context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8000, tools: false }]);
+    if (name && !has(name)) setModels((ms) => [...ms, { model: name, context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8192, tools: false }]);
   };
   const upd = (i: number, k: keyof ModelEdit, v: unknown) => setModels((ms) => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
 
@@ -389,7 +389,7 @@ function ProviderEditor({ p, onDone, onChange }: { p: ProviderInfo; onDone: () =
       setFound(r.models); setBaseUrl(r.base_url);
       if (r.models.length && !models.some((m) => r.models.includes(m.model))) {
         // Replace placeholders that the server does not have with the first model it reports.
-        setModels([{ model: r.models[0], context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8000, tools: false }]);
+        setModels([{ model: r.models[0], context_tokens: local ? 8192 : 128000, max_output_tokens: local ? 2048 : 8192, tools: false }]);
       }
     } catch (e) { setError(e); } finally { setBusy(""); }
   }

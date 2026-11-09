@@ -55,6 +55,8 @@ Behind these, each **tier** (`router`, `specialist`, `synthesis`, `review`) is a
 
 Settings → Model providers shows each provider's state and has a **Test** button once it is ready. When **Find models** fails, the message says why: a 401 means the server wants an API key, a 404 usually means the address should end in `/v1`, and "could not reach" means nothing is listening there.
 
+**Nothing an agent is given is cut.** Every agent, in chat and in playbooks, gets its whole prompt: instructions, persona, policies, your profile, the conversation and the data. Room in a model call is the model's context window minus the **Max answer** kept for the reply (8,192 tokens by default for cloud models) and the connector tools offered; connector tools are sent in a compact form (names, types and required fields kept, long help shortened), which took the same 108 tools from about 83,000 to 55,000 tokens. If the whole prompt does not fit a model, the next model in the fallback order that fits is used; if none fits, the answer or step says which model and how much room it needs: choose a model with a larger context for that agent, or switch off connectors a chat does not need with the switches under the chat. **Answers are never cut either:** one that reaches Max answer is continued (up to three times) and joined, so a playbook step's status block arrives and a step that needs your input still pauses to ask. Set each model's real context window and max answer in Settings → Models → the provider's **Edit**. For very small local models (a phone), switch on **Shorten prompts for small models** in Settings → Policies & budgets → Guardrails: prompts are then shortened to fit, and each answer lists what was cut.
+
 **Model prices.** Enter each cloud model's price per million tokens in its Edit panel. The suite uses them only for the optional cost limits (below). Chats and playbook runs show tokens, not cost: your provider's billing is the real record, and local models cost nothing. A model with no price counts as costing nothing; check prices with the provider, they change.
 
 ## Settings → System and User guide
@@ -207,7 +209,8 @@ Cost is computed from the prices entered on each model, so a model with no price
 | Max steps per run | 40 | A playbook with more steps is refused at the start. Steps repeated by a revision or a resume count, and a run that reaches the limit stops with a note. The longest shipped playbook has 10 steps. |
 | Tool calls per step | 20 | Further tool calls in that step are refused and the agent is told to finish; the step gets a warning. |
 | Max characters per tool result | 12,000 | Longer tool results, attachments and earlier steps' outputs are cut to this before an agent sees them. |
-| Context window share (of the model's context a prompt may fill) | 0.75 | Prompts are shrunk (persona, skills, older context first) to fit, so a small local model is not overrun. Cuts are listed on the step. |
+| Context window share (of the model's context a prompt should fill) | 0.75 | A prompt within it is sent as is; up to the whole window it is still sent whole. With **Shorten prompts for small models** on, prompts over the share are shortened (persona, skills, older context first) and the cuts are listed. |
+| Shorten prompts for small models | off | Off: nothing is cut; a model too small for the whole prompt is skipped for the next one in the chain. |
 
 The kill switch (Settings) stops every run and chat at once, whatever the limits.
 

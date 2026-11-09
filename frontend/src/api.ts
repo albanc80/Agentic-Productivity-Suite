@@ -66,7 +66,7 @@ export interface Profile {
 export interface Budgets {
   enabled: boolean; max_run_cost_usd: number; max_run_tokens: number; max_chat_cost_usd: number; max_chat_tokens: number;
   max_steps: number; max_tool_calls_per_step: number;
-  max_tool_result_chars: number; max_context_fraction: number;
+  max_tool_result_chars: number; max_context_fraction: number; shorten_to_fit?: boolean;
 }
 export interface GeneralEdit {
   budgets?: Budgets; persona_chat?: boolean; persona_exports?: boolean; store_prompts?: boolean;

@@ -104,14 +104,14 @@ models:
   - {ref: anthropic/claude-opus-5-5,   context_tokens: 1000000, max_output_tokens: 16000, tools: true, price_in_per_mtok: 4.00, price_out_per_mtok: 20.00, effort: medium}
   - {ref: anthropic/claude-sonnet-5-5, context_tokens: 1000000, max_output_tokens: 16000, tools: true, price_in_per_mtok: 2.00, price_out_per_mtok: 10.00, effort: medium}
   - {ref: anthropic/claude-haiku-5-5,  context_tokens: 1000000, max_output_tokens: 4000,  tools: true, price_in_per_mtok: 0.10, price_out_per_mtok: 0.50}
-  - {ref: deepseek/deepseek-chat,      context_tokens: 64000,   max_output_tokens: 8000,  tools: true,  note: "verify id, context and price"}
-  - {ref: deepseek/deepseek-reasoner,  context_tokens: 64000,   max_output_tokens: 8000,  tools: false, note: "verify id, context and price"}
+  - {ref: deepseek/deepseek-chat,      context_tokens: 64000,   max_output_tokens: 8192,  tools: true,  note: "verify id, context and price"}
+  - {ref: deepseek/deepseek-reasoner,  context_tokens: 64000,   max_output_tokens: 8192,  tools: false, note: "verify id, context and price"}
   - {ref: ollama/qwen2.5:14b,          context_tokens: 32768,   max_output_tokens: 4000,  tools: true,  note: "requires num_ctx >= 32768"}
   - {ref: ollama/llama3.1:8b,          context_tokens: 8192,    max_output_tokens: 2000,  tools: true}
   - {ref: lmstudio/local-model,        context_tokens: 16384,   max_output_tokens: 4000,  tools: false, note: "use the model id LM Studio shows"}
   # Examples to enable when you have the account and have confirmed the model id:
-  # - {ref: openai/<model-id>, context_tokens: 128000, max_output_tokens: 8000, tools: true}
-  # - {ref: openrouter/<vendor>/<model-id>, context_tokens: 128000, max_output_tokens: 8000, tools: true}
+  # - {ref: openai/<model-id>, context_tokens: 128000, max_output_tokens: 8192, tools: true}
+  # - {ref: openrouter/<vendor>/<model-id>, context_tokens: 128000, max_output_tokens: 8192, tools: true}
 
 # Ordered fallback chains per tier. The first available model that the run's
 # data class allows is used; on error or refusal the next one is tried.

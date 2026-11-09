@@ -126,6 +126,7 @@ class Discover(BaseModel):
 
 
 MAX_CLIENT_FILE_BYTES = 64 * 1024  # a Google OAuth client file is well under 1 KB
+OLD_MAX_ANSWER, MAX_ANSWER_DEFAULT = 8000, 8192  # cloud model answer length: before and from 1.0.0
 MAX_AGENT_PACK_UPLOAD = 25 * 1024 * 1024  # a whole agent pack (34 agents of ~15k characters) is well under 1 MB
 
 
@@ -198,6 +199,7 @@ class Suite:
             "tool_downloaded", None, tool=name, version=version)
         self._warnings += self.connectors.load_client_files(self.client_folders)
         self._upgrade_saved_budgets()
+        self._upgrade_saved_max_answer()
         self.apply()
 
     @property
@@ -244,6 +246,22 @@ class Suite:
         if upgrade_budgets(saved.get("budgets")) is not None:
             self.store.set_setting("general", saved)
         self.store.set_setting("upgraded_tool_calls_default", True)
+
+    def _upgrade_saved_max_answer(self) -> None:
+        """Once (1.0.0): models saved in the app with the old default answer length of 8,000 tokens get the new
+        default of 8,192. Any other value the person chose is kept."""
+        if self.store.get_setting("upgraded_max_answer_default", False):
+            return
+        saved = self.store.get_setting("provider_overrides", {})
+        changed = False
+        for ov in saved.values():
+            for m in (ov or {}).get("models") or []:
+                if m.get("max_output_tokens") == OLD_MAX_ANSWER:
+                    m["max_output_tokens"] = MAX_ANSWER_DEFAULT
+                    changed = True
+        if changed:
+            self.store.set_setting("provider_overrides", saved)
+        self.store.set_setting("upgraded_max_answer_default", True)
 
     def general(self) -> GeneralSettings:
         return GeneralSettings.model_validate(self.store.get_setting("general", {}))

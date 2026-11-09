@@ -32,12 +32,13 @@ import time
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 
-from .connectors import ConnectorError, ConnectorManager, setup_hints
+from .connectors import ConnectorError, ConnectorManager, model_tool, setup_hints
 from .contracts import strip_reasoning
 from .guards import redact, scan_people_eval, wrap_data
 from .outputs import Outputs
-from .prompts import build_system, est_tokens, fit
+from .prompts import PromptTooLarge, build_system, est_tokens, fit_or_refuse
 from .providers import ModelRouter, ProviderError, ToolSpec, Usage
+from .providers.base import complete_reply
 from .registry import Registry
 from .router import keyword_scores
 from .settings import Settings
@@ -597,7 +598,7 @@ class Chat:
         except Exception as e:  # noqa: BLE001 - connectors are optional for a chat answer
             log.exception("connector tools for chat failed")
             return [], {}, [], [], [f"connectors unavailable: {type(e).__name__}: {e}"[:400]], []
-        specs = [ToolSpec(t.qualified, f"[{t.connector}, read-only] {t.description}", t.input_schema or {"type": "object"})
+        specs = [ToolSpec(t.qualified, *model_tool(t.connector, t.description, t.input_schema))
                  for t in found.tools]
         routes = {t.qualified: (t.connector, t.name) for t in found.tools}
         down = ([DOWN_STARTING.format(name=n) for n in found.starting]
@@ -648,8 +649,13 @@ class Chat:
             user.append(("message", "## The person's message\n\n" + content + "\n", 0))
             out_tokens = min(max_tokens or cand.model.max_output_tokens, cand.model.max_output_tokens)
             tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3
-            budget = int(cand.model.context_tokens * self.s.budgets.max_context_fraction) - out_tokens - tool_tokens
-            parts = fit(system, user, budget_tokens=max(budget, 1500))
+            try:
+                parts = fit_or_refuse(system, user, ref=cand.ref, context_tokens=cand.model.context_tokens,
+                                      share=self.s.budgets.max_context_fraction, out_tokens=out_tokens,
+                                      tool_tokens=tool_tokens, shorten=self.s.budgets.shorten_to_fit, chat=True)
+            except PromptTooLarge as e:
+                errors.append(str(e))
+                continue
             if spend is not None and self.s.budgets.enabled:
                 # Worst case of this call: the whole prompt plus the longest answer the model may write.
                 in_tokens = est_tokens(parts.chars) + tool_tokens
@@ -657,8 +663,7 @@ class Chat:
                                   spend["cost"] + cand.cost(Usage(input_tokens=in_tokens, output_tokens=out_tokens)))
                 if over:
                     raise BudgetReached(f"This message would take the chat past its budget ({over}). {BUDGET_HELP}")
-            warnings = ([f"{x}" for x in errors] + tool_warnings
-                        + [f"context fit for {cand.ref}: {c}" for c in parts.cuts])
+            warnings = [f"{x}" for x in errors] + tool_warnings + list(parts.cuts)
             try:
                 r, usage, tool_log = await self._converse(cand, parts, specs, routes, out_tokens, json_only, spend, warnings)
             except ProviderError as e:
@@ -725,6 +730,21 @@ class Chat:
             provider.add_tool_results(conv, outputs)
             if calls >= max_calls:
                 warnings.append(f"tool-call limit ({max_calls}) reached")
+
+        def count(u: Usage) -> None:
+            nonlocal usage
+            usage += u
+            if spend is not None:
+                spend["tokens"] += u.input_tokens + u.output_tokens
+                spend["cost"] += cand.cost(u)
+        r, more, cut = await complete_reply(provider, conv, r, model=cand.model.model, max_tokens=out_tokens,
+                                            effort=effort, on_usage=count)
+        if more:
+            warnings.append(f"the answer reached the max answer length ({out_tokens:,} tokens) and was continued "
+                            f"{more} time{'s' if more > 1 else ''}, so nothing was cut")
+        if cut:
+            warnings.append(f"the answer is still cut off after {more} continuations; raise Max answer for "
+                            f"{cand.ref} in Settings > Models")
         return r, usage, tool_log
 
 

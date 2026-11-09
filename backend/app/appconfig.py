@@ -26,6 +26,7 @@ class BudgetsEdit(BaseModel):
     max_tool_calls_per_step: int = Field(ge=0, le=100)
     max_tool_result_chars: int = Field(ge=1_000, le=1_000_000)
     max_context_fraction: float = Field(ge=0.2, le=0.95)
+    shorten_to_fit: bool = False  # settings saved before 1.0.0 load as off: nothing is cut
 
 
 class TierPref(BaseModel):

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import yaml
 
 from .contracts import CONTRACT_INSTRUCTIONS, HandoffOut
+from .providers.base import ProviderError
 from .registry import Agent, Registry
 
 SUITE_RULES = """\
@@ -79,6 +80,19 @@ class PromptParts:
     @property
     def chars(self) -> int:
         return len(self.system) + len(self.user)
+
+
+TOOL_SHARE_WARN = 0.3  # connector tool definitions above this share of the context get a note saying so
+
+
+def tool_share_note(ref: str, tool_tokens: int, context_tokens: int, chat: bool) -> str | None:
+    """Say when connector tool definitions, not the conversation, are what squeezes the prompt."""
+    if tool_tokens <= context_tokens * TOOL_SHARE_WARN:
+        return None
+    fix = ("switch off connectors this chat does not need (the switches under the chat)" if chat
+           else "this playbook's connectors take that room; a model with a larger context helps")
+    return (f"context fit for {ref}: connector tools take about {tool_tokens:,} of the model's {context_tokens:,}-token "
+            f"context window, leaving less room for instructions and history; {fix}")
 
 
 def est_tokens(chars: int) -> int:
@@ -170,3 +184,34 @@ def fit(system: list[tuple[str, str, int]], user: list[tuple[str, str, int]], *,
     sys_text = "\n\n".join(x[2] for x in allsec if x[0] == "s" and x[2])
     user_text = "\n".join(x[2] for x in allsec if x[0] == "u" and x[2])
     return PromptParts(system=sys_text, user=user_text, cuts=cuts)
+
+
+class PromptTooLarge(ProviderError):
+    """The full prompt does not fit this model. Nothing is cut: the next model in the chain is tried."""
+
+
+def fit_or_refuse(system: list[tuple[str, str, int]], user: list[tuple[str, str, int]], *, ref: str, context_tokens: int,
+                  share: float, out_tokens: int, tool_tokens: int, shorten: bool, chat: bool) -> PromptParts:
+    """Every agent gets its whole prompt: instructions, persona, policies, profile, history and data, never cut.
+    Within the context window share it is sent as is; up to the full window it is still sent whole. A prompt larger
+    than the model's whole context raises PromptTooLarge (the caller tries the next model) unless the person chose
+    to shorten prompts for small models (Settings > Policies & budgets), which is the old trimming."""
+    parts = fit(system, user, budget_tokens=10**12)  # no cuts
+    need = est_tokens(parts.chars)
+    soft = int(context_tokens * share) - out_tokens - tool_tokens
+    if need <= max(soft, 0):
+        return parts
+    if shorten:
+        cut = fit(system, user, budget_tokens=max(soft, 1500))
+        note = tool_share_note(ref, tool_tokens, context_tokens, chat)
+        cut.cuts = ([note] if note else []) + [f"context fit for {ref}: {c}" for c in cut.cuts]
+        return cut
+    if need <= context_tokens - out_tokens - tool_tokens:
+        return parts
+    tools = f", {tool_tokens:,} of them for connector tools" if tool_tokens else ""
+    hint = (" or switch off connectors this chat does not need (the switches under the chat)" if chat and tool_tokens
+            else "")
+    raise PromptTooLarge(f"{ref} cannot take the whole prompt without cutting it: it needs about "
+                         f"{need + tool_tokens + out_tokens:,} tokens ({out_tokens:,} kept for the answer{tools}) and the "
+                         f"model's context window is {context_tokens:,}. Choose a model with a larger context window for "
+                         f"this agent in Settings > Models{hint}.")

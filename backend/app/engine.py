@@ -18,13 +18,14 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager, setup_hints
+from .connectors import MAX_AGENT_TOOLS, ConnectorError, ConnectorManager, model_tool, setup_hints
 from .contracts import HandoffIn, HandoffOut, Label, Status, parse_handoff, worst
 from .guards import redact, scan_people_eval, wrap_data
 from .outputs import Outputs
 from .playbooks import Playbook, Step, render, render_args, resolve_window
-from .prompts import build_system, build_user, fit
+from .prompts import build_system, build_user, fit_or_refuse
 from .providers import ModelRouter, ProviderError, Resolved, ToolSpec, Usage
+from .providers.base import complete_reply
 from .registry import Registry
 from .settings import Settings
 from .store import Store
@@ -617,7 +618,7 @@ class Engine:
         notes += found.notes
         account_lines += found.lines
         for t in found.tools:
-            specs.append(ToolSpec(t.qualified, f"[{t.connector}, read-only] {t.description}", t.input_schema or {"type": "object"}))
+            specs.append(ToolSpec(t.qualified, *model_tool(t.connector, t.description, t.input_schema)))
             routes[t.qualified] = ("mcp", (t.connector, t.name))
         for name in dict.fromkeys(step.tools + agent_tools):
             t = TOOLS[name]
@@ -715,9 +716,11 @@ class Engine:
         user = build_user(handoff=handoff, task=task, priors=priors, data_blocks=data_blocks,
                           review_target=step.target if review else None, feedback=feedback)
         tool_tokens = sum(len(json.dumps(t.parameters)) + len(t.description) for t in specs) // 3
-        budget = int(cand.model.context_tokens * self.s.budgets.max_context_fraction) - cand.model.max_output_tokens - tool_tokens
-        parts = fit(system, user, budget_tokens=max(budget, 1500))
-        warnings = list(pre_warnings) + list(tool_notes) + [f"context fit for {cand.ref}: {c}" for c in parts.cuts]
+        # The whole prompt or the next model (PromptTooLarge is a ProviderError: _agent tries the next candidate).
+        parts = fit_or_refuse(system, user, ref=cand.ref, context_tokens=cand.model.context_tokens,
+                              share=self.s.budgets.max_context_fraction, out_tokens=cand.model.max_output_tokens,
+                              tool_tokens=tool_tokens, shorten=self.s.budgets.shorten_to_fit, chat=False)
+        warnings = list(pre_warnings) + list(tool_notes) + list(parts.cuts)
 
         provider = cand.provider
         conv = provider.start(parts.system, parts.user)
@@ -762,13 +765,28 @@ class Engine:
             if calls_made >= max_calls:
                 warnings.append(f"tool-call limit ({max_calls}) reached")
 
+        if result is not None:
+            def count(u: Usage) -> None:
+                nonlocal usage
+                usage += u
+            result, more, cut = await complete_reply(provider, conv, result, model=cand.model.model,
+                                                     max_tokens=cand.model.max_output_tokens, effort=cand.model.effort,
+                                                     on_usage=count)
+            if more:
+                warnings.append(f"the answer reached the max answer length ({cand.model.max_output_tokens:,} tokens) and "
+                                f"was continued {more} time{'s' if more > 1 else ''}, so nothing was cut")
+            if cut:
+                warnings.append(f"the answer is still cut off after {more} continuations; raise Max answer for "
+                                f"{cand.ref} in Settings > Models")
         text = result.text if result else ""
         h, deliverable = parse_handoff(text)
         if h is None:
             warnings.append("response had no valid contract block; asked the model to repair it")
             provider.add_assistant(conv, result)
             provider.add_user(conv, REPAIR_PROMPT)
-            fix = await provider.chat(conv, model=cand.model.model, tools=None, max_tokens=2000, effort=cand.model.effort)
+            # The model's whole answer length: a thinking model spends part of it reasoning before the JSON.
+            fix = await provider.chat(conv, model=cand.model.model, tools=None, max_tokens=cand.model.max_output_tokens,
+                                      effort=cand.model.effort)
             usage += fix.usage
             h2, _ = parse_handoff(fix.text)
             h = h2 or HandoffIn(status=Status.PARTIAL, summary="The model did not return a structured contract.")

@@ -442,6 +442,55 @@ def setup_hints(text: str) -> list[str]:
 
 MAX_AGENT_TOOLS = 128  # the most tools some model APIs accept in one request
 
+# What a model is sent for each connector tool. Servers write long help into every parameter (Microsoft 365's
+# 69 read-only tools came to about 195,000 characters, about 65,000 tokens by the suite's estimate), which left
+# almost no room for the conversation and was billed on every call. The model gets the first sentence of each
+# description; names, types, enums and required fields are kept, so calls stay valid.
+TOOL_DESC_MAX = 400
+PARAM_DESC_MAX = 120
+_SCHEMA_DROP = frozenset({"$schema", "examples", "example", "$comment"})
+
+
+def short_text(text: str, limit: int) -> str:
+    """Whitespace collapsed; cut at a sentence end if one is in the second half of the limit, else at a word."""
+    t = " ".join(str(text).split())
+    if len(t) <= limit:
+        return t
+    cut = t[:limit]
+    end = max(cut.rfind(". "), cut.rfind("; "))
+    if end >= limit // 2:
+        return cut[:end + 1]
+    return cut.rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+def compact_schema(schema: object, *, _names: bool = False) -> object:
+    """A tool's input schema for a model: descriptions shortened, examples dropped. Keys inside ``properties``
+    are parameter names, never schema keywords, so a parameter called ``description`` or ``examples`` is kept."""
+    if isinstance(schema, list):
+        return [compact_schema(x) for x in schema]
+    if not isinstance(schema, dict):
+        return schema
+    if _names:
+        return {k: compact_schema(v) for k, v in schema.items()}
+    out = {}
+    for k, v in schema.items():
+        if k in _SCHEMA_DROP:
+            continue
+        if k == "description" and isinstance(v, str):
+            out[k] = short_text(v, PARAM_DESC_MAX)
+        elif k in ("properties", "patternProperties", "$defs", "definitions") and isinstance(v, dict):
+            out[k] = compact_schema(v, _names=True)
+        else:
+            out[k] = compact_schema(v)
+    return out
+
+
+def model_tool(connector: str, description: str, schema: dict | None) -> tuple[str, dict]:
+    """(description, input schema) as offered to a model for one read-only connector tool."""
+    return (f"[{connector}, read-only] {short_text(description or '', TOOL_DESC_MAX)}",
+            compact_schema(schema or {"type": "object"}))  # type: ignore[return-value]
+
+
 
 @dataclass
 class AgentTools:

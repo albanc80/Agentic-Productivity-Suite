@@ -778,6 +778,11 @@ export function PoliciesPanel({ ov, onChange }: { ov: Overview; onChange: () => 
             <div className="field"><label htmlFor="b-chars">Max characters per tool result</label><input id="b-chars" type="number" min={1000} step="any" value={b.max_tool_result_chars} onChange={(e) => num("max_tool_result_chars", e.target.value)} /></div>
             <div className="field"><label htmlFor="b-frac" title="Share of the model's context window a prompt may fill (0.2 to 0.95)">Context window share</label><input id="b-frac" type="number" min={0.2} max={0.95} step="any" value={b.max_context_fraction} onChange={(e) => num("max_context_fraction", e.target.value)} /></div>
           </div>
+          <label className="check">
+            <input type="checkbox" checked={!!b.shorten_to_fit} onChange={(e) => setB((x) => ({ ...x, shorten_to_fit: e.target.checked }))} />
+            Shorten prompts for small models
+          </label>
+          <p className="help">Off (default): every agent gets its whole prompt (instructions, persona, profile, history and data), never cut. If it does not fit a model, the next model in the fallback order that fits is used; if none fits, the step or chat says which model and how much room it needs. On: prompts are shortened to fit small local models, such as a model on a phone, and each answer lists what was cut. Answers that reach Max answer are always continued, never cut.</p>
           <div className="row-tight">
             <button className="primary" type="submit" disabled={busy}>Save limits</button>
             {ov.general_edited.includes("budgets") && <button type="button" className="ghost grow-left" disabled={busy}
