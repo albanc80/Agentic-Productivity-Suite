@@ -29,6 +29,7 @@ import json
 import logging
 import re
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from .connectors import ConnectorError, ConnectorManager, setup_hints
@@ -71,9 +72,8 @@ TOOLS_RULE = ("- You can read the person's connected sources with read-only tool
               "question is about their mail, calendar, files, documents, repositories or tickets, and never say you cannot "
               "reach a source listed here. Say which source, and which account or file, each fact came from. You cannot "
               "send, change or delete anything.\n{scope}")
-NO_TOOLS_RULE = ("- You cannot reach their mail, files or other systems from here. To use a file, they can attach it to "
-                 "the chat, or switch on Local files in Settings > Connectors and choose a folder; mail, calendar, GitHub "
-                 "and the rest are switched on there too.\n")
+NO_TOOLS_RULE = ("- No connectors are available in this chat: work from what the person types or attaches. Only if they "
+                 "ask how to share more: attach files here, or switch connectors on in this chat or in Settings > Connectors.\n")
 NO_TOOL_MODEL_RULE = ("- Connected sources ({names}) are switched on, but the model answering now cannot call tools, so "
                       "you cannot read them. Say so, and suggest choosing a model with tool calling for this agent in "
                       "Settings > Models.\n")
@@ -81,6 +81,8 @@ DOWN_STARTING = ("- {name} is switched on but still connecting, so you cannot re
                  "needs it, say so and ask them to send it again in a minute.\n")
 DOWN_FAILED = ("- {name} is switched on but could not start ({why}). If the question needs it, say so and suggest "
                "Settings > Connectors > {name} > Test.\n")
+# Connectors the person switched off for the chat being answered (every agent of that answer, delegates too).
+_CHAT_OFF: ContextVar[frozenset[str]] = ContextVar("chat_connectors_off", default=frozenset())
 CHAT_CONNECTOR_WAIT = 10.0  # seconds a chat answer waits for connectors still starting; it answers without them after
 FILES_CONNECTOR = "local-files"  # offered first
 TOOL_LIMIT_NOTE = "Tool limit for this answer is used up. Finish with what you have."
@@ -239,10 +241,16 @@ class Chat:
             if stuck:
                 self.store.save_chat(c)
 
-    def update(self, cid: str, agent_id: str | None, data_class: str | None) -> dict:
-        """Change who a new chat talks to, or its data class, before its first message."""
+    def update(self, cid: str, agent_id: str | None, data_class: str | None,
+               connectors_off: list[str] | None = None) -> dict:
+        """Change who a new chat talks to, or its data class, before its first message; switch connectors off or on
+        for this chat at any time (the next answer uses the change)."""
         chat = self.get(cid)
-        if chat["messages"]:
+        if connectors_off is not None:
+            known = set(self.connectors.configs) if self.connectors else set()
+            chat["connectors_off"] = sorted({c for c in connectors_off if c in known})
+            self.store.audit("chat_connectors_set", None, chat=cid, off=chat["connectors_off"])
+        if chat["messages"] and (agent_id is not None or data_class is not None):
             raise ChatError("The agent and data class are fixed once the chat has a message. Start a new chat to change them.")
         if agent_id is not None:
             if agent_id not in self.registry.agents:
@@ -376,6 +384,7 @@ class Chat:
 
     async def _answer(self, cid: str, mid: str) -> dict:
         chat = self.get(cid)
+        _CHAT_OFF.set(frozenset(chat.get("connectors_off") or []))  # this worker task's own context
         idx = self._index(chat, mid)
         user_msg = chat["messages"][idx]
         content = user_msg["content"]
@@ -582,8 +591,9 @@ class Chat:
         if not self.connectors:
             return [], {}, [], [], [], []
         try:
-            on = [FILES_CONNECTOR] if self.connectors.configured(FILES_CONNECTOR) else []  # first when it is on
-            found = await self.connectors.tools_for_agent(on, wait=CHAT_CONNECTOR_WAIT)
+            off = _CHAT_OFF.get()
+            on = [FILES_CONNECTOR] if self.connectors.configured(FILES_CONNECTOR) and FILES_CONNECTOR not in off else []
+            found = await self.connectors.tools_for_agent(on, wait=CHAT_CONNECTOR_WAIT, skip=off)
         except Exception as e:  # noqa: BLE001 - connectors are optional for a chat answer
             log.exception("connector tools for chat failed")
             return [], {}, [], [], [f"connectors unavailable: {type(e).__name__}: {e}"[:400]], []

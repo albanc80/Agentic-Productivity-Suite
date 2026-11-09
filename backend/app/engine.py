@@ -363,6 +363,14 @@ class Engine:
         if answers:
             out += ("\n\n" if out else "") + "The person answered these questions during the run (use them; they override assumptions):\n" + \
                 "\n".join(f"- Q: {x['question']}\n  A: {x['answer']}" for x in answers)
+        rev = ctx.run["options"].get("revision") or {}
+        if rev.get("notes"):
+            out += ("\n\n" if out else "") + ("This run revises an earlier run of this playbook. The person's corrections "
+                                               "(apply every one; they override the earlier result and any assumption):\n"
+                                               + str(rev["notes"])[:20_000])
+        if rev.get("previous"):
+            out += ("\n\n" if out else "") + ("The earlier run's result is attached as data (previous-run). Keep what is "
+                                               "right, fix what the corrections and the current inputs change, and say what changed.")
         return out
 
     def _record_skip(self, ctx: RunCtx, step: Step, reason: str, parent: str | None = None) -> None:
@@ -563,6 +571,11 @@ class Engine:
                 extra = f"\nReview verdict: {h['verdict']}\nFindings:\n" + "\n".join(f"- {f}" for f in h.get("findings", []))
             priors.append((sid, f"Agent: {o.get('agent')} | status: {o.get('status')}\n\n{o.get('deliverable', '')}"
                                 f"\n\nKey claims:\n{claims or '- none'}{extra}"))
+        previous = (ctx.run["options"].get("revision") or {}).get("previous")
+        if previous:  # a revision run: the earlier result, to correct (untrusted data like any other)
+            block, fl, _ = wrap_data(f"previous-run:{ctx.run['options']['revision'].get('of', '')}", str(previous), 60_000)
+            data_blocks.append(block)
+            flags += [f"previous run: {x}" for x in fl]
         for inp in ctx.pb.inputs:
             v = ctx.inputs.get(inp.id)
             if not inp.is_data or v in (None, "", []):

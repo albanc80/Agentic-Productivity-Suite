@@ -5,7 +5,7 @@ Read `docs/ENGINEERING_NOTES.md` before changing connectors, sign-in, installers
 ## Product rules the owner set (do not change without asking)
 
 - **Least work for the person.** Install the app, press Sign in, done. No terminals, no Docker, no prerequisites to install, no Google Cloud steps for people the app is shared with.
-- **Chat: every connector that is on** is available to every agent. **Playbooks: only the connectors the playbook lists** (`connectors:` on its steps).
+- **Chat: every connector that is on** is available to every agent, unless the person switches it off for that chat (the chips under a chat; Settings are unchanged). **Playbooks: only the connectors the playbook lists** (`connectors:` on its steps).
 - Connectors are **read-only**, enforced by the suite (ADR 0003). Sign-in tokens stay with each connector's own server; the app never reads them (ADR 0006).
 - **Every pull request raises the version** (below). The owner merges, often with auto-merge; never merge yourself.
 

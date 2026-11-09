@@ -88,7 +88,7 @@ export interface ChatSummary {
   id: string; agent_id: string; data_class: string; title: string; tokens: number; cost_usd: number;
   created_at: string; updated_at: string; messages: number; busy?: boolean;
 }
-export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[] }
+export interface ChatDetail extends Omit<ChatSummary, "messages"> { messages: ChatMsg[]; connectors_off?: string[] }  // off for this chat only
 export interface AgentPack {
   installed: boolean; folder: string | null; agents_total: number; agents_with_instructions: number;
   built_in: number; imported: number;  // agents whose instructions come from the pack built into the app / one imported here
@@ -177,6 +177,11 @@ export const api = {
   startRun: (playbook_id: string, inputs: Record<string, unknown>, data_class: string, options: Record<string, unknown>) =>
     call<{ id: string }>("/api/runs", { method: "POST", body: JSON.stringify({ playbook_id, inputs, data_class, options }) }),
   runs: () => call<RunSummary[]>("/api/runs"),
+  // Run again (no body) or revise: new inputs and/or corrections, saved as a new run; the earlier one is kept.
+  rerun: (id: string, body: { inputs?: Record<string, unknown>; data_class?: string; corrections?: string;
+    include_previous?: boolean; persona?: boolean } = {}) =>
+    call<{ id: string }>(`/api/runs/${id}/rerun`, { method: "POST", body: JSON.stringify(body) }),
+  fileInfo: (id: string) => call<{ id: string; name: string; chars: number }>(`/api/files/${id}`),
   run: (id: string) => call<RunDetail>(`/api/runs/${id}`),
   cancel: (id: string) => call<RunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
   resume: (id: string) => call<{ id: string }>(`/api/runs/${id}/resume`, { method: "POST" }),
@@ -234,7 +239,7 @@ export const api = {
     call<ChatDetail>(`/api/chats/${id}/messages`, { method: "POST", body: JSON.stringify({ content, files, wait: false }) }),
   editChatMessage: (id: string, index: number, content: string) =>
     call<ChatDetail>(`/api/chats/${id}/messages/${index}`, { method: "PUT", body: JSON.stringify({ content, wait: false }) }),
-  updateChat: (id: string, body: { agent_id?: string; data_class?: string }) =>
+  updateChat: (id: string, body: { agent_id?: string; data_class?: string; connectors_off?: string[] }) =>
     call<ChatDetail>(`/api/chats/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteChat: (id: string) => call<{ deleted: number }>(`/api/chats/${id}`, { method: "DELETE" }),
   killSwitch: (on: boolean) => call<{ on: boolean }>("/api/admin/kill-switch", { method: "POST", body: JSON.stringify({ on, by: "ui" }) }),

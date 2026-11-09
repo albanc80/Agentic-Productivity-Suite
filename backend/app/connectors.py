@@ -922,7 +922,8 @@ class ConnectorManager:
             return None
 
     async def tools_for_agent(self, first: list[str] | tuple[str, ...] = (), *, only: bool = False,
-                              room: int = MAX_AGENT_TOOLS, wait: float | None = None) -> AgentTools:
+                              room: int = MAX_AGENT_TOOLS, wait: float | None = None,
+                              skip: frozenset[str] | set[str] = frozenset()) -> AgentTools:
         """Connector tools for one agent turn. Chat: every connector that is switched on and set up (``first`` come
         first). A playbook step: only the connectors the playbook requires (``first`` with ``only=True``). Tools stay
         read-only (blocked ones are never listed). A named connector that is off, or one that cannot start or does
@@ -930,7 +931,7 @@ class ConnectorManager:
         out = AgentTools()
         wanted = []
         for cid in dict.fromkeys([*first, *([] if only else self.configs)]):
-            if cid not in self.configs:
+            if cid not in self.configs or cid in skip:  # skip: switched off for this chat only
                 continue
             if not self.configured(cid):
                 if cid in first:

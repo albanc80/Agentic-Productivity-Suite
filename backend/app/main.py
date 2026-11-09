@@ -57,6 +57,16 @@ from .store import Store
 log = logging.getLogger("suite")
 
 
+class RerunRequest(BaseModel):
+    """Run a playbook again from an earlier run. No fields: the same inputs. With inputs and/or corrections: a
+    revision, saved as a new run; the earlier one is kept."""
+    inputs: dict[str, Any] | None = None
+    data_class: str | None = None
+    corrections: str = Field("", max_length=20_000)
+    include_previous: bool = True  # give the agents the earlier result to correct (revisions only)
+    persona: bool | None = None
+
+
 class RunRequest(BaseModel):
     playbook_id: str
     inputs: dict[str, Any] = Field(default_factory=dict)
@@ -106,6 +116,7 @@ class ChatMessage(BaseModel):
 class ChatUpdate(BaseModel):
     agent_id: str | None = None
     data_class: str | None = None
+    connectors_off: list[str] | None = None  # switched off for this chat only; Settings are unchanged
 
 
 class Discover(BaseModel):
@@ -784,6 +795,14 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
 
     # ---------------------------------------------------------------- files
 
+    @app.get("/api/files/{fid}")
+    def file_info(fid: str):
+        """A file's name and size, to list it again on a revised run's form. Never its text."""
+        f = store.file(fid)
+        if not f:
+            raise HTTPException(404, "file not found")
+        return {"id": f["id"], "name": f["name"], "chars": len(f.get("text") or "")}
+
     @app.post("/api/files")
     async def upload(file: UploadFile = File(...)):
         data = await file.read()
@@ -810,6 +829,34 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
         return {"id": rid}
+
+    @app.post("/api/runs/{rid}/rerun", status_code=201)
+    async def rerun(rid: str, body: RerunRequest):
+        old = store.run(rid)
+        if not old:
+            raise HTTPException(404, "run not found")
+        if old["playbook_id"] not in suite.playbooks:
+            raise HTTPException(409, "That playbook is no longer in this app, so the run cannot be repeated.")
+        revise = body.inputs is not None or bool(body.corrections.strip())
+        opts = {k: v for k, v in (old.get("options") or {}).items() if k in ("persona", "answers")}
+        if body.persona is not None:
+            opts["persona"] = body.persona
+        opts["rerun_of"] = rid
+        if revise:
+            rev = {"of": rid, "notes": body.corrections.strip()}
+            if body.include_previous and old.get("deliverable"):
+                rev["previous"] = old["deliverable"][:60_000]
+            opts["revision"] = rev
+        try:
+            new = await eng.start(old["playbook_id"], body.inputs if body.inputs is not None else old["inputs"],
+                                  body.data_class or old["data_class"], opts)
+        except RunStopped as e:
+            raise HTTPException(423, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        store.audit("run_repeated", new, of=rid, revision=revise, corrections=bool(body.corrections.strip()),
+                    previous_included=bool(revise and body.include_previous and old.get("deliverable")))
+        return {"id": new}
 
     @app.get("/api/runs")
     def runs(limit: int = 100):
@@ -1089,7 +1136,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
     @app.patch("/api/chats/{cid}")
     def chat_update(cid: str, body: ChatUpdate):
         try:
-            return suite.chat.update(cid, body.agent_id, body.data_class)
+            return suite.chat.update(cid, body.agent_id, body.data_class, body.connectors_off)
         except KeyError as e:
             raise HTTPException(404, "chat not found") from e
         except ChatError as e:

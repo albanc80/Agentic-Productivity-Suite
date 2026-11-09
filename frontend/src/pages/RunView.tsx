@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, exportRun, type Approval, type ExportResult, type Overview, type RunDetail, type StepRow } from "../api";
-import { ErrorNote, ExportNote, Markdown, NoteText, Pill, fmtTime } from "../ui";
+import { ErrorNote, ExportNote, Markdown, NoteText, Pill, fmtTime, go } from "../ui";
 import { StepRail } from "../viz";
 
 const LIVE = new Set(["queued", "running"]);
@@ -61,6 +61,11 @@ export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: 
           {run.deliverable && <>
             <button disabled={exporting} onClick={() => doExport("md")}>Export Markdown</button>
             <button disabled={exporting} onClick={() => doExport("html")}>Export HTML</button>
+          </>}
+          {run.playbook && <>
+            <button onClick={async () => { try { const { id } = await api.rerun(run.id); go(`/runs/${id}`); } catch (e) { setError(e); } }}
+              title="Start a new run with the same inputs; this one stays in the Library">Run again</button>
+            <a className="button-link" href={`#/revise/${run.id}`} title="Change inputs or files and say what to correct; runs as a new run">Edit and run as new</a>
           </>}
         </div>
       </header>

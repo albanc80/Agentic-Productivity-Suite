@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Overview, type RunSummary } from "../api";
-import { Empty, ErrorNote, Pill, fmtTime } from "../ui";
+import { Empty, ErrorNote, Pill, fmtTime, go } from "../ui";
 
 export default function Library({ ov }: { ov: Overview }) {
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
@@ -20,6 +20,11 @@ export default function Library({ ov }: { ov: Overview }) {
     try { id === "demo" ? await api.deleteDemoRuns() : await api.deleteRun(id); setConfirm(null); await load(); }
     catch (e) { setError(e); } finally { setBusy(false); }
   }
+  async function again(id: string) {
+    setBusy(true); setError(null);
+    try { const r = await api.rerun(id); go(`/runs/${r.id}`); } catch (e) { setError(e); setBusy(false); }
+  }
+  const known = (r: RunSummary) => ov.playbooks.some((p) => p.id === r.playbook_id);
   const shown = useMemo(() => (runs || []).filter((r) =>
     (!pb || r.playbook_id === pb) && (!filter || r.title.toLowerCase().includes(filter.toLowerCase()))), [runs, filter, pb]);
 
@@ -27,7 +32,7 @@ export default function Library({ ov }: { ov: Overview }) {
     <div className="stack-lg">
       <header className="stack-sm">
         <h1>Library</h1>
-        <p className="muted">Every run with its deliverable, approvals and audit trail. Deleting a run removes it and its steps; the audit log keeps a record.</p>
+        <p className="muted">Every run with its deliverable, approvals and audit trail. <strong>Run again</strong> repeats a run with the same inputs; <strong>Edit</strong> lets you change inputs or files and say what to correct, and runs it as a new run. The earlier run is always kept. Deleting a run removes it and its steps; the audit log keeps a record.</p>
       </header>
       <div className="row filters">
         <label className="sr-only" htmlFor="lib-q">Search titles</label>
@@ -62,6 +67,12 @@ export default function Library({ ov }: { ov: Overview }) {
                   <td className="num">{r.tokens.toLocaleString()}</td>
                   <td className="nowrap">{fmtTime(r.created_at)}</td>
                   <td className="nowrap">
+                    {known(r) && !r.demo && <span className="row-tight run-actions">
+                      <button className="ghost" onClick={() => again(r.id)} disabled={busy} aria-label={`Run again: ${r.title}`}
+                        title="Start a new run with the same inputs">Run again</button>
+                      <a className="button-link ghost" href={`#/revise/${r.id}`} aria-label={`Edit and run as new: ${r.title}`}
+                        title="Change inputs or files and say what to correct; runs as a new run">Edit</a>
+                    </span>}
                     {confirm === r.id
                       ? <span className="row-tight"><button className="danger" onClick={() => remove(r.id)} disabled={busy}>Delete</button><button className="ghost" onClick={() => setConfirm(null)}>Keep</button></span>
                       : <button className="ghost" onClick={() => setConfirm(r.id)} disabled={active(r)} title={active(r) ? "Stop the run before deleting it" : undefined}

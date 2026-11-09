@@ -307,7 +307,7 @@ def test_agents_are_told_what_the_app_does_with_files(make):
         c.post(f"/api/chats/{chat['id']}/messages", json={"content": "Write it up as a markdown file"})
         system = seen[-1]["system"]
         assert "never say you cannot create or save files" in system and "Agentic-Suite-Outputs" in system
-        assert "switch on Local files" in system, "with Local files off, the agent says how to share files"
+        assert "attach files here, or switch connectors on in this chat" in system, "no connectors: how to share, if asked"
         assert "Do not say you cannot write or save files" in seen[-1]["user"]
 
 
@@ -414,3 +414,34 @@ def test_chat_agents_use_every_connector_that_is_on(tmp_path, monkeypatch):
         assert not any("local-files" in w for w in msg.get("warnings", []))  # Local files off: not a warning
         calls = [json.loads(e["detail"]) for e in c.get("/api/audit").json() if e["event"] == "connector_call"]
         assert calls and calls[0]["connector"] == "tracker" and calls[0]["chat"]
+
+
+def test_a_connector_can_be_switched_off_for_one_chat_only(tmp_path, monkeypatch):
+    from app.connectors import ConnectorConfig, ConnectorManager
+    from tests.fake_mcp_server import server
+    for k in KEYS:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SUITE_DATA_DIR", str(tmp_path / "data"))
+    conns = ConnectorManager([ConnectorConfig(id="tracker", name="Team tracker", transport="stdio", command="unused",
+                                              enabled=True)], in_process={"tracker": server})
+    seen: list = []
+    app = create_app(load_settings(ROOT, ROOT / "config" / "suite.example.yaml"), connectors=conns,
+                     http_client=tracker_model(seen))
+    with TestClient(app) as c:
+        c.put("/api/providers/openai", json={"enabled": True, "api_key": "sk-test",
+                                             "models": [{"model": "gpt-x", "context_tokens": 128000, "tools": True}]})
+        quiet = c.post("/api/chats", json={"agent_id": "critical-mentor", "data_class": "public"}).json()
+        r = c.patch(f"/api/chats/{quiet['id']}", json={"connectors_off": ["tracker", "not-a-connector"]})
+        assert r.status_code == 200 and r.json()["connectors_off"] == ["tracker"]
+        c.post(f"/api/chats/{quiet['id']}/messages", json={"content": "What is open in OPS?"})
+        assert not any(b.get("tools") for b in seen)  # no tracker tools offered in this chat
+        assert "Team tracker" not in seen[-1]["messages"][0]["content"]
+        other = c.post("/api/chats", json={"agent_id": "critical-mentor", "data_class": "public"}).json()
+        c.post(f"/api/chats/{other['id']}/messages", json={"content": "What is open in OPS?"})
+        assert any(b.get("tools") for b in seen)  # another chat still has it: Settings were not changed
+        assert c.get("/api/connectors").json()[0]["enabled"] is True
+        # It can be switched back on after messages, and the next answer uses it.
+        seen.clear()
+        assert c.patch(f"/api/chats/{quiet['id']}", json={"connectors_off": []}).status_code == 200
+        c.post(f"/api/chats/{quiet['id']}/messages", json={"content": "And now?"})
+        assert any(b.get("tools") for b in seen)

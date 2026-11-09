@@ -76,6 +76,7 @@ Open **Chat** and pick an agent, or keep the Chief of Staff, who answers itself 
 - **New chat** makes the chat at once, with its own place in the list (an unused one is reused, and unused chats are cleared when the app starts). Pick the agent and data class until the first message.
 - **Your message is saved the moment you send it** and the agent answers in the background: switch pages or chats and come back, and the message and a "Working" note are there; the list says "answering…". **Send follow-ups or more instructions while it works**: they are queued and answered in order, each knowing the answers before it.
 - **Edit** under any of your messages changes it and sends it again; the answers after it are replaced. A message that could not be answered stays in the chat with the reason, so you can edit and resend it.
+- **Switch connectors off or on for one chat**: the connector chips under the chat are switches. A connector switched off there is not offered to that chat's agents (the Chief of Staff and the specialists it asks); other chats and Settings are unchanged, and it can be switched back on at any time.
 - **Agents work only with what they were given**: your messages, attachments and the connectors that are on. They do not guess at other mailboxes or accounts (for example from names in your mail), call something a gap because it is not connected, or ask you to connect, forward or paste more, unless you ask what they can see.
 - **Enter** sends a message (here and on Command); **Shift+Enter** starts a new line.
 - Links in answers open in your browser, never inside the app window. If a page outside the app ever opens in the window, the app sends it to the browser and returns to the page you were on.
@@ -122,6 +123,8 @@ Downloads are pinned releases checked against SHA-256 values in the repository. 
 **Read-only is enforced by the suite, not only by the server.** An agent is offered a tool only if it is allow-listed, declares `read_only_hint`, or is named like a query (`get_`, `list_`, `search_` and similar) with no write verb. Everything else is hidden and refused, and every call is audited.
 
 ## Playbooks
+
+**Run again or revise from the Library.** Every run in the Library (and on its page) has **Run again**, which starts a new run with the same inputs, files and answers, and **Edit** (**Edit and run as new** on the run page), which opens the start form filled in from that run: change any input, remove or add files, write **What to correct**, and choose whether the agents get the earlier result to correct (on by default). It runs as a new run; the earlier one is never changed.
 
 **When an agent needs your input, the run asks you.** Every input you fill in on the run form reaches every agent step. If a step cannot be done well without information only you can give, the agent asks up to five specific questions and the run pauses: the run page and **Approvals** (with a count in the top bar) show "Your input is needed" with a box per question. Send your answers and the step runs again with them, and every later step sees them too; or continue without answering. A step asks at most twice; after that the run goes on with what it has and says so. Nothing more is spent while the run waits.
 

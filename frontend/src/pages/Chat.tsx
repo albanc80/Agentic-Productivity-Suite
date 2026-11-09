@@ -32,6 +32,7 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   const [files, setFiles] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [offDraft, setOffDraft] = useState<string[]>([]);  // connectors switched off before the chat exists
   const end = useRef<HTMLDivElement>(null);
   const current = useRef(chatId);  // the chat on screen; replies for another chat are not shown here
   useEffect(() => { current.current = chatId; }, [chatId]);
@@ -91,7 +92,10 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
     const sentFiles = files;
     try {
       let target = chat;
-      if (!target) target = await api.startChat(agentId, dataClass);
+      if (!target) {
+        target = await api.startChat(agentId, dataClass);
+        if (offDraft.length) target = await api.updateChat(target.id, { connectors_off: offDraft });
+      }
       const fresh = await api.sendChat(target.id, content, sentFiles.map((f) => f.id));
       setFiles([]);
       if (!chat) go(`/chat/${target.id}`);
@@ -117,6 +121,13 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
   async function remove() {
     if (!chat) return;
     try { await api.deleteChat(chat.id); setConfirmDelete(false); go("/chat"); loadList(); } catch (e) { setError(e); }
+  }
+  /** Switch a connector off or on for this chat only; Settings stay as they are. The next answer uses it. */
+  async function toggleConnector(id: string) {
+    const off = chat ? chat.connectors_off || [] : offDraft;
+    const next = off.includes(id) ? off.filter((x) => x !== id) : [...off, id];
+    if (!chat) { setOffDraft(next); return; }
+    try { setChat(await api.updateChat(chat.id, { connectors_off: next })); } catch (e) { setError(e); }
   }
   async function choose(body: { agent_id?: string; data_class?: string }) {
     if (body.agent_id) setAgentId(body.agent_id);
@@ -209,12 +220,23 @@ export default function ChatPage({ ov, chatId }: { ov: Overview; chatId: string 
         </div>
 
         <ErrorNote error={error} />
-        <p className="small muted chat-connectors">
-          {live.length
-            ? <>Agents here can read: {live.map((c) => <span key={c.id} className="tag ok-tag">{c.name.replace(/\s*\(.*\)\s*$/, "")}</span>)} (read-only).{" "}</>
-            : <>No connectors are on, so agents can only use what you type or attach.{" "}</>}
+        <div className="small muted chat-connectors">
+          {live.length ? <>
+            <span>Agents in this chat can read:</span>{" "}
+            {live.map((c) => {
+              const off = (chat ? chat.connectors_off || [] : offDraft).includes(c.id);
+              const label = c.name.replace(/\s*\(.*\)\s*$/, "");
+              return (
+                <button key={c.id} type="button" className={`chip-toggle ${off ? "off" : "on"}`} aria-pressed={!off}
+                  onClick={() => toggleConnector(c.id)} title={off ? `Switched off for this chat. Click to use ${label} again.` : `Click to switch ${label} off for this chat only`}>
+                  <span className="chip-dot" aria-hidden="true" />{label}
+                </button>
+              );
+            })}
+            <span> Read-only. Click one to switch it off or on for this chat only.</span>{" "}
+          </> : <>No connectors are on, so agents can only use what you type or attach.{" "}</>}
           <button type="button" className="link-btn" onClick={openConnectors}>{live.length ? "Manage connectors" : "Switch on connectors"}</button>
-        </p>
+        </div>
         <form className="chat-compose" onSubmit={send}>
           <label htmlFor="chat-text" className="sr-only">Message</label>
           <textarea id="chat-text" rows={3} value={text} onChange={(e) => setText(e.target.value)}
