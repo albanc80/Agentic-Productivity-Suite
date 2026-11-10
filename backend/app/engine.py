@@ -40,8 +40,9 @@ REPAIR_PROMPT = ("Return only the JSON handoff block for your answer above, in a
 
 
 EDITED_ATTEMPT = 99  # step row recording an approver's edit; not an execution
-INPUT_ROUNDS = 2  # times one step may stop to ask the person before the run goes on without
 INPUT_PREFIX = "input:"  # approval step ids for "your input is needed"
+SKIPPED_NOTE = "continued without answering"  # the decision note of an input pause the person chose to ignore
+STOPPED_NOTE = "stopped the playbook"  # the decision note of an input pause the person answered by stopping the run
 SUPERSEDED = "superseded"  # a step result replaced by a rerun with the person's answers
 BUDGET_NOTE = "The spending limit for this run is reached. Do not call tools. Finish now with what you have."
 
@@ -304,47 +305,65 @@ class Engine:
         if not need:
             return False
         rounds = [a for a in self.store.approvals(run_id=ctx.id) if a["step_id"].startswith(f"{INPUT_PREFIX}{top.id}:")]
-        if len(rounds) >= INPUT_ROUNDS:
-            self.store.add_note(ctx.id, f"'{top.title or top.id}' still needs input after {INPUT_ROUNDS} rounds of "
-                                        "questions; the run continued with what it has.")
+        if any(a["note"] == SKIPPED_NOTE for a in rounds):  # the person already chose Ignore and continue for this step
+            self.store.add_note(ctx.id, f"'{top.title or top.id}' asked again after you chose Ignore and continue; "
+                                        "the run went on, as you chose.")
             return False
         names = ", ".join(self.registry.agents[n["agent"]].name for n in need if n.get("agent") in self.registry.agents)
         self.store.create_approval(
             ctx.id, f"{INPUT_PREFIX}{top.id}:{len(rounds) + 1}", "Your input is needed",
-            f"{names or 'An agent'} needs more information to do this step well. Answer what you can and continue; "
-            "the step runs again with your answers, and later steps see them too. You can also continue without answering.",
+            f"{names or 'An agent'} needs more information to do this step well. The run waits for you: answer what you "
+            "can (the step runs again with your answers, and later steps see them), ignore and continue (the step runs "
+            "again without them and says what it assumed), or stop the playbook.",
             None, json.dumps(need))
         self.store.update_run(ctx.id, status="awaiting_approval")
         self.store.audit("input_requested", ctx.id, step=top.id, questions=sum(len(n["questions"]) for n in need))
         return True
 
-    async def answer(self, approval_id: str, answers: list[str], by: str, skip: bool = False) -> dict:
-        """The person answered the questions of an input pause (or chose to continue without answering)."""
+    async def answer(self, approval_id: str, answers: list[str], by: str, skip: bool = False, stop: bool = False) -> dict:
+        """The person's response to a "your input is needed" pause. A run never goes on by itself: the person
+        answers (the steps that asked run again with the answers), ignores and continues (the steps that asked run
+        again without them, told to state what they assumed), or stops the playbook (the run is cancelled)."""
         a = self.store.approval(approval_id)
         if not a or not a["step_id"].startswith(INPUT_PREFIX):
             raise KeyError("input request not found")
         if a["status"] != "pending":
             raise ValueError(f"input request already {a['status']}")
+        run = self.store.run(a["run_id"])
+        who = by or "you"
+        if stop:
+            self.store.decide_approval(approval_id, "rejected", who, STOPPED_NOTE, None)
+            self.store.audit("input_given", run["id"], approval=approval_id, answers=0, skipped=False, stopped=True)
+            self.cancel(run["id"], by=who)
+            return self.store.approval(approval_id)
         if self.killed:
             raise RunStopped("The kill switch is on.")
         need = json.loads(a["payload"] or "[]")
-        questions = [(n, q) for n in need for q in n["questions"]]
-        given = [(n, q, (answers[i] if i < len(answers) else "").strip()) for i, (n, q) in enumerate(questions)]
+        given = [(n, q, ("" if skip or i >= len(answers) else answers[i]).strip())
+                 for i, (n, q) in enumerate((n, q) for n in need for q in n["questions"])]
         answered = [g for g in given if g[2]]
-        run = self.store.run(a["run_id"])
-        if skip or not answered:
-            self.store.decide_approval(approval_id, "approved", by or "you", "continued without answering", None)
-            self.store.add_note(run["id"], "Continued without answering the questions.")
+        if not skip and not answered:
+            raise ValueError("Answer at least one question, or choose Ignore and continue, or Stop the playbook.")
+        unanswered = [g for g in given if not g[2]]
+        opts = dict(run["options"])
+        if answered:
+            opts["answers"] = list(opts.get("answers") or []) + [
+                {"step": n["step"], "question": q[:500], "answer": ans[:4000]} for n, q, ans in answered]
+        if unanswered:  # later steps are told to work without these and say what they assumed (see _given_inputs)
+            opts["unanswered"] = list(opts.get("unanswered") or []) + [
+                {"step": n["step"], "question": q[:500]} for n, q, _ans in unanswered]
+        self.store.update_run(run["id"], options=opts)
+        for step_id in {n["step"] for n, _q, _a in given}:  # the steps that asked run again, with or without answers
+            row = self.store.latest_step(run["id"], step_id)
+            if row:
+                self.store.finish_step(row["id"], status=SUPERSEDED)
+        if skip:
+            self.store.decide_approval(approval_id, "approved", who, SKIPPED_NOTE, None)
+            self.store.add_note(run["id"], "Ignored the questions and continued; the steps that asked ran again "
+                                           "without the answers and say what they assumed.")
         else:
-            prior = list(run["options"].get("answers") or [])
-            prior += [{"step": n["step"], "question": q[:500], "answer": ans[:4000]} for n, q, ans in answered]
-            self.store.update_run(run["id"], options={**run["options"], "answers": prior})
-            for n in {n["step"] for n, _q, _a in answered}:  # rerun the steps that asked, now with the answers
-                row = self.store.latest_step(run["id"], n)
-                if row:
-                    self.store.finish_step(row["id"], status=SUPERSEDED)
-            self.store.decide_approval(approval_id, "approved", by or "you", f"{len(answered)} answer(s) given", None)
-        self.store.audit("input_given", run["id"], approval=approval_id, answers=len(answered), skipped=bool(skip or not answered))
+            self.store.decide_approval(approval_id, "approved", who, f"{len(answered)} answer(s) given", None)
+        self.store.audit("input_given", run["id"], approval=approval_id, answers=len(answered), skipped=skip)
         if self.store.run(run["id"])["status"] == "awaiting_approval":
             self.store.update_run(run["id"], status="running")
             self._spawn(run["id"])
@@ -361,6 +380,22 @@ class Engine:
             v = ", ".join(map(str, v)) if isinstance(v, list) else str(v)
             lines.append(f"- {inp.label}: {v[:600]}")
         out = "Inputs from the person:\n" + "\n".join(lines) if lines else ""
+        blank = [inp.label for inp in ctx.pb.inputs if not inp.required and ctx.inputs.get(inp.id) in (None, "", [])]
+        if blank:
+            out += ("\n\n" if out else "") + ("Left blank by the person: " + "; ".join(blank) + ". If one of these is "
+                    "essential to this step, ask for it (NEEDS_INPUT); otherwise work without it, state what you assumed "
+                    "and do not invent it.")
+        skipped = [s.title or s.id for s in ctx.pb.flat_steps()
+                   if (ctx.outputs.get(s.id) or {}).get("status") == "skipped" and s.kind != "gate"]
+        if skipped:
+            out += ("\n\n" if out else "") + ("Not part of this run (views the person did not select, or steps whose "
+                    "condition was not met): " + "; ".join(skipped) + ". Do not write their analysis yourself; where "
+                    "their absence limits the result, say so.")
+        unanswered = ctx.run["options"].get("unanswered") or []
+        if unanswered:
+            out += ("\n\n" if out else "") + ("The person chose to go on without answering these questions. Do not ask "
+                    "them again: work without the answers, state your assumptions, and mark the conclusions that depend "
+                    "on them:\n" + "\n".join(f"- {x['question']}" for x in unanswered))
         answers = ctx.run["options"].get("answers") or []
         if answers:
             out += ("\n\n" if out else "") + "The person answered these questions during the run (use them; they override assumptions):\n" + \

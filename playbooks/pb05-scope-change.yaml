@@ -16,12 +16,19 @@ inputs:
   - {id: comms, label: "Related messages", type: longtext}
   - {id: deadline, label: "Requested by date", type: text}
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Cost of delay", "Stakeholder impact", "Schedule and dependencies"]
+    default: ["Cost of delay", "Stakeholder impact", "Schedule and dependencies"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: impact
     kind: parallel
     title: Impact analysis
     steps:
       - id: cost_of_delay
+        when: {input: views, contains: "Cost of delay"}
         kind: agent
         title: Cost of delay
         agent: roadmap-shield
@@ -30,12 +37,14 @@ steps:
           to {{inputs.project}}, requested by {{inputs.deadline}}. Show which commitments move and by how much.
         connectors: [azure-devops, atlassian, github]
       - id: stakeholders
+        when: {input: views, contains: "Stakeholder impact"}
         kind: agent
         title: Stakeholder impact
         agent: sentiment-radar
         task: "How will each affected stakeholder group likely react to accepting, deferring or swapping this request? Trace every signal. Score topics, never people."
         connectors: [microsoft365, google-workspace]
       - id: schedule
+        when: {input: views, contains: "Schedule and dependencies"}
         kind: agent
         title: Schedule and dependencies
         agent: program-manager

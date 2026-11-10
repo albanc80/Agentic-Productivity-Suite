@@ -135,8 +135,11 @@ class Playbook(BaseModel):
             "id": self.id, "code": self.code, "name": self.name, "area": self.area, "desk": self.desk,
             "summary": self.summary, "status": self.status, "style": self.style, "patterns": self.patterns,
             "safety_critical": self.safety_critical, "inputs": [i.model_dump() for i in self.inputs],
+            # `when`: the start-form input that decides whether the step runs (a view the person can untick)
             "steps": [{"id": s.id, "kind": s.kind, "title": s.title or s.id, "agent": s.agent,
-                       "children": [{"id": c.id, "agent": c.agent, "title": c.title or c.id} for c in s.steps]}
+                       "when": s.when.model_dump(exclude_none=True) if s.when else None,
+                       "children": [{"id": c.id, "agent": c.agent, "title": c.title or c.id,
+                                     "when": c.when.model_dump(exclude_none=True) if c.when else None} for c in s.steps]}
                       for s in self.steps],
             "connectors": sorted({c for s in self.flat_steps() for c in s.connectors} |
                                  {s.connector for s in self.flat_steps() if s.connector}),

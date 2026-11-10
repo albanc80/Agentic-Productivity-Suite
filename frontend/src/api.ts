@@ -6,10 +6,14 @@ export interface PlaybookInput {
   id: string; label: string; type: "text" | "longtext" | "number" | "select" | "multiselect" | "documents" | "date";
   required: boolean; options: string[]; default: unknown; help: string; example: string;
 }
+/** A step that runs only when a start-form input says so (e.g. a specialist view the person ticked). */
+export interface StepWhen { input: string; contains?: unknown; equals?: unknown; not_equals?: unknown }
+
 export interface PlaybookCard {
   id: string; code: string; name: string; area: string; desk: string; summary: string; status: string;
   style: string; patterns: string[]; safety_critical: boolean; inputs: PlaybookInput[];
-  steps: { id: string; kind: string; title: string; agent: string | null; children: { id: string; agent: string; title: string }[] }[];
+  steps: { id: string; kind: string; title: string; agent: string | null; when: StepWhen | null;
+    children: { id: string; agent: string; title: string; when: StepWhen | null }[] }[];
   connectors: string[];
   connector_choice?: Record<string, { input: string; contains: string }>;
 }
@@ -189,7 +193,7 @@ export const api = {
   cancel: (id: string) => call<RunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
   resume: (id: string) => call<{ id: string }>(`/api/runs/${id}/resume`, { method: "POST" }),
   approvals: (status = "pending") => call<Approval[]>(`/api/approvals?status=${status}`),
-  answer: (id: string, body: { answers: string[]; skip: boolean; by: string }) =>
+  answer: (id: string, body: { answers: string[]; skip: boolean; stop?: boolean; by: string }) =>
     call<Approval>(`/api/approvals/${id}/answer`, { method: "POST", body: JSON.stringify(body) }),
   decide: (id: string, body: { decision: "approved" | "rejected"; decided_by: string; note: string; edited?: string | null }) =>
     call<Approval>(`/api/approvals/${id}`, { method: "POST", body: JSON.stringify(body) }),

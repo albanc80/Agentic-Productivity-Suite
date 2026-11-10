@@ -84,7 +84,8 @@ class RouteRequest(BaseModel):
 
 class InputAnswers(BaseModel):
     answers: list[str] = Field(default_factory=list, max_length=50)  # in the order of the questions asked
-    skip: bool = False  # continue without answering
+    skip: bool = False  # ignore the questions and continue; the steps that asked adjust to what is missing
+    stop: bool = False  # stop the playbook: the run is cancelled
     by: str = Field(default="", max_length=120)
 
 
@@ -985,9 +986,9 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
 
     @app.post("/api/approvals/{aid}/answer")
     async def answer(aid: str, body: InputAnswers):
-        """Answers to a "your input is needed" pause; the steps that asked run again with them."""
+        """The response to a "your input is needed" pause: answers, ignore and continue, or stop the playbook."""
         try:
-            return await eng.answer(aid, body.answers, body.by, body.skip)
+            return await eng.answer(aid, body.answers, body.by, body.skip, body.stop)
         except KeyError as e:
             raise HTTPException(404, str(e).strip("'")) from e
         except (ValueError, RunStopped) as e:

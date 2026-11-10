@@ -591,3 +591,9 @@ a.button-link.ghost:hover { background: var(--accent-soft); }
 .desk-chevron { width: 7px; height: 7px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; margin: 0 2px; flex: none; }
 .desk-toggle[aria-expanded="true"] .desk-chevron { transform: rotate(45deg); }
 .desk-count { font: 400 .8rem var(--f-body); color: var(--muted); }
+
+/* Playbooks: what each playbook needs, and steps that are optional views */
+.pb-inputs { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.pb-inputs dt { font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-size: .72rem; padding-top: 2px; }
+.pb-inputs dd { margin: 0; min-width: 0; }
+.step-cond { margin-left: 6px; font-size: .7rem; padding: 0 6px; vertical-align: 1px; }

@@ -150,19 +150,20 @@ function StepDetail({ row, agentName }: { row: StepRow; agentName: (id: string |
 
 type InputNeed = { step: string; title: string; agent?: string; questions: string[] };
 
-/** "Your input is needed": the questions an agent asked, a box for each answer, and a way to go on without. */
+/** "Your input is needed": the run waits for one of three answers: answers, ignore and continue, or stop the playbook. */
 export function InputPanel({ approval, onDone }: { approval: Approval; onDone: () => void }) {
   const need: InputNeed[] = (() => { try { return JSON.parse(approval.payload || "[]"); } catch { return []; } })();
   const total = need.reduce((n, x) => n + x.questions.length, 0);
   const [answers, setAnswers] = useState<string[]>(() => Array(total).fill(""));
   const [busy, setBusy] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  async function send(skip: boolean) {
+  async function send(choice: "answer" | "skip" | "stop") {
     setBusy(true); setError(null);
     try {
       let by = "";
       try { by = localStorage.getItem("suite.approver") || ""; } catch { /* ignore */ }
-      await api.answer(approval.id, { answers, skip, by });
+      await api.answer(approval.id, { answers, skip: choice === "skip", stop: choice === "stop", by });
       onDone();
     } catch (e) { setError(e); setBusy(false); }
   }
@@ -173,7 +174,7 @@ export function InputPanel({ approval, onDone }: { approval: Approval; onDone: (
         <h2 id={`in-${approval.id}`}>Your input is needed</h2>
         <p className="small muted">{approval.instructions}</p>
       </div>
-      <form className="stack" onSubmit={(e) => { e.preventDefault(); send(false); }}>
+      <form className="stack" onSubmit={(e) => { e.preventDefault(); send("answer"); }}>
         {need.map((n) => (
           <fieldset key={n.step} className="plain stack-sm">
             <legend className="small"><strong>{n.title}</strong></legend>
@@ -184,7 +185,7 @@ export function InputPanel({ approval, onDone }: { approval: Approval; onDone: (
                 <div key={k} className="field">
                   <label htmlFor={`${approval.id}-q${k}`}>{q}</label>
                   <textarea id={`${approval.id}-q${k}`} rows={2} value={answers[k]}
-                    onChange={(e) => setAnswers((a) => a.map((x, j) => (j === k ? e.target.value : x)))} placeholder="Your answer (leave blank if you do not know)" />
+                    onChange={(e) => setAnswers((a) => a.map((x, j) => (j === k ? e.target.value : x)))} placeholder="Your answer (leave blank to skip this one)" />
                 </div>
               );
             })}
@@ -192,9 +193,17 @@ export function InputPanel({ approval, onDone }: { approval: Approval; onDone: (
         ))}
         <ErrorNote error={error} />
         <div className="row-tight">
-          <button className="primary" type="submit" disabled={busy || answers.every((a) => !a.trim())}>{busy ? "Sending…" : "Send answers and continue"}</button>
-          <button type="button" className="ghost" disabled={busy} onClick={() => send(true)}>Continue without answering</button>
+          <button className="primary" type="submit" disabled={busy || answers.every((a) => !a.trim())}
+            title="The step runs again with your answers; later steps see them too">{busy ? "Sending…" : "Send answers and continue"}</button>
+          <button type="button" disabled={busy} onClick={() => send("skip")}
+            title="The step runs again without the answers and says what it assumed">Ignore and continue</button>
+          {confirmStop
+            ? <><button type="button" className="danger" disabled={busy} onClick={() => send("stop")}>Stop this run</button>
+                <button type="button" className="ghost" disabled={busy} onClick={() => setConfirmStop(false)}>Keep it</button></>
+            : <button type="button" className="ghost" disabled={busy} onClick={() => setConfirmStop(true)}
+                title="Cancel the run; it stays in the Library">Stop the playbook</button>}
         </div>
+        <p className="help">The run waits until you choose. Questions you leave blank when you send answers are treated as ignored: the agents work without them and say what they assumed.</p>
       </form>
     </section>
   );

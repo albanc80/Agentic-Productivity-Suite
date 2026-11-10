@@ -130,7 +130,15 @@ Downloads are pinned releases checked against SHA-256 values in the repository. 
 
 **Run again or revise from the Library.** Every run in the Library (and on its page) has **Run again**, which starts a new run with the same inputs, files and answers, and **Edit**, which opens the start form filled in from that run: change any input, remove or add files, write **What to correct**, and choose whether the agents get the earlier result to correct (on by default). Then choose **Run as new**, which keeps the earlier run, or **Update this run**, which runs again on the same playbook and takes the earlier run's place in the Library. The earlier run is deleted only when the update completes with a result (complete, or partial); if it fails, ends blocked or needs input, or is cancelled, the earlier run stays. **← Library** goes back to the list of runs.
 
-**When an agent needs your input, the run asks you.** Every input you fill in on the run form reaches every agent step. If a step cannot be done well without information only you can give, the agent asks up to five specific questions and the run pauses: the run page and **Approvals** (with a count in the top bar) show "Your input is needed" with a box per question. Send your answers and the step runs again with them, and every later step sees them too; or continue without answering. A step asks at most twice; after that the run goes on with what it has and says so. Nothing more is spent while the run waits.
+**When an agent needs your input, the run asks you.** Every input you fill in on the run form reaches every agent step. If a step cannot be done well without information only you can give, the agent asks up to five specific questions and the run pauses: the run page and **Approvals** (with a count in the top bar) show "Your input is needed" with a box per question. The run never goes on by itself; you choose one of three answers:
+
+- **Send answers and continue**: the step runs again with your answers, and every later step sees them too. Questions you leave blank count as ignored.
+- **Ignore and continue**: the step runs again without the answers, and it and every later step are told what was not answered, so they state their assumptions and mark what depends on them instead of guessing. That step does not ask again.
+- **Stop the playbook**: the run is cancelled and stays in the Library.
+
+Nothing more is spent while the run waits. Optional inputs you leave blank are named to the agents too: they ask for one only if the step cannot be done without it, and otherwise say what they assumed.
+
+**Choose the views.** Every playbook card on **Playbooks** lists what it needs from you (required and optional inputs). Where specialists work side by side, the start form has a **Specialist views** checklist, all ticked by default (PB-03's six lenses start with two). Untick a view to leave that agent out; the later steps are told it was not part of the run and say where that limits the result. Two playbooks keep their side-by-side steps always on: PB-09's evaluation plan and threat model (the controls it exists to produce) and PB-15's NPT and field/HSE challenge (safety-critical).
 
 | Code | Playbook | Pattern |
 |---|---|---|
