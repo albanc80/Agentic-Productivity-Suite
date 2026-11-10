@@ -219,7 +219,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 textarea { resize: vertical; line-height: 1.5; }
 textarea.mono { font-family: var(--f-mono); font-size: .82rem; }
 ::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
-input[type="checkbox"] { width: auto; accent-color: var(--accent); }
+input[type="checkbox"], input[type="radio"] { width: auto; padding: 0; flex: none; accent-color: var(--accent); }
 input[type="file"] { padding: 7px; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field label { font-weight: 600; font-size: .9rem; }
@@ -580,6 +580,6 @@ a.button-link.ghost:hover { background: var(--accent-soft); }
 .chip-toggle.off .chip-dot { background: transparent; border: 1px solid currentColor; }
 
 /* Settings > Connectors: connector tools mode */
-.tool-mode { align-items: flex-start; gap: 10px; }
+.tool-mode { display: flex; align-items: flex-start; gap: 10px; }
 .tool-mode input { margin-top: 3px; }
 .block-help { display: block; margin-top: 2px; }
