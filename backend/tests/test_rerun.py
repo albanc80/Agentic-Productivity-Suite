@@ -85,3 +85,66 @@ def test_revision_without_the_earlier_result_and_bad_requests(lib):
     assert "Shorter please" in sent and "previous-run:" not in sent
     assert c.post("/api/runs/run_nope/rerun", json={}).status_code == 404
     assert c.post(f"/api/runs/{first}/rerun", json={"inputs": {"request": ""}}).status_code == 422  # required input
+
+
+def test_update_this_run_replaces_the_earlier_run_once_the_new_one_completes(lib):
+    c, bodies = lib
+    first = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "Plan the launch"}}).json()["id"]
+    wait(c, first)
+    r = c.post(f"/api/runs/{first}/rerun", json={"inputs": {"request": "Plan the launch for March"},
+                                                 "corrections": "March, not May.", "replace": True})
+    assert r.status_code == 201
+    new = wait(c, r.json()["id"])
+    assert new["status"] == "completed" and new["options"]["replaces"] == first
+    assert new["options"]["revision"]["of"] == first and "Draft v1." in prompts(bodies)  # still a revision
+    assert c.get(f"/api/runs/{first}").status_code == 404  # the earlier run is gone...
+    ids = [x["id"] for x in c.get("/api/runs").json()]
+    assert new["id"] in ids and first not in ids  # ...and the Library shows one row
+    events = [e["event"] for e in c.get(f"/api/audit?run_id={first}").json()]
+    assert "run_replaced" in events  # the audit log keeps a record
+
+
+
+def test_update_this_run_keeps_the_earlier_run_while_the_new_one_is_under_way_or_if_it_fails(lib):
+    c, _ = lib
+    store = c.app.state.suite.store
+    first = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "Plan"}}).json()["id"]
+    wait(c, first)
+    # a replacement that has not finished: the earlier run is kept, but the Library shows only the new one
+    pending = store.create_run("quick-ask", "Plan", "internal", {"request": "Plan"}, {"replaces": first})
+    store.update_run(pending, status="awaiting_approval")
+    ids = [x["id"] for x in c.get("/api/runs").json()]
+    assert pending in ids and first not in ids
+    assert c.get(f"/api/runs/{first}").status_code == 200
+    for status in ("failed", "cancelled", "interrupted", "completed"):  # it ended: the earlier run is shown again
+        store.update_run(pending, status=status)
+        ids = [x["id"] for x in c.get("/api/runs").json()]
+        assert first in ids and pending in ids, status
+
+
+def test_update_this_run_keeps_the_earlier_run_when_the_new_one_ends_without_a_result(lib):
+    """A model that cannot be reached ends a run "completed" with outcome BLOCKED: that must not delete a good run."""
+    c, _ = lib
+    store, eng = c.app.state.suite.store, c.app.state.suite.engine
+    first = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "Plan"}}).json()["id"]
+    wait(c, first)
+    for outcome in ("BLOCKED", "REJECTED", "NEEDS_INPUT"):
+        new = store.create_run("quick-ask", "Plan", "internal", {"request": "Plan"}, {"replaces": first})
+        store.update_run(new, status="completed", outcome=outcome)
+        eng._drop_replaced(new)
+        assert c.get(f"/api/runs/{first}").status_code == 200, outcome
+    new = store.create_run("quick-ask", "Plan", "internal", {"request": "Plan"}, {"replaces": first})
+    store.update_run(new, status="completed", outcome="PARTIAL")  # a result, even with gaps, replaces it
+    eng._drop_replaced(new)
+    assert c.get(f"/api/runs/{first}").status_code == 404
+
+
+def test_update_this_run_is_refused_while_the_earlier_run_is_still_going(lib):
+    c, _ = lib
+    store = c.app.state.suite.store
+    first = c.post("/api/runs", json={"playbook_id": "quick-ask", "inputs": {"request": "Plan"}}).json()["id"]
+    wait(c, first)
+    store.update_run(first, status="awaiting_approval")
+    r = c.post(f"/api/runs/{first}/rerun", json={"corrections": "Shorter", "replace": True})
+    assert r.status_code == 409 and "still going" in r.json()["detail"]
+    assert c.post(f"/api/runs/{first}/rerun", json={"corrections": "Shorter"}).status_code == 201  # run as new still works

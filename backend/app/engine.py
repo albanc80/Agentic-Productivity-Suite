@@ -866,6 +866,24 @@ class Engine:
         self.store.update_run(run_id, status="completed", outcome=outcome.value, deliverable=md)
         self.store.audit("run_completed", run_id, outcome=outcome.value)
         self.outputs.save_run(self.store.run(run_id))
+        self._drop_replaced(run_id)
+
+    # A run that ends with one of these has a result worth keeping in place of the run it updates.
+    REPLACES_ON = (Status.COMPLETE.value, Status.COMPLETE_WITH_ACCEPTED_RISK.value, Status.PARTIAL.value)
+
+    def _drop_replaced(self, run_id: str) -> None:
+        """Edit > Update this run: the earlier run goes only once its replacement has completed with a result.
+        A replacement that ends BLOCKED, REJECTED or NEEDS_INPUT (a model that could not be reached ends BLOCKED,
+        not failed) leaves the earlier run in place."""
+        run = self.store.run(run_id) or {}
+        old = (run.get("options") or {}).get("replaces")
+        if not old or run.get("outcome") not in self.REPLACES_ON or old in self._tasks or not self.store.run(old):
+            return
+        try:  # the new run has completed; a failure here must not turn it into a failed run
+            self.store.delete_runs([old])
+            self.store.audit("run_replaced", old, by=run_id)
+        except Exception:
+            log.exception("could not remove run %s replaced by %s", old, run_id)
 
     def assemble(self, ctx: RunCtx, outcome: Status) -> str:
         run = self.store.run(ctx.id)

@@ -179,9 +179,10 @@ export const api = {
   startRun: (playbook_id: string, inputs: Record<string, unknown>, data_class: string, options: Record<string, unknown>) =>
     call<{ id: string }>("/api/runs", { method: "POST", body: JSON.stringify({ playbook_id, inputs, data_class, options }) }),
   runs: () => call<RunSummary[]>("/api/runs"),
-  // Run again (no body) or revise: new inputs and/or corrections, saved as a new run; the earlier one is kept.
+  // Run again (no body) or revise: new inputs and/or corrections, saved as a new run; the earlier one is kept,
+  // unless replace (Edit > Update this run): the earlier run is deleted once the new one completes with a result.
   rerun: (id: string, body: { inputs?: Record<string, unknown>; data_class?: string; corrections?: string;
-    include_previous?: boolean; persona?: boolean } = {}) =>
+    include_previous?: boolean; persona?: boolean; replace?: boolean } = {}) =>
     call<{ id: string }>(`/api/runs/${id}/rerun`, { method: "POST", body: JSON.stringify(body) }),
   fileInfo: (id: string) => call<{ id: string; name: string; chars: number }>(`/api/files/${id}`),
   run: (id: string) => call<RunDetail>(`/api/runs/${id}`),

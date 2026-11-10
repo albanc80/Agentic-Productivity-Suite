@@ -21,7 +21,7 @@ function initial(inp: PlaybookInput, pre: Record<string, unknown>) {
 
 type FileRef = { id: string; name: string; chars: number };
 
-/** Library → Edit and run as new: the start form filled in from an earlier run, with corrections. */
+/** Library → Edit: the start form filled in from an earlier run, with corrections. Runs as new, or updates that run. */
 export function ReviseForm({ ov, runId }: { ov: Overview; runId: string }) {
   const [from, setFrom] = useState<{ run: RunDetail; files: Record<string, FileRef[]> } | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -86,14 +86,18 @@ export default function RunForm({ ov, playbookId, from }: { ov: Overview; playbo
     } catch (e) { setError(e); }
   }
 
+  const fromActive = !!from && ["queued", "running", "awaiting_approval"].includes(from.run.status);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // Enter in a field submits as new; only the "Update this run" button replaces the earlier run
+    const replace = !!from && (e.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "update";
     setBusy(true); setError(null);
     const inputs: Record<string, unknown> = { ...values };
     for (const inp of pb!.inputs) if (inp.type === "documents") inputs[inp.id] = (files[inp.id] || []).map((f) => f.id);
     try {
       const { id } = from
-        ? await api.rerun(from.run.id, { inputs, data_class: dataClass, persona, corrections, include_previous: withPrevious })
+        ? await api.rerun(from.run.id, { inputs, data_class: dataClass, persona, corrections, include_previous: withPrevious, replace })
         : await api.startRun(pb!.id, inputs, dataClass, { persona });
       delete prefills[pb!.id];
       go(`/runs/${id}`);
@@ -103,11 +107,11 @@ export default function RunForm({ ov, playbookId, from }: { ov: Overview; playbo
   return (
     <form className="stack-lg form" onSubmit={submit}>
       <header className="stack-sm">
-        {from ? <a href={`#/runs/${from.run.id}`} className="small">← Back to the earlier run</a> : <a href="#/playbooks" className="small">← Playbooks</a>}
+        {from ? <a href="#/library" className="small">← Library</a> : <a href="#/playbooks" className="small">← Playbooks</a>}
         <span className="code">{pb.code} · {pb.area}</span>
         <h1>{from ? `Revise: ${from.run.title}` : pb.name}</h1>
         <p className="muted measure">{from
-          ? "Filled in from the earlier run. Change any input, remove or add files, and say what to correct. It runs as a new run; the earlier one stays in the Library."
+          ? "Filled in from the earlier run. Change any input, remove or add files, and say what to correct. Run as new keeps the earlier run in the Library; Update this run replaces it once the new run completes with a result."
           : pb.summary}</p>
       </header>
 
@@ -207,7 +211,14 @@ export default function RunForm({ ov, playbookId, from }: { ov: Overview; playbo
           </label>
           <p className="help">Nothing is sent, published or written by this run. Outbound drafts wait for approval.</p>
           <ErrorNote error={error} />
-          <button className="primary block" type="submit" disabled={busy}>{busy ? "Starting…" : from ? "Run as new" : "Start run"}</button>
+          <button className="primary block" type="submit" value="new" disabled={busy}>{busy ? "Starting…" : from ? "Run as new" : "Start run"}</button>
+          {from && <>
+            <button className="block" type="submit" value="update" disabled={busy || fromActive}
+              aria-describedby="update-help">Update this run</button>
+            <span id="update-help" className="help">{fromActive
+              ? "The earlier run is still going. Wait for it to finish, or cancel it, to update it."
+              : "Runs again on the same playbook and takes the earlier run's place in the Library. The earlier run is deleted only when this one completes with a result; if it fails, is blocked or is cancelled, the earlier run stays."}</span>
+          </>}
         </aside>
       </div>
     </form>

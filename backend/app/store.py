@@ -137,8 +137,13 @@ class Store:
         return r
 
     def runs(self, limit: int = 100) -> list[dict]:
+        """The Library list. A run that another run is replacing (Edit > Update this run) is left out while the
+        replacement is under way; once that one ends, the earlier run has either been deleted or is shown again."""
         rows = self._rows("SELECT id, playbook_id, title, status, outcome, data_class, tokens, cost_usd, demo, "
-                          "created_at, updated_at FROM runs ORDER BY created_at DESC LIMIT ?", (limit,))
+                          "created_at, updated_at FROM runs WHERE id NOT IN ("
+                          "SELECT json_extract(options, '$.replaces') FROM runs WHERE json_extract(options, '$.replaces') "
+                          "IS NOT NULL AND status IN ('queued', 'running', 'awaiting_approval')) "
+                          "ORDER BY created_at DESC LIMIT ?", (limit,))
         for r in rows:
             r["demo"] = bool(r["demo"])
         return rows

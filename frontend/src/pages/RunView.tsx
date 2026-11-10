@@ -65,12 +65,15 @@ export default function RunView({ ov, runId, onChange }: { ov: Overview; runId: 
           {run.playbook && <>
             <button onClick={async () => { try { const { id } = await api.rerun(run.id); go(`/runs/${id}`); } catch (e) { setError(e); } }}
               title="Start a new run with the same inputs; this one stays in the Library">Run again</button>
-            <a className="button-link" href={`#/revise/${run.id}`} title="Change inputs or files and say what to correct; runs as a new run">Edit and run as new</a>
+            <a className="button-link" href={`#/revise/${run.id}`} title="Change inputs or files and say what to correct; run as new or update this run">Edit</a>
           </>}
         </div>
       </header>
       <ErrorNote error={error} />
       <ExportNote result={exported} error={exportError} />
+      {typeof run.options.replaces === "string" && (LIVE.has(run.status) || run.status === "awaiting_approval") && (
+        <p className="note">This run updates an earlier run. The earlier one is replaced when this run completes with a result; if it fails, is blocked or is cancelled, the earlier one stays in the Library.</p>
+      )}
       {run.demo && <div className="banner warn">Made by the demo provider of an earlier version: no language model produced this content. You can delete it from the Library.</div>}
 
       {pb && <StepRail playbook={pb} steps={run.steps} cursor={run.cursor} runStatus={run.status} />}
