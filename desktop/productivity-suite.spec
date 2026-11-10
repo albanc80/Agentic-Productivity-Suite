@@ -33,13 +33,25 @@ if _sys.platform.startswith("linux"):
     # not work). It needs the window script and pywebview with its pure-Python dependencies as plain source files.
     import importlib
 
+    # Only what the GTK window needs: pywebview's Windows DLLs, Android jar and other platforms stay out (~1.7 MB).
+    # GTK and WebKit themselves are never bundled: the .deb depends on them and apt installs what is missing.
     datas.append((str(ROOT / "desktop" / "app_window.py"), "desktop"))
+
+    def _keep(rel):
+        parts = rel.parts
+        if "__pycache__" in parts or parts[0] in ("lib", "__pyinstaller"):
+            return False
+        return parts[0] != "platforms" or (len(parts) == 2 and parts[1] in ("__init__.py", "gtk.py"))
+
     for mod in ("webview", "proxy_tools", "bottle", "typing_extensions"):
         path = Path(importlib.import_module(mod).__file__)
-        if path.name == "__init__.py":
-            datas.append((str(path.parent), f"desktop/pyweb/{mod}"))
-        else:
+        if path.name != "__init__.py":
             datas.append((str(path), "desktop/pyweb"))
+            continue
+        for f in sorted(path.parent.rglob("*")):
+            rel = f.relative_to(path.parent)
+            if f.is_file() and _keep(rel):
+                datas.append((str(f), str(Path("desktop/pyweb") / mod / rel.parent)))
 
 hidden = []
 for pkg in ("app", "uvicorn", "mcp", "anthropic", "openai", "pypdf", "docx", "openpyxl", "webview"):
@@ -53,7 +65,9 @@ a = Analysis(
     pathex=[str(BACKEND)],
     datas=datas,
     hiddenimports=hidden,
-    excludes=["tkinter", "pytest"],
+    # PIL: only desktop/make_icons.py uses Pillow (at build time). pypdf and openpyxl import it optionally, for images;
+    # the app reads text only. Leaving it out keeps ~19 MB out of both installers.
+    excludes=["tkinter", "pytest", "PIL"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

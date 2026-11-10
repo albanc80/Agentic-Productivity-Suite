@@ -27,7 +27,7 @@ Never uninstall first: install the new file over the old one.
 Every build checks this: CI installs the last published release, installs the new build over it, and then a second build of the same version over that. It passes only if exactly one installed copy of the new version remains, the installed app passes its smoke test, and uninstalling leaves nothing behind.
 
 - **Windows:** the installer is not code-signed yet, so SmartScreen may warn ("More info" → "Run anyway"). See [CODE_SIGNING.md](CODE_SIGNING.md). The native window uses the Edge WebView2 runtime, which ships with current Windows 10 and 11.
-- **Linux:** the `.deb` opens the suite in its own window, using the GTK WebKit your distribution provides (apt installs `python3-gi` and `gir1.2-webkit2-4.1` with the package if they are missing). If no window can be opened, it opens your browser and `~/.productivity-suite/suite.log` says why. CI installs the package on Ubuntu 22.04 and checks that the window opens (`productivity-suite --check-window`).
+- **Linux:** the `.deb` opens the suite in its own window, using the GTK WebKit your distribution provides. The package does not carry GTK or WebKit (it stays about 35 MB): installing it with the App Center or `sudo apt install ./productivity-suite_<version>_amd64.deb` looks for `python3-gi`, `gir1.2-gtk-3.0` and `gir1.2-webkit2-4.1` and downloads only what is missing (a normal Ubuntu desktop has most of them). With plain `dpkg -i`, run `sudo apt-get install -f` afterwards to fetch them. If no window can be opened, it opens your browser and `~/.productivity-suite/suite.log` says why. CI installs the package on Ubuntu 22.04 and checks that the window opens (`productivity-suite --check-window`).
 
 ## Desktop app (Windows, macOS, Linux)
 

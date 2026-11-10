@@ -143,7 +143,15 @@ jobs:
       - name: Smoke-test the bundle
         run: python desktop/smoke_test.py backend/dist/ProductivitySuite/ProductivitySuite
       - name: Package .deb
-        run: desktop/linux/build_deb.sh backend/dist/ProductivitySuite "${{ steps.v.outputs.version }}" installers
+        run: |
+          desktop/linux/build_deb.sh backend/dist/ProductivitySuite "${{ steps.v.outputs.version }}" installers
+          # Keep the installer small: GTK and WebKit come from the distribution at install time (Depends), never in
+          # the package; Pillow is build-time only.
+          deb=$(ls installers/*.deb)
+          if dpkg-deb -c "$deb" | grep -E "libwebkit2gtk|libgtk-3|libjavascriptcoregtk|/PIL/|pillow\.libs"; then
+            echo "the .deb bundles GTK, WebKit or Pillow"; exit 1
+          fi
+          echo "Installer size: $(du -h "$deb" | cut -f1); installs with: $(dpkg-deb -f "$deb" Depends)"
       - name: Upgrade over the last release and a same-version install, then smoke-test
         env:
           GH_TOKEN: ${{ github.token }}
