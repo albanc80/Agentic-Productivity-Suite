@@ -3,6 +3,8 @@
 #   desktop/linux/build_deb.sh <pyinstaller-dist-dir> <version> <output-dir>
 # Installs to /opt/productivity-suite, adds the `productivity-suite` command,
 # a desktop menu entry and an icon. Data stays in ~/.productivity-suite.
+# The window uses the distribution's GTK WebKit through its own Python (see desktop/app_window.py), so the
+# package depends on python3-gi and gir1.2-webkit2-4.1; apt installs them with the package.
 set -euo pipefail
 DIST="${1:?pyinstaller dist folder (…/ProductivitySuite)}"
 VERSION="${2:?version, e.g. 0.1.0}"
@@ -34,12 +36,13 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Installed-Size: ${SIZE_KB}
-Recommends: xdg-utils, libwebkit2gtk-4.1-0
+Depends: python3, python3-gi, gir1.2-gtk-3.0, gir1.2-webkit2-4.1 | gir1.2-webkit2-4.0
+Recommends: xdg-utils
 Maintainer: Agentic Productivity Suite <noreply@users.noreply.github.com>
 Homepage: https://github.com/albanc80/Agentic-Productivity-Suite
 Description: Governed agent playbooks for daily work, management, product,
- engineering and upstream operations. Runs locally; works offline with local
- models. Opens in your browser when no native web view is available.
+ engineering and upstream operations. Runs locally in its own window (the
+ system's GTK WebKit); works offline with local models.
 CTRL
 
 # uv and Node.js for connectors (see backend/app/runtimes.py): checked and, if missing or too old, downloaded

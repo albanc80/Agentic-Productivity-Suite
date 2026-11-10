@@ -168,6 +168,11 @@ jobs:
           test -f "$tools/install.log" || { echo "the install step for uv and Node.js did not run"; exit 1; }
           cat "$tools/install.log"
           python desktop/smoke_test.py productivity-suite
+          # The app opens in its own window (the system's GTK WebKit through the system Python), not the browser.
+          # Runs as the runner's own user, like a person; the .deb's dependencies came with apt above.
+          sudo apt-get install -y xvfb
+          xvfb-run -a productivity-suite --check-window | tee window-check.log
+          grep -q "^WINDOW-LOADED gtkwebkit2" window-check.log || { echo "the installed app did not open its own window"; exit 1; }
           sudo apt-get remove -y productivity-suite
           if [ -e "$tools" ]; then echo "removing the package left $tools behind"; exit 1; fi
       - uses: actions/upload-artifact@v7

@@ -27,7 +27,7 @@ Never uninstall first: install the new file over the old one.
 Every build checks this: CI installs the last published release, installs the new build over it, and then a second build of the same version over that. It passes only if exactly one installed copy of the new version remains, the installed app passes its smoke test, and uninstalling leaves nothing behind.
 
 - **Windows:** the installer is not code-signed yet, so SmartScreen may warn ("More info" → "Run anyway"). See [CODE_SIGNING.md](CODE_SIGNING.md). The native window uses the Edge WebView2 runtime, which ships with current Windows 10 and 11.
-- **Linux:** the `.deb` opens the suite in your default browser; a native window is not bundled for Linux.
+- **Linux:** the `.deb` opens the suite in its own window, using the GTK WebKit your distribution provides (apt installs `python3-gi` and `gir1.2-webkit2-4.1` with the package if they are missing). If no window can be opened, it opens your browser and `~/.productivity-suite/suite.log` says why. CI installs the package on Ubuntu 22.04 and checks that the window opens (`productivity-suite --check-window`).
 
 ## Desktop app (Windows, macOS, Linux)
 
@@ -43,7 +43,7 @@ cd backend && uv sync --group desktop
 cd backend && uv run python ../desktop/launcher.py
 ```
 
-Options: `--offline` (local models and local files only), `--browser` (open the default browser instead of a native window), `--headless` (server only).
+Options: `--offline` (local models and local files only), `--browser` (open the default browser instead of a native window), `--headless` (server only), `--check-window` (open the window, close it once the app has loaded, exit 0; 1 if no window could open).
 
 Build a standalone app on each target OS (PyInstaller does not cross-compile):
 
@@ -60,7 +60,7 @@ The result is `backend/dist/ProductivitySuite/`. To package it, use `desktop/lin
 - **Everything you change day to day is set up in the app:** Settings → Models, Connectors (including Local files folders), Profile, and Policies & budgets. The files in `~/.productivity-suite/` only set the starting defaults.
 - **Settings and data** live in `~/.productivity-suite/` (`suite.yaml`, `connectors.yaml`, `profile.yaml`, `data/`). They are created on first run and kept across upgrades. Override the location with `SUITE_USER_DIR`.
 - **Windows** needs the Microsoft Edge WebView2 runtime for the native window. It ships with current Windows 10 and 11; without it the launcher opens the browser.
-- **Linux** needs GTK or Qt WebKit libraries for the native window; otherwise it opens the browser.
+- **Linux** uses the distribution's GTK WebKit for the native window, run by the system's own Python (the app's bundled Python cannot load the distribution's GTK). The `.deb` depends on those packages; when run from source, install `python3-gi` and `gir1.2-webkit2-4.1`. To test: `productivity-suite --check-window`.
 - The app is not code-signed. macOS Gatekeeper and Windows SmartScreen will warn until you sign it.
 
 ## Outputs folder

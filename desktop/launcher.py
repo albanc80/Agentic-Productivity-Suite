@@ -2,6 +2,7 @@
 """Desktop launcher: runs the Agentic Productivity Suite locally in its own window.
 
     python desktop/launcher.py              # native window (pywebview), falls back to the browser
+    python desktop/launcher.py --check-window  # open the window, close it once the app has loaded (self-test)
     python desktop/launcher.py --offline    # local models and local files only
     python desktop/launcher.py --headless   # server only; prints the URL
 
@@ -16,6 +17,7 @@ import argparse
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -98,6 +100,8 @@ def main() -> int:
     ap.add_argument("--offline", action="store_true", help="local models and local files only")
     ap.add_argument("--headless", action="store_true", help="run the server without opening a window")
     ap.add_argument("--browser", action="store_true", help="open the default browser instead of a native window")
+    ap.add_argument("--check-window", action="store_true",
+                    help="open the native window, close it once the app has loaded, and exit 0 (1 if no window)")
     ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--install-tools", action="store_true",
                     help="(run by the installer) get uv and Node.js for connectors if this computer lacks them, then exit")
@@ -138,6 +142,13 @@ def main() -> int:
     wait_healthy(url)
     print(f"Agentic Productivity Suite running at {url}  (data: {udir})", flush=True)
 
+    if args.check_window:
+        ok = _open_window(url, check=True)
+        server.should_exit = True
+        thread.join(timeout=10)
+        print("Native window: " + ("OK" if ok else "unavailable (the app would open in the browser)"), flush=True)
+        return 0 if ok else 1
+
     try:
         if args.headless:
             while thread.is_alive():
@@ -157,25 +168,27 @@ def main() -> int:
     return 0
 
 
-def keep_in_app(window, app_url: str, open_browser=webbrowser.open) -> bool:
-    """The app window has no address bar or Back button: a page outside the app (a Google sign-in, a Cloud console
-    link) would leave the person stuck. Open it in their browser instead and bring the window back to the app, which
-    reopens the page they were on. Returns True when it sent a page to the browser."""
-    current = window.get_current_url() or ""
-    if not current or current == "about:blank" or current.startswith(app_url):
-        return False
-    open_browser(current)
-    window.load_url(app_url)
-    return True
-
-
-def _open_window(url: str) -> bool:
+def _app_window():
+    """desktop/app_window.py: the window itself, shared with the system-Python helper on Linux."""
     try:
-        import webview  # pywebview
-    except ImportError:
-        print("pywebview is not installed; opening your browser instead.", flush=True)
-        return False
-    icon = bundle_root() / "desktop" / "assets" / ("icon.ico" if sys.platform == "win32" else "icon.png")
+        import app_window
+    except ImportError:  # loaded by path (tests), not run as a script
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import app_window
+    return app_window
+
+
+def keep_in_app(window, app_url: str, open_browser=webbrowser.open) -> bool:
+    return _app_window().keep_in_app(window, app_url, open_browser)
+
+
+def _icon() -> Path:
+    return bundle_root() / "desktop" / "assets" / ("icon.ico" if sys.platform == "win32" else "icon.png")
+
+
+def _open_window(url: str, check: bool = False) -> bool:
+    """Show the app in its own window until it is closed. False when no native window could be opened."""
+    icon = _icon()
     if sys.platform == "win32":
         # Own taskbar identity, so Windows shows the app's icon rather than a generic or Python one.
         try:
@@ -183,18 +196,94 @@ def _open_window(url: str) -> bool:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ProductivitySuite.Desktop")
         except Exception:  # noqa: BLE001 - cosmetic only
             pass
-    try:
-        # Downloads are off by default in pywebview: without this, Export and Download buttons do nothing.
-        webview.settings["ALLOW_DOWNLOADS"] = True
-        # text_select: pywebview turns text selection off by default, so answers could not be selected and copied.
-        window = webview.create_window("Agentic Productivity Suite", url, width=1360, height=900, min_size=(420, 640),
-                                       text_select=True)
-        window.events.loaded += lambda window: keep_in_app(window, url)
-        webview.start(icon=str(icon) if icon.is_file() else None)
-        return True
-    except Exception as e:  # noqa: BLE001 - no GUI backend available
-        print(f"Native window unavailable ({e}); opening your browser instead.", flush=True)
+    if not (sys.platform.startswith("linux") and not _has_linux_toolkit()):
+        try:
+            _app_window().run_window(url, str(icon) if icon.is_file() else None, check)
+            return True
+        except Exception as e:  # noqa: BLE001 - pywebview missing, or no GUI toolkit in this process
+            print(f"Native window unavailable in the app itself ({type(e).__name__}: {e}).", flush=True)
+    if sys.platform.startswith("linux"):
+        return _system_window(url, icon, check)
+    return False
+
+
+def _has_linux_toolkit() -> bool:
+    """GTK (gi) or Qt (qtpy) importable in this process: true when run from source on a desktop with them installed,
+    false in the packaged app, which then goes straight to the system Python (and logs no pywebview traceback)."""
+    import importlib.util
+    return any(importlib.util.find_spec(m) is not None for m in ("gi", "qtpy"))
+
+
+# Linux: the bundled app carries pywebview (pure Python) but not GTK or WebKit. The distribution provides those for
+# its own Python (python3-gi, gir1.2-webkit2-4.1: dependencies of the .deb), so the window runs in that Python.
+GTK_PROBE = ("import gi; gi.require_version('Gtk', '3.0')\n"
+             "try:\n    gi.require_version('WebKit2', '4.1')\nexcept ValueError:\n    gi.require_version('WebKit2', '4.0')\n"
+             "from gi.repository import Gtk, WebKit2")
+
+
+def _system_env() -> dict[str, str]:
+    """The environment for a system program started from the bundled app. PyInstaller points LD_LIBRARY_PATH at the
+    bundle's own libraries (saving the person's value in LD_LIBRARY_PATH_ORIG); a system Python must not load them."""
+    env = dict(os.environ)
+    for k in ("PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "GI_TYPELIB_PATH", "GIO_MODULE_DIR", "GDK_PIXBUF_MODULE_FILE"):
+        env.pop(k, None)
+    orig = env.pop("LD_LIBRARY_PATH_ORIG", None)
+    if getattr(sys, "frozen", False) or orig is not None:
+        if orig:
+            env["LD_LIBRARY_PATH"] = orig
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
+    return env
+
+
+def _system_pythons(bindir: str = "/usr/bin") -> list[str]:
+    """python3 first, then each installed python3.N, newest first: python3 may point at a version the distribution's
+    GTK bindings were not built for (seen on Ubuntu 24.04 with python3 switched to 3.13)."""
+    found = [f"{bindir}/python3"] if os.path.exists(f"{bindir}/python3") else []
+    versions = []
+    for p in Path(bindir).glob("python3.*"):
+        tail = p.name[len("python3."):]
+        if tail.isdigit():
+            versions.append((int(tail), str(p)))
+    return found + [p for _v, p in sorted(versions, reverse=True)]
+
+
+def _system_python(env: dict[str, str], run=subprocess.run) -> str | None:
+    for py in _system_pythons():
+        try:
+            if run([py, "-s", "-c", GTK_PROBE], env=env, capture_output=True, timeout=30).returncode == 0:
+                return py
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
+def _system_window(url: str, icon: Path, check: bool, run=subprocess.run) -> bool:
+    root = bundle_root()
+    script, libs = root / "desktop" / "app_window.py", root / "desktop" / "pyweb"
+    if not script.is_file() or not libs.is_dir():
+        return False  # not a packaged build: run from source with a GUI toolkit installed instead
+    env = _system_env()
+    py = _system_python(env, run)
+    if not py:
+        print("No system Python with GTK and WebKit (packages python3-gi and gir1.2-webkit2-4.1); "
+              "opening the browser instead.", flush=True)
         return False
+    cmd = [py, "-s", str(script), "--libs", str(libs), url]
+    if icon.is_file():
+        cmd += ["--icon", str(icon)]
+    if check:
+        cmd.append("--check")
+    print(f"Opening the window with {py} (GTK).", flush=True)
+    return run(cmd, env=env, stdout=_fileno(sys.stdout), stderr=_fileno(sys.stderr)).returncode == 0
+
+
+def _fileno(stream):
+    """The windowed app writes to suite.log: hand the helper the same file, so its messages land there too."""
+    try:
+        return stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return None
 
 
 if __name__ == "__main__":
