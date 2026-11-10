@@ -4,9 +4,22 @@ import { ErrorNote, go } from "../ui";
 
 type Detail = Awaited<ReturnType<typeof api.agent>>;
 
+/** Agents list: only the Command desk starts open; what the person opens or closes is kept while the app runs. */
+const OPEN_BY_DEFAULT = "command";
+const OPEN_DESKS_KEY = "agents.openDesks";
+function readOpenDesks(): Record<string, boolean> {
+  try { return JSON.parse(sessionStorage.getItem(OPEN_DESKS_KEY) || "{}") || {}; } catch { return {}; }
+}
+
 export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentId: string; onChange: () => void }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [open, setOpen] = useState<Record<string, boolean>>(readOpenDesks);
+  function toggle(id: string, next: boolean) {
+    const all = { ...open, [id]: next };
+    setOpen(all);
+    try { sessionStorage.setItem(OPEN_DESKS_KEY, JSON.stringify(all)); } catch { /* storage off: still works for this view */ }
+  }
 
   useEffect(() => {
     setDetail(null);
@@ -77,27 +90,38 @@ export default function Agents({ ov, agentId, onChange }: { ov: Overview; agentI
         <h1>Agents</h1>
         <p className="muted measure">{ov.agents.length} specialists in {ov.desks.length} desks, compiled from your agent configurations into a platform-neutral registry. Playbooks call desks and agents by role.</p>
       </header>
-      {ov.desks.map((d) => (
-        <section key={d.id} className="stack">
-          <div className="stack-sm">
-            <h2>{d.name}</h2>
-            <p className="muted small">{d.summary}</p>
-          </div>
-          <div className="grid cards">
-            {d.members.map((id) => {
-              const a = ov.agents.find((x) => x.id === id)!;
-              return (
-                <a key={id} className="card pb" href={`#/agents/${id}`}>
-                  {d.lead === id && <span className="code">Desk lead</span>}
-                  <strong>{a.name}</strong>
-                  <span className="muted">{a.summary}</span>
-                  <span className="meta">{a.core_skills.length + a.skills.length} skills{Object.keys(a.modes).length ? ` · ${Object.keys(a.modes).length + 1} modes` : ""}{a.safety_critical ? " · safety-critical" : ""}{!ov.offline && ov.agent_models[id] ? ` · ${ov.agent_models[id]}` : ""}</span>
-                </a>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+      {ov.desks.map((d) => {
+        const isOpen = open[d.id] ?? d.id === OPEN_BY_DEFAULT;
+        return (
+          <section key={d.id} className="stack desk">
+            <div className="stack-sm">
+              <h2>
+                <button type="button" className="desk-toggle" aria-expanded={isOpen} aria-controls={`desk-${d.id}`} onClick={() => toggle(d.id, !isOpen)}>
+                  <span className="desk-chevron" aria-hidden="true" />
+                  {d.name}
+                  <span className="desk-count">{d.members.length} {d.members.length === 1 ? "agent" : "agents"}</span>
+                </button>
+              </h2>
+              <p className="muted small">{d.summary}</p>
+            </div>
+            {isOpen && (
+              <div id={`desk-${d.id}`} className="grid cards">
+                {d.members.map((id) => {
+                  const a = ov.agents.find((x) => x.id === id)!;
+                  return (
+                    <a key={id} className="card pb" href={`#/agents/${id}`}>
+                      {d.lead === id && <span className="code">Desk lead</span>}
+                      <strong>{a.name}</strong>
+                      <span className="muted">{a.summary}</span>
+                      <span className="meta">{a.core_skills.length + a.skills.length} skills{Object.keys(a.modes).length ? ` · ${Object.keys(a.modes).length + 1} modes` : ""}{a.safety_critical ? " · safety-critical" : ""}{!ov.offline && ov.agent_models[id] ? ` · ${ov.agent_models[id]}` : ""}</span>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }

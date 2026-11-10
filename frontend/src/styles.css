@@ -583,3 +583,11 @@ a.button-link.ghost:hover { background: var(--accent-soft); }
 .tool-mode { display: flex; align-items: flex-start; gap: 10px; }
 .tool-mode input { margin-top: 3px; }
 .block-help { display: block; margin-top: 2px; }
+
+/* Agents: collapsible desks */
+.desk-toggle { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font: inherit; color: inherit; border-radius: var(--r-control); padding: 2px 6px 2px 0; }
+.desk-toggle:hover .desk-chevron { border-color: var(--accent); }
+.desk-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.desk-chevron { width: 7px; height: 7px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; margin: 0 2px; flex: none; }
+.desk-toggle[aria-expanded="true"] .desk-chevron { transform: rotate(45deg); }
+.desk-count { font: 400 .8rem var(--f-body); color: var(--muted); }
