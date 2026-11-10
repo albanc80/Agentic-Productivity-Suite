@@ -284,9 +284,18 @@ class Engine:
             return self._input_gate(ctx, step, pending)
         if step.id in ctx.outputs:
             return False
+        if step.kind == "review" and step.target not in ctx.outputs and self.store.latest_step(ctx.id, step.target):
+            # The step this review sent back asked the person during its revision; it runs again with their
+            # response (answers, or ignore and continue) before the review does.
+            target = ctx.pb.step(step.target)
+            await self._run_step(ctx, target)
+            if self._input_gate(ctx, step, [target]):
+                return True
         await self._run_step(ctx, step)
         if step.kind == "review":
-            await self._maybe_revise(ctx, step)
+            revised = await self._maybe_revise(ctx, step)
+            if revised:
+                return self._input_gate(ctx, step, [revised, step])
         return self._input_gate(ctx, step, [step])
 
     # ================================================================ the person's input
@@ -353,7 +362,14 @@ class Engine:
             opts["unanswered"] = list(opts.get("unanswered") or []) + [
                 {"step": n["step"], "question": q[:500]} for n, q, _ans in unanswered]
         self.store.update_run(run["id"], options=opts)
-        for step_id in {n["step"] for n, _q, _a in given}:  # the steps that asked run again, with or without answers
+        asked = {n["step"] for n, _q, _a in given}
+        try:
+            top = self.playbooks[run["playbook_id"]].step(a["step_id"][len(INPUT_PREFIX):].rsplit(":", 1)[0])
+        except KeyError:  # the playbook or step is gone (changed since the run paused)
+            top = None
+        if top is not None and top.kind == "review" and top.target in asked:
+            asked.add(top.id)  # a step revised for this review asked: the review runs again after it
+        for step_id in asked:  # the steps that asked run again, with or without answers
             row = self.store.latest_step(run["id"], step_id)
             if row:
                 self.store.finish_step(row["id"], status=SUPERSEDED)
@@ -564,18 +580,23 @@ class Engine:
             self.store.update_run(ctx.id, status="awaiting_approval")
             return True
 
-    async def _maybe_revise(self, ctx: RunCtx, review: Step) -> None:
+    async def _maybe_revise(self, ctx: RunCtx, review: Step) -> Step | None:
+        """A FAIL verdict sends the target back once. Returns the target if it was revised (so a question it asks
+        while revising pauses the run like any other)."""
         out = ctx.outputs.get(review.id) or {}
         verdict = (out.get("handoff") or {}).get("verdict")
         if verdict != "FAIL" or review.on_fail != "revise":
-            return
+            return None
         if self.store.latest_step(ctx.id, review.target)["attempt"] > 1:
-            return  # one revision only
+            return None  # one revision only
         findings = (out.get("handoff") or {}).get("findings") or ["Reviewer marked the work FAIL; see review step."]
         self.store.add_note(ctx.id, f"Review '{review.id}' failed; '{review.target}' was revised once.")
         target = ctx.pb.step(review.target)
         await self._run_step(ctx, target, attempt=2, feedback=findings)
+        if (ctx.outputs.get(target.id) or {}).get("status") == Status.NEEDS_INPUT.value:
+            return target  # ask the person first; the review runs again after their response
         await self._run_step(ctx, review, attempt=2)
+        return target
 
     # ================================================================ agent steps
 
