@@ -14,12 +14,19 @@ inputs:
      help: "Sizing uses only what you provide here or in files. Without data, figures are labelled as assumptions."}
   - {id: goals, label: "Growth goal and time horizon", type: text}
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Market, competitors and customers", "Strategic options"]
+    default: ["Market, competitors and customers", "Strategic options"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: research
     kind: parallel
     title: Market and options
     steps:
       - id: market_view
+        when: {input: views, contains: "Market, competitors and customers"}
         kind: agent
         agent: bd-advisor
         title: Market, competitors and customers
@@ -28,6 +35,7 @@ steps:
           figure, competitor positions, customer segments and buying triggers. Use only the data provided; label
           every other figure ASSUMPTION with how it was estimated.
       - id: strategy_view
+        when: {input: views, contains: "Strategic options"}
         kind: agent
         agent: strategy-advisor
         title: Strategic options

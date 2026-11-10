@@ -14,6 +14,12 @@ inputs:
   - {id: constraints, label: "Constraints and non-goals", type: text}
   - {id: context, label: "Research, feedback or existing docs", type: longtext}
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Feasibility", "Testability and risk"]
+    default: ["Feasibility", "Testability and risk"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: problem
     kind: agent
@@ -35,10 +41,10 @@ steps:
     kind: parallel
     title: Feasibility and testability
     steps:
-      - {id: feasibility, kind: agent, agent: enterprise-architect, title: Feasibility,
+      - {id: feasibility, when: {input: views, contains: "Feasibility"}, kind: agent, agent: enterprise-architect, title: Feasibility,
          task: "Assess feasibility of the draft spec: simplest architecture, integrations, NFRs, security and data risks, and anything that changes the slicing.",
          connectors: [github]}
-      - {id: testability, kind: agent, agent: eng-qa, title: Testability and risk,
+      - {id: testability, when: {input: views, contains: "Testability and risk"}, kind: agent, agent: eng-qa, title: Testability and risk,
          task: "Pre-implementation risk analysis: which acceptance criteria are untestable or ambiguous, the test strategy per feature, and the highest-risk paths."}
   - id: sequence
     kind: agent

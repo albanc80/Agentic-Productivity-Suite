@@ -20,6 +20,12 @@ inputs:
     help: "product = full-stack product system; enterprise = data platforms, integration, hybrid/edge"
   - {id: repository, label: "Repository (owner/name) to ground the review, if GitHub is connected", type: text}
   - {id: documents, label: "Diagrams, docs or current-state notes", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Threat model", "Operability and release", "Test strategy"]
+    default: ["Threat model", "Operability and release", "Test strategy"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: options_product
     kind: agent
@@ -44,11 +50,11 @@ steps:
     kind: parallel
     title: Security, operations and test reviews
     steps:
-      - {id: security, kind: agent, agent: eng-security, title: Threat model,
+      - {id: security, when: {input: views, contains: "Threat model"}, kind: agent, agent: eng-security, title: Threat model,
          task: "Threat-model the recommended option: assets, trust boundaries, top threats, controls, and what must be true before production."}
-      - {id: operability, kind: agent, agent: eng-devsecops, title: Operability and release,
+      - {id: operability, when: {input: views, contains: "Operability and release"}, kind: agent, agent: eng-devsecops, title: Operability and release,
          task: "Assess deployability, observability, CI/CD, rollback and on-call impact of the recommended option."}
-      - {id: test_strategy, kind: agent, agent: eng-qa, title: Test strategy,
+      - {id: test_strategy, when: {input: views, contains: "Test strategy"}, kind: agent, agent: eng-qa, title: Test strategy,
          task: "Risk-based test strategy for the recommended option, including the evidence needed to call it production ready."}
   - id: adr
     kind: agent

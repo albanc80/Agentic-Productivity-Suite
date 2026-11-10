@@ -317,26 +317,74 @@ async def test_a_step_that_needs_input_pauses_asks_and_runs_again_with_the_answe
     assert "input_requested" in events and "input_given" in events
 
 
-async def test_continue_without_answering_and_a_limit_on_rounds(make_engine):
+async def test_ignore_and_continue_reruns_the_step_without_the_answers_and_never_asks_again(make_engine):
+    eng, _l, cloud = make_engine(cloud_script=asks_once)
+    rid = await eng.start("decision-brief", DECISION)
+    await run_to_rest(eng, rid)
+    [apr] = eng.store.approvals(status="pending", run_id=rid)
+    cloud.calls.clear()
+    await eng.answer(apr["id"], [], "Jordan", skip=True)
+    run = await run_to_rest(eng, rid)
+    assert run["status"] == "completed" and any("Ignored the questions" in n for n in run["notes"])
+    assert eng.store.approval(apr["id"])["note"] == "continued without answering"
+    assert not eng.store.approvals(status="pending", run_id=rid), "a step the person chose to ignore never asks again"
+    frames = [s for s in eng.store.steps(rid) if s["step_id"] == "frame"]
+    assert [s["status"] for s in frames][0] == "superseded" and len(frames) == 2  # the asking step ran again
+    rerun = next(c for c in cloud.calls if "Frame the decision" in c["messages"][0]["content"])["messages"][0]["content"]
+    later = next(c for c in cloud.calls if agent_of(c["system"]) == "Business Analyst")["messages"][0]["content"]
+    for text in (rerun, later):  # the step that asked, and every later step, adjust to what is missing
+        assert "chose to go on without answering" in text and "- What is the budget ceiling?" in text
+    assert run["options"]["unanswered"][0] == {"step": "frame", "question": "What is the budget ceiling?"}
+    with pytest.raises(ValueError, match="already approved"):
+        await eng.answer(apr["id"], ["x"], "Jordan")
+
+
+async def test_stop_the_playbook_cancels_the_run(make_engine):
     eng, *_ = make_engine(cloud_script=asks_once)
     rid = await eng.start("decision-brief", DECISION)
     await run_to_rest(eng, rid)
     [apr] = eng.store.approvals(status="pending", run_id=rid)
-    await eng.answer(apr["id"], [], "Jordan", skip=True)
-    run = await run_to_rest(eng, rid)
-    assert run["status"] == "completed" and any("without answering" in n for n in run["notes"])
-    with pytest.raises(ValueError, match="already approved"):
-        await eng.answer(apr["id"], ["x"], "Jordan")
-    # An agent that keeps asking is asked at most twice; then the run goes on with what it has.
+    await eng.answer(apr["id"], [], "Jordan", stop=True)
+    run = eng.store.run(rid)
+    a = eng.store.approval(apr["id"])
+    assert run["status"] == "cancelled" and a["status"] == "rejected" and a["note"] == "stopped the playbook"
+    assert not any(s["step_id"] == "view_business" for s in eng.store.steps(rid)), "nothing more ran"
+    assert any(e["event"] == "run_cancelled" for e in eng.store.audit_log(rid))
+
+
+async def test_the_run_never_goes_on_by_itself(make_engine):
+    """No answer, no going on: an empty reply is refused, and an agent that keeps asking keeps the run waiting
+    (there used to be an automatic continue after two rounds)."""
+    eng, *_ = make_engine(cloud_script=asks_once)
+    rid = await eng.start("decision-brief", DECISION)
+    await run_to_rest(eng, rid)
+    [apr] = eng.store.approvals(status="pending", run_id=rid)
+    with pytest.raises(ValueError, match="Ignore and continue, or Stop the playbook"):
+        await eng.answer(apr["id"], ["", "  "], "Jordan")
+    assert eng.store.approval(apr["id"])["status"] == "pending" and eng.store.run(rid)["status"] == "awaiting_approval"
     always = lambda system, messages, tools: "Need more.\n" + contract(status="NEEDS_INPUT", open_questions=["More?"])  # noqa: E731
     eng, *_ = make_engine(cloud_script=always)
     rid = await eng.start("quick-ask", {"request": "x"})
-    for _ in range(2):
-        await run_to_rest(eng, rid)
+    for _ in range(3):
+        run = await run_to_rest(eng, rid)
+        assert run["status"] == "awaiting_approval"
         [apr] = eng.store.approvals(status="pending", run_id=rid)
         await eng.answer(apr["id"], ["answer"], "Jordan")
     run = await run_to_rest(eng, rid)
-    assert run["status"] == "completed" and any("still needs input" in n for n in run["notes"])
+    assert run["status"] == "awaiting_approval", "still waiting for the person"
+
+
+async def test_unticked_views_and_blank_inputs_are_named_to_the_agents(make_engine):
+    eng, _l, cloud = make_engine()
+    rid = await eng.start("idea-to-opportunity", {"idea": "Pet spa franchise", "views": ["Value and sizing"]})
+    run = await run_to_rest(eng, rid)
+    assert run["status"] == "completed", run["notes"]
+    steps = {s["step_id"]: s["status"] for s in eng.store.steps(rid)}
+    assert steps["feasibility"] == "skipped" and steps["value"] != "skipped"
+    assert not any(agent_of(c["system"]) == "Enterprise Architect" for c in cloud.calls)
+    last = cloud.calls[-1]["messages"][0]["content"]
+    assert "Not part of this run" in last and "Feasibility check" in last
+    assert "Left blank by the person:" in cloud.calls[0]["messages"][0]["content"]
 
 
 async def test_every_input_reaches_the_agents(make_engine):

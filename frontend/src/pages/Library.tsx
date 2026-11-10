@@ -32,7 +32,7 @@ export default function Library({ ov }: { ov: Overview }) {
     <div className="stack-lg">
       <header className="stack-sm">
         <h1>Library</h1>
-        <p className="muted">Every run with its deliverable, approvals and audit trail. <strong>Run again</strong> repeats a run with the same inputs; <strong>Edit</strong> lets you change inputs or files and say what to correct, and runs it as a new run. The earlier run is always kept. Deleting a run removes it and its steps; the audit log keeps a record.</p>
+        <p className="muted">Every run with its deliverable, approvals and audit trail. <strong>Run again</strong> repeats a run with the same inputs; <strong>Edit</strong> lets you change inputs or files and say what to correct, then <strong>Run as new</strong> (the earlier run is kept) or <strong>Update this run</strong> (it replaces the earlier run once it completes with a result). Deleting a run removes it and its steps; the audit log keeps a record.</p>
       </header>
       <div className="row filters">
         <label className="sr-only" htmlFor="lib-q">Search titles</label>
@@ -70,8 +70,8 @@ export default function Library({ ov }: { ov: Overview }) {
                     {known(r) && !r.demo && <span className="row-tight run-actions">
                       <button className="ghost" onClick={() => again(r.id)} disabled={busy} aria-label={`Run again: ${r.title}`}
                         title="Start a new run with the same inputs">Run again</button>
-                      <a className="button-link ghost" href={`#/revise/${r.id}`} aria-label={`Edit and run as new: ${r.title}`}
-                        title="Change inputs or files and say what to correct; runs as a new run">Edit</a>
+                      <a className="button-link ghost" href={`#/revise/${r.id}`} aria-label={`Edit: ${r.title}`}
+                        title="Change inputs or files and say what to correct; run as new or update this run">Edit</a>
                     </span>}
                     {confirm === r.id
                       ? <span className="row-tight"><button className="danger" onClick={() => remove(r.id)} disabled={busy}>Delete</button><button className="ghost" onClick={() => setConfirm(null)}>Keep</button></span>

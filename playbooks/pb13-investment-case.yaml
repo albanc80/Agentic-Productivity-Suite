@@ -19,18 +19,24 @@ inputs:
     default: general
     help: Upstream adds an operations, HSE and well-control assessment
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Value and economics", "Technical feasibility", "Delivery plan"]
+    default: ["Value and economics", "Technical feasibility", "Delivery plan"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: assessments
     kind: parallel
     title: Specialist assessments
     steps:
-      - {id: value, kind: agent, agent: business-analyst, title: Value and economics,
+      - {id: value, when: {input: views, contains: "Value and economics"}, kind: agent, agent: business-analyst, title: Value and economics,
          task: "Build the economics: options including do-nothing, ROI/TCO with explicit assumptions and ranges, payback, benefits realisation and the baseline that would prove value."}
       - {id: operations, kind: agent, agent: domain-sme, title: Operational impact, when: {input: domain, equals: upstream-oil-gas},
          task: "Assess operational relevance, field adoption, HSE and well-control implications and the measurable operational value."}
-      - {id: architecture, kind: agent, agent: enterprise-architect, mode: investment, title: Technical feasibility,
+      - {id: architecture, when: {input: views, contains: "Technical feasibility"}, kind: agent, agent: enterprise-architect, mode: investment, title: Technical feasibility,
          task: "Assess technical feasibility, target architecture, integration and security risk, and production readiness effort."}
-      - {id: delivery, kind: agent, agent: program-manager, mode: investment, title: Delivery plan,
+      - {id: delivery, when: {input: views, contains: "Delivery plan"}, kind: agent, agent: program-manager, mode: investment, title: Delivery plan,
          task: "Assess delivery strategy, schedule, resources, dependencies, governance and execution risk."}
   - id: recommendation
     kind: agent

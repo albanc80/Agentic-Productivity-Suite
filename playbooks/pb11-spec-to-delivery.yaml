@@ -14,6 +14,12 @@ inputs:
   - {id: deadline, label: "Target date", type: text}
   - {id: repository, label: "Repository (owner/name), if GitHub is connected", type: text}
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Backend and data contracts", "Frontend", "Test strategy", "Release and rollback"]
+    default: ["Backend and data contracts", "Frontend", "Test strategy", "Release and rollback"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: slices
     kind: agent
@@ -27,13 +33,13 @@ steps:
     kind: parallel
     title: Layer plans
     steps:
-      - {id: backend, kind: agent, agent: eng-backend, title: Backend and data contracts,
+      - {id: backend, when: {input: views, contains: "Backend and data contracts"}, kind: agent, agent: eng-backend, title: Backend and data contracts,
          task: "For each slice: APIs, persistence, validation and contracts, with backend tests."}
-      - {id: frontend, kind: agent, agent: eng-frontend, title: Frontend,
+      - {id: frontend, when: {input: views, contains: "Frontend"}, kind: agent, agent: eng-frontend, title: Frontend,
          task: "For each slice: UI work, states (loading, empty, error), accessibility and frontend tests."}
-      - {id: tests, kind: agent, agent: eng-qa, title: Test strategy,
+      - {id: tests, when: {input: views, contains: "Test strategy"}, kind: agent, agent: eng-qa, title: Test strategy,
          task: "Risk-based test strategy for the slices: what to automate, test data, and the evidence that each slice is done."}
-      - {id: release, kind: agent, agent: eng-devsecops, title: Release and rollback,
+      - {id: release, when: {input: views, contains: "Release and rollback"}, kind: agent, agent: eng-devsecops, title: Release and rollback,
          task: "CI/CD changes, feature flags, migration order, observability, release steps and rollback for each slice."}
   - id: plan
     kind: agent

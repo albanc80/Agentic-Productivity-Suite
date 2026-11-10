@@ -59,12 +59,15 @@ log = logging.getLogger("suite")
 
 class RerunRequest(BaseModel):
     """Run a playbook again from an earlier run. No fields: the same inputs. With inputs and/or corrections: a
-    revision, saved as a new run; the earlier one is kept."""
+    revision, saved as a new run; the earlier one is kept, unless `replace` is set: then the new run takes the
+    earlier one's place in the Library and the earlier run is deleted once the new one completes with a result
+    (if the new one fails, is cancelled or ends BLOCKED, REJECTED or NEEDS_INPUT, the earlier one stays)."""
     inputs: dict[str, Any] | None = None
     data_class: str | None = None
     corrections: str = Field("", max_length=20_000)
     include_previous: bool = True  # give the agents the earlier result to correct (revisions only)
     persona: bool | None = None
+    replace: bool = False  # Edit > Update this run
 
 
 class RunRequest(BaseModel):
@@ -81,7 +84,8 @@ class RouteRequest(BaseModel):
 
 class InputAnswers(BaseModel):
     answers: list[str] = Field(default_factory=list, max_length=50)  # in the order of the questions asked
-    skip: bool = False  # continue without answering
+    skip: bool = False  # ignore the questions and continue; the steps that asked adjust to what is missing
+    stop: bool = False  # stop the playbook: the run is cancelled
     by: str = Field(default="", max_length=120)
 
 
@@ -858,10 +862,14 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         if old["playbook_id"] not in suite.playbooks:
             raise HTTPException(409, "That playbook is no longer in this app, so the run cannot be repeated.")
         revise = body.inputs is not None or bool(body.corrections.strip())
+        if body.replace and (rid in eng._tasks or old["status"] in ("queued", "running", "awaiting_approval")):
+            raise HTTPException(409, "That run is still going. Wait for it to finish, or cancel it, before updating it.")
         opts = {k: v for k, v in (old.get("options") or {}).items() if k in ("persona", "answers")}
         if body.persona is not None:
             opts["persona"] = body.persona
         opts["rerun_of"] = rid
+        if body.replace:
+            opts["replaces"] = rid
         if revise:
             rev = {"of": rid, "notes": body.corrections.strip()}
             if body.include_previous and old.get("deliverable"):
@@ -875,7 +883,7 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
         store.audit("run_repeated", new, of=rid, revision=revise, corrections=bool(body.corrections.strip()),
-                    previous_included=bool(revise and body.include_previous and old.get("deliverable")))
+                    previous_included=bool(revise and body.include_previous and old.get("deliverable")), replace=body.replace)
         return {"id": new}
 
     @app.get("/api/runs")
@@ -978,9 +986,9 @@ def create_app(settings: Settings | None = None, connectors: ConnectorManager | 
 
     @app.post("/api/approvals/{aid}/answer")
     async def answer(aid: str, body: InputAnswers):
-        """Answers to a "your input is needed" pause; the steps that asked run again with them."""
+        """The response to a "your input is needed" pause: answers, ignore and continue, or stop the playbook."""
         try:
-            return await eng.answer(aid, body.answers, body.by, body.skip)
+            return await eng.answer(aid, body.answers, body.by, body.skip, body.stop)
         except KeyError as e:
             raise HTTPException(404, str(e).strip("'")) from e
         except (ValueError, RunStopped) as e:

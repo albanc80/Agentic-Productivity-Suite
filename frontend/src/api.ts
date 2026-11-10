@@ -6,10 +6,14 @@ export interface PlaybookInput {
   id: string; label: string; type: "text" | "longtext" | "number" | "select" | "multiselect" | "documents" | "date";
   required: boolean; options: string[]; default: unknown; help: string; example: string;
 }
+/** A step that runs only when a start-form input says so (e.g. a specialist view the person ticked). */
+export interface StepWhen { input: string; contains?: unknown; equals?: unknown; not_equals?: unknown }
+
 export interface PlaybookCard {
   id: string; code: string; name: string; area: string; desk: string; summary: string; status: string;
   style: string; patterns: string[]; safety_critical: boolean; inputs: PlaybookInput[];
-  steps: { id: string; kind: string; title: string; agent: string | null; children: { id: string; agent: string; title: string }[] }[];
+  steps: { id: string; kind: string; title: string; agent: string | null; when: StepWhen | null;
+    children: { id: string; agent: string; title: string; when: StepWhen | null }[] }[];
   connectors: string[];
   connector_choice?: Record<string, { input: string; contains: string }>;
 }
@@ -179,16 +183,17 @@ export const api = {
   startRun: (playbook_id: string, inputs: Record<string, unknown>, data_class: string, options: Record<string, unknown>) =>
     call<{ id: string }>("/api/runs", { method: "POST", body: JSON.stringify({ playbook_id, inputs, data_class, options }) }),
   runs: () => call<RunSummary[]>("/api/runs"),
-  // Run again (no body) or revise: new inputs and/or corrections, saved as a new run; the earlier one is kept.
+  // Run again (no body) or revise: new inputs and/or corrections, saved as a new run; the earlier one is kept,
+  // unless replace (Edit > Update this run): the earlier run is deleted once the new one completes with a result.
   rerun: (id: string, body: { inputs?: Record<string, unknown>; data_class?: string; corrections?: string;
-    include_previous?: boolean; persona?: boolean } = {}) =>
+    include_previous?: boolean; persona?: boolean; replace?: boolean } = {}) =>
     call<{ id: string }>(`/api/runs/${id}/rerun`, { method: "POST", body: JSON.stringify(body) }),
   fileInfo: (id: string) => call<{ id: string; name: string; chars: number }>(`/api/files/${id}`),
   run: (id: string) => call<RunDetail>(`/api/runs/${id}`),
   cancel: (id: string) => call<RunDetail>(`/api/runs/${id}/cancel`, { method: "POST" }),
   resume: (id: string) => call<{ id: string }>(`/api/runs/${id}/resume`, { method: "POST" }),
   approvals: (status = "pending") => call<Approval[]>(`/api/approvals?status=${status}`),
-  answer: (id: string, body: { answers: string[]; skip: boolean; by: string }) =>
+  answer: (id: string, body: { answers: string[]; skip: boolean; stop?: boolean; by: string }) =>
     call<Approval>(`/api/approvals/${id}/answer`, { method: "POST", body: JSON.stringify(body) }),
   decide: (id: string, body: { decision: "approved" | "rejected"; decided_by: string; note: string; edited?: string | null }) =>
     call<Approval>(`/api/approvals/${id}`, { method: "POST", body: JSON.stringify(body) }),

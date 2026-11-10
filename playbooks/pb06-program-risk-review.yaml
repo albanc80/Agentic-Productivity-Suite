@@ -14,12 +14,19 @@ inputs:
   - {id: status, label: "Latest status reports and issues", type: longtext}
   - {id: comms, label: "Relevant messages (for stakeholder signals)", type: longtext}
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Schedule and dependencies", "Cost of delay", "Stakeholder signals"]
+    default: ["Schedule and dependencies", "Cost of delay", "Stakeholder signals"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: analysis
     kind: parallel
     title: Risk analysis
     steps:
       - id: delivery
+        when: {input: views, contains: "Schedule and dependencies"}
         kind: agent
         agent: program-manager
         title: Schedule and dependencies
@@ -28,11 +35,13 @@ steps:
           and milestones likely to slip, with the evidence for each.
         connectors: [azure-devops, atlassian, github]
       - id: roadmap
+        when: {input: views, contains: "Cost of delay"}
         kind: agent
         agent: roadmap-shield
         title: Cost of delay
         task: "Quantify the cost of delay of the top schedule risks and which commitments move if they happen."
       - id: stakeholders
+        when: {input: views, contains: "Stakeholder signals"}
         kind: agent
         agent: sentiment-radar
         title: Stakeholder signals

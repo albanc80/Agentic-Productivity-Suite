@@ -20,7 +20,7 @@ export default function Approvals({ onChange }: { onChange: () => void }) {
     <div className="stack-lg">
       <header className="stack-sm">
         <h1>Approvals</h1>
-        <p className="muted measure">Runs pause here before anything would leave the suite, and when an agent needs information only you can give. Approving records your name and decision; answering reruns the step with your answers. The suite itself never sends, publishes or writes to other systems.</p>
+        <p className="muted measure">Runs pause here before anything would leave the suite, and when an agent needs information only you can give. Approving records your name and decision; a run that needs your input waits until you answer, choose Ignore and continue, or stop it. The suite itself never sends, publishes or writes to other systems.</p>
       </header>
       <ErrorNote error={error} />
       {pending && pending.length === 0 && <Empty title="Nothing waiting for you">Gates in Status Update, Scope-Change, Architecture Review and Investment Case land here.</Empty>}

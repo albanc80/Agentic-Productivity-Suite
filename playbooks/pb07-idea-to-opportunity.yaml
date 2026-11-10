@@ -13,6 +13,12 @@ inputs:
   - {id: evidence, label: "Evidence so far: feedback, data, requests", type: longtext}
   - {id: constraints, label: "Constraints: budget, time, team", type: text}
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Value and sizing", "Feasibility check"]
+    default: ["Value and sizing", "Feasibility check"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: frame
     kind: agent
@@ -26,11 +32,13 @@ steps:
     title: Assumptions and value
     steps:
       - id: value
+        when: {input: views, contains: "Value and sizing"}
         kind: agent
         agent: business-analyst
         title: Value and sizing
         task: "Size the value with explicit assumptions and ranges, the do-nothing option, and the baseline that would prove value."
       - id: feasibility
+        when: {input: views, contains: "Feasibility check"}
         kind: agent
         agent: enterprise-architect
         title: Feasibility check

@@ -13,6 +13,12 @@ inputs:
   - {id: sources, label: "Source systems and known issues", type: longtext}
   - {id: constraints, label: "Freshness, latency, access and compliance needs", type: text}
   - {id: documents, label: "Files", type: documents}
+  - id: views
+    label: Specialist views
+    type: multiselect
+    options: ["Pipelines and data contracts", "Semantic model"]
+    default: ["Pipelines and data contracts", "Semantic model"]
+    help: "Untick a view to leave that specialist out. The other steps work without it and say where its absence limits the result."
 steps:
   - id: design
     kind: agent
@@ -27,11 +33,13 @@ steps:
     title: Contracts and semantics
     steps:
       - id: contract
+        when: {input: views, contains: "Pipelines and data contracts"}
         kind: agent
         agent: eng-data-engineer
         title: Pipelines and data contracts
         task: "Pipelines, data contracts (schema, owners, SLAs), quality rules with thresholds, lineage and failure handling."
       - id: semantics
+        when: {input: views, contains: "Semantic model"}
         kind: agent
         agent: ontology-engineer
         title: Semantic model
